@@ -45,7 +45,7 @@ export default function History({ lifterId }: { lifterId: string }) {
           {rows.map(r => (
             <li key={r.session_id}>
               <button className="sessionrow" onClick={() => setOpen(open === r.session_id ? null : r.session_id)}>
-                <span>{r.session_date}</span>
+                <span>{Number(r.session_date.slice(5, 7))}/{Number(r.session_date.slice(8))}</span>
                 <span className="cap">{r.primary_lift}</span>
                 <span>{r.set1_e1rm_lb ? <b>{round(r.set1_e1rm_lb)}</b> : <span className="muted">—</span>}</span>
                 <span className="small muted">{r.sets_done} sets</span>

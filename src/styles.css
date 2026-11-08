@@ -25,7 +25,8 @@ main { padding: 16px; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
 .card.today { border-color: var(--accent); }
-h2 { margin: 0 0 10px; font-size: 17px; text-transform: capitalize; }
+h2 { margin: 0 0 10px; font-size: 17px; }
+h2::first-letter { text-transform: uppercase; }
 p { margin: 6px 0; }
 
 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
@@ -44,7 +45,7 @@ button.primary { background: var(--accent); color: var(--accent-ink); border: 0;
 button.primary.inline { width: auto; margin-top: 0; }
 button.primary:disabled { opacity: .4; }
 button.ghost { background: none; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-height: 44px; }
-button.ghost.small { padding: 6px 10px; min-height: 0; font-size: 13px; }
+button.ghost.small { padding: 6px 10px; min-height: 0; font-size: 13px; white-space: nowrap; }
 button.link { background: none; border: 0; color: var(--muted); text-decoration: underline; padding: 8px; }
 button.x { background: none; border: 0; color: var(--muted); font-size: 20px; padding: 4px 8px; }
 
@@ -94,7 +95,7 @@ svg.trend .dot { fill: var(--accent); }
 svg.trend .dot.hollow { fill: var(--card); stroke: var(--muted); stroke-width: 2; }
 
 ul.sessions { list-style: none; margin: 0; padding: 0; }
-.sessionrow { width: 100%; display: grid; grid-template-columns: 96px 64px 52px 1fr auto; gap: 8px; align-items: center;
+.sessionrow { width: 100%; display: grid; grid-template-columns: 56px 64px 44px 1fr auto; gap: 8px; align-items: center;
   background: none; border: 0; border-top: 1px solid var(--line); padding: 12px 0; text-align: left; font-variant-numeric: tabular-nums; }
 .tag { font-size: 11px; border-radius: 6px; padding: 2px 6px; margin-left: 4px; }
 .tag.sick { background: color-mix(in srgb, var(--sick) 25%, transparent); color: var(--sick); }
