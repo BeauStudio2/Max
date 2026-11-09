@@ -141,8 +141,19 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const savePlan = (base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: { ...base, ...patch } })
 
   const order: string[] = tpl?.spec?.order ?? ['speed', 'heavy', 'support']
-  const speedFor = lift === planLift ? tpl?.spec?.speed : null
-  const support = lift === planLift ? tpl?.spec?.support : null
+  // Every block is a choice: the day's plan is the default, any other day's block can be picked instead.
+  const speedOptions = new Map<string, any>()
+  const supportOptions = new Map<string, any>()
+  for (const t of [...templates].sort((a, b) => a.weekday - b.weekday)) {
+    if (t.spec?.speed?.lift && !speedOptions.has(t.spec.speed.lift)) speedOptions.set(t.spec.speed.lift, t.spec.speed)
+    if (t.spec?.support?.group && !supportOptions.has(t.spec.support.group)) supportOptions.set(t.spec.support.group, t.spec.support)
+  }
+  const speedKey: string = sp.speed_choice ?? (lift === planLift ? tpl?.spec?.speed?.lift : null) ?? 'none'
+  const supportKey: string = sp.support_choice ?? (lift === planLift ? tpl?.spec?.support?.group : null) ?? 'none'
+  const speedFor = speedOptions.get(speedKey) ?? null
+  const support = supportOptions.get(supportKey) ?? null
+  const choose = (k: 'speed_choice' | 'support_choice', v: string) =>
+    ensureSession({ planned: { ...(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...(session?.planned ?? {}), [k]: v } })
   const elapsed = useClock(session?.started_at)
 
   return (
@@ -150,9 +161,25 @@ export default function Today({ lifterId }: { lifterId: string }) {
       <section className="card">
         <div className="row wrap">
           <label className="grow">Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
-          <label className="grow">Main lift
+        </div>
+        <div className="choices">
+          <label>Heavy
             <select value={lift} onChange={e => setLift(e.target.value as Lift)}>
-              <option value="bench">Bench</option><option value="squat">Squat</option><option value="deadlift">Deadlift</option>
+              <option value="bench">Bench ladder{planLift === 'bench' ? ' (plan)' : ''}</option>
+              <option value="squat">Squat ladder{planLift === 'squat' ? ' (plan)' : ''}</option>
+              <option value="deadlift">Deadlift cycle{planLift === 'deadlift' ? ' (plan)' : ''}</option>
+            </select>
+          </label>
+          <label>Speed
+            <select value={speedKey} onChange={e => choose('speed_choice', e.target.value)}>
+              <option value="none">None{lift === planLift && !tpl?.spec?.speed ? ' (plan)' : ''}</option>
+              {[...speedOptions.keys()].map(k => <option key={k} value={k}>Speed {k}{lift === planLift && tpl?.spec?.speed?.lift === k ? ' (plan)' : ''}</option>)}
+            </select>
+          </label>
+          <label>Support
+            <select value={supportKey} onChange={e => choose('support_choice', e.target.value)}>
+              <option value="none">None</option>
+              {[...supportOptions.keys()].map(k => <option key={k} value={k}>{k}{lift === planLift && tpl?.spec?.support?.group === k ? ' (plan)' : ''}</option>)}
             </select>
           </label>
         </div>
@@ -181,7 +208,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
         if (b === 'heavy') return lift === 'deadlift'
           ? <Deadlift key="dl" week={dlWeek} cycle={cycle} plan={dlPlan} setPlan={savePlan(dlPlan)} sets={sets.filter(s => s.block === 'deadlift')} api={api} best={best} />
           : <Ladder key={'ladder' + lift} lift={lift} plan={ladderPlan} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} setPlan={savePlan(ladderPlan)} sets={sets.filter(s => s.block === 'primary')} api={api} currentMax={currentMax} />
-        if (b === 'support') return <Support key={'support' + date + lift} support={support} sets={sets.filter(s => s.block === 'support')} api={api} />
+        if (b === 'support' && support) return <Support key={'support' + date + lift + supportKey} support={support} sets={sets.filter(s => s.block === 'support')} api={api} />
         return null
       })}
 
