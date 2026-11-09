@@ -14,6 +14,8 @@ export interface LadderPlan {
   chain_half: number
   chain_5_8: number
   clamp: string
+  rom_in: number | null
+  hang_in: number | null
 }
 
 export const BAR = 'Ohio Power Bar'
@@ -22,14 +24,15 @@ export const ROGUE = 'Rogue aluminum clamps (pair)'
 export const CHAIN_CLAMP = 'Chain clamp + carabiner (pair)'
 export const CLAMPS: [string, string][] = [[ROGUE, 'Rogue'], [ELEIKO, 'Eleiko'], [CHAIN_CLAMP, 'Chain clamp']]
 
-const straightOf = (p: LadderPlan): LoadSetup => ({ bar: BAR, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0 })
+const geo = (p: LadderPlan) => ({ rom_in: p.rom_in, hang_in: p.hang_in })
+const straightOf = (p: LadderPlan): LoadSetup => ({ bar: BAR, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0, ...geo(p) })
 const chained = (p: LadderPlan): LoadSetup =>
-  p.chain_half || p.chain_5_8 ? { bar: BAR, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8 } : straightOf(p)
+  p.chain_half || p.chain_5_8 ? { bar: BAR, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8, ...geo(p) } : straightOf(p)
 
 export function setupOf(r?: SetRow): LoadSetup {
   const s = r?.setup ?? {}
   const clamp = s.clamp === 'Eleiko' ? ELEIKO : s.clamp === 'chain clamp' ? CHAIN_CLAMP : s.clamp ?? ROGUE
-  return { bar: s.bar ?? BAR, clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0) }
+  return { bar: s.bar ?? BAR, clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0), rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null }
 }
 
 /** Chains hang from the chain clamp; with no chains the set goes back to the lifter's normal clamps. */
@@ -120,6 +123,8 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
         <Num label="Fatigue %/set" value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
         <Num label="Weight step" value={plan.step_lb} onSave={v => v && setPlan({ step_lb: v })} />
         <Num label="Rest (s)" value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
+        <Num label="Range of motion (in)" value={plan.rom_in} onSave={v => setPlan({ rom_in: v })} />
+        <Num label="Chain hang at bottom (in)" value={plan.hang_in} onSave={v => setPlan({ hang_in: v })} />
         <label>Clamps (straight sets)
           <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
         </label>

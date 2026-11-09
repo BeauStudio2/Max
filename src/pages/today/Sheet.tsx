@@ -194,7 +194,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const rp = patch.reps !== undefined ? patch.reps : reps, aa = patch.a ?? a, ff = patch.f ?? f
     const tt = totals(pl, s, eq)
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
-      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8 } }
+      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)

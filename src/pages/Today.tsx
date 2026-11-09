@@ -124,6 +124,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     chain_half: pick(sp.chain_half, prevPlan.chain_half, st.chain_setup?.[lift]?.chain_half) ?? 0,
     chain_5_8: pick(sp.chain_5_8, prevPlan.chain_5_8, st.chain_setup?.[lift]?.chain_5_8) ?? 1,
     clamp: pick(sp.clamp, prevPlan.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
+    rom_in: pick(sp.rom_in, prevPlan.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
+    hang_in: pick(sp.hang_in, prevPlan.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? null,
   }
 
   const dlWeek = (() => {

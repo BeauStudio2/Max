@@ -1,6 +1,21 @@
 import type { Config, Equipment } from './types'
 
-export interface LoadSetup { bar: string; clamp: string; chain_half: number; chain_5_8: number }
+/** rom_in = bar travel bottom to top; hang_in = chain off the floor with the bar at the bottom. */
+export interface LoadSetup { bar: string; clamp: string; chain_half: number; chain_5_8: number; rom_in?: number | null; hang_in?: number | null }
+
+/**
+ * Pounds one chain adds at the bottom and top of the lift. With total weight and length known, the chain lifts off
+ * the floor linearly: weight per inch × inches hanging (hang at the bottom, hang + range of motion at the top,
+ * never more than the whole chain). Without them, the measured per-side values are used.
+ */
+export function chainLoad(props: Record<string, any>, rom?: number | null, hang?: number | null) {
+  const W = n(props.total_lb), Lc = n(props.length_in)
+  if (W > 0 && Lc > 0 && rom != null && hang != null) {
+    const perIn = W / Lc
+    return { bottom: perIn * Math.min(Lc, Math.max(0, hang)), top: perIn * Math.min(Lc, Math.max(0, hang + rom)), perIn }
+  }
+  return { bottom: n(props.bottom_lb_per_side), top: n(props.top_lb_per_side), perIn: null }
+}
 
 export const LIFT_EXERCISE: Record<string, string> = { bench: 'Bench Press', squat: 'Squat', deadlift: 'Deadlift' }
 
@@ -11,11 +26,11 @@ export function totals(weight: number | null, s: LoadSetup, eq: Equipment[]) {
   if (weight === null || Number.isNaN(weight)) return { bottom: null, top: null }
   const bar = eq.find(e => e.name === s.bar)
   const clamp = eq.find(e => e.name === s.clamp)
-  const half = eq.find(e => e.name === 'Chain 1/2')?.props ?? {}
-  const big = eq.find(e => e.name === 'Chain 5/8')?.props ?? {}
+  const half = chainLoad(eq.find(e => e.name === 'Chain 1/2')?.props ?? {}, s.rom_in, s.hang_in)
+  const big = chainLoad(eq.find(e => e.name === 'Chain 5/8')?.props ?? {}, s.rom_in, s.hang_in)
   const base = weight + n(bar?.weight_lb) + n(clamp?.weight_lb)
-  const bottom = base + 2 * (n(s.chain_half) * n(half.bottom_lb_per_side) + n(s.chain_5_8) * n(big.bottom_lb_per_side))
-  const top = base + 2 * (n(s.chain_half) * n(half.top_lb_per_side) + n(s.chain_5_8) * n(big.top_lb_per_side))
+  const bottom = base + 2 * (n(s.chain_half) * half.bottom + n(s.chain_5_8) * big.bottom)
+  const top = base + 2 * (n(s.chain_half) * half.top + n(s.chain_5_8) * big.top)
   return { bottom, top }
 }
 

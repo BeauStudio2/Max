@@ -29,12 +29,16 @@ const LIFTER_COLS: { path: string; label: string; kind?: 'num' | 'clamp' }[] = [
   { path: 'settings.fatigue_pct.bench', label: 'Bench fat. %' },
   { path: 'settings.chain_setup.bench.chain_half', label: 'Bench ½' },
   { path: 'settings.chain_setup.bench.chain_5_8', label: 'Bench ⅝' },
+  { path: 'settings.chain_geometry.bench.rom_in', label: 'Bench ROM in' },
+  { path: 'settings.chain_geometry.bench.hang_in', label: 'Bench hang in' },
   { path: 'settings.planned_e1rm.squat', label: 'Squat max' },
   { path: 'settings.target_reps.squat', label: 'Squat reps' },
   { path: 'settings.stop_pct.squat', label: 'Squat stop %' },
   { path: 'settings.fatigue_pct.squat', label: 'Squat fat. %' },
   { path: 'settings.chain_setup.squat.chain_half', label: 'Squat ½' },
   { path: 'settings.chain_setup.squat.chain_5_8', label: 'Squat ⅝' },
+  { path: 'settings.chain_geometry.squat.rom_in', label: 'Squat ROM in' },
+  { path: 'settings.chain_geometry.squat.hang_in', label: 'Squat hang in' },
   { path: 'settings.deadlift_best_conventional_lb', label: 'DL best' },
   { path: 'settings.deadlift_planned_top_lb', label: 'DL wk-1 top' },
   { path: 'settings.band_anchor_gap_in', label: 'Band gap in' },
@@ -71,7 +75,7 @@ export default function Config() {
     ['Sensors and machines', e => e.kind === 'sensor' || e.kind === 'spotter'],
   ]
   const propCols: Record<string, [string, string][]> = {
-    Chains: [['bottom_lb_per_side', 'Bottom lb/side'], ['top_lb_per_side', 'Top lb/side']],
+    Chains: [['total_lb', 'Total lb (one chain)'], ['length_in', 'Length in'], ['bottom_lb_per_side', 'Fallback bottom lb'], ['top_lb_per_side', 'Fallback top lb']],
     Bands: [['one_band_lockout_lb', 'Lockout lb (1 band)'], ['rogue_rating_lb_at_100pct', 'Rogue rating lb'], ['rogue_number', 'Rogue #']],
   }
 
@@ -126,7 +130,7 @@ export default function Config() {
           <section className="card" key={title}>
             <h2>{title}</h2>
             <div className="tablewrap"><table className="sheet cfg">
-              <thead><tr><th className="stick">Name</th>{!pc.length && <th>lb</th>}{pc.map(([, lab]) => <th key={lab}>{lab}</th>)}<th>Notes</th></tr></thead>
+              <thead><tr><th className="stick">Name</th>{!pc.length && <th>lb</th>}{pc.map(([, lab]) => <th key={lab}>{lab}</th>)}{title === 'Chains' && <th>Per inch</th>}<th>Notes</th></tr></thead>
               <tbody>{rows.map(e => (
                 <tr key={e.id}>
                   <td className="stick">{e.name.replace('Rogue band ', '')}</td>
@@ -134,11 +138,13 @@ export default function Config() {
                     onSave={v => done(supabase.from('equipment').update({ weight_lb: asNum(v) }).eq('id', e.id))} />}</td>}
                   {pc.map(([k]) => <td key={k}>{ro ? e.props?.[k] ?? '' : <CellText value={e.props?.[k] == null ? '' : String(e.props[k])} narrow numeric
                     onSave={v => done(supabase.from('equipment').update({ props: put(e.props, k, asNum(v)) }).eq('id', e.id))} />}</td>)}
+                  {title === 'Chains' && <td className="num small">{e.props?.total_lb && e.props?.length_in ? `${(e.props.total_lb / e.props.length_in).toFixed(3)} lb/in` : '—'}</td>}
                   <td>{ro ? <span className="small muted">{(e as any).notes}</span> : <CellText value={(e as any).notes ?? ''} full
                     onSave={v => done(supabase.from('equipment').update({ notes: v || null }).eq('id', e.id))} />}</td>
                 </tr>
               ))}</tbody>
             </table></div>
+            {title === 'Chains' && <p className="small muted">Load from chains: weight per inch × inches off the floor. At the bottom that's the lifter's chain hang; at the top, hang + range of motion (never more than the whole chain). Until total weight and length are entered, the fallback bottom/top values are used. Hang and range of motion are set per lifter and lift above, and per session in Plan.</p>}
             {!ro && <button className="ghost small" onClick={() => {
               const name = window.prompt(`New item for ${title}`)?.trim()
               if (!name) return
