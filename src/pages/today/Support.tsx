@@ -3,6 +3,7 @@ import { supabase } from '../../supabase'
 import { useStore } from '../../lib/store'
 import type { SetRow } from '../../lib/types'
 import type { Api } from './shared'
+import SchemePicker from './SchemePicker'
 
 const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF']
 
@@ -50,7 +51,7 @@ export default function Support({ support, sets, api }: { support: any; sets: Se
   return (
     <section className="card">
       <h2>Support{support?.group ? ` · ${support.group}` : ''}</h2>
-      <p className="small muted">F = to failure · TF = technical failure · DS×n = drop set · ST×n = strip set · RP×n = rest-pause · RTR = run the rack. Log the start weight and reps at that weight.</p>
+      <p className="small muted">Log the start weight and the reps at that weight. Tap a scheme to see what each one means.</p>
       {slots.map(s => <SupportRow key={s.key} slot={s} api={api} onAddSet={() => addSetFor(s)} onRemove={() => remove(s)} onSaved={() => saved(s)} />)}
       <button className="ghost" onClick={addExercise}>+ Add exercise</button>
     </section>
@@ -129,18 +130,9 @@ function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; ap
       </div>
       {d.note && <p className="small muted">{d.note}</p>}
       <div className="row wrap">
-        <label className="grow">Scheme
-          <select value={v.scheme} onChange={ev => {
-            let scheme = ev.target.value
-            if (scheme === '__other') { scheme = window.prompt('Scheme', v.scheme)?.trim() ?? v.scheme }
-            const next = { ...v, scheme }
-            setV(next); save(next)
-          }}>
-            <option value="">—</option>
-            {[...schemeOptions, ...(v.scheme && !schemeOptions.includes(v.scheme) ? [v.scheme] : [])].map(o => <option key={o} value={o}>{o}</option>)}
-            <option value="__other">Other…</option>
-          </select>
-        </label>
+        <div className="grow field"><span className="flabel">Scheme</span>
+          <SchemePicker value={v.scheme} options={schemeOptions} onChange={scheme => { const next = { ...v, scheme }; setV(next); save(next) }} />
+        </div>
         <label className="narrow">Start lb<input inputMode="decimal" value={v.start} onChange={set('start')} onBlur={() => save()} /></label>
         <label className="tiny-f">Step<input inputMode="decimal" value={v.step} onChange={set('step')} onBlur={() => save()} /></label>
         <label className="tiny-f">Drops<input inputMode="numeric" value={v.drops} onChange={set('drops')} onBlur={() => save()} /></label>

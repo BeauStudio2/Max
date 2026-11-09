@@ -132,3 +132,17 @@ table.sets td { padding: 4px 3px; }
 table.sets input.cell { width: 64px; }
 table.plannedrows td.small:nth-child(3) { white-space: normal; }
 table.sets button.flag { padding: 3px 4px; }
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+.flabel { font-size: 13px; color: var(--muted); }
+.picker { position: relative; }
+.pickbtn { width: 100%; min-height: 44px; display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; }
+.pickbtn .chev { color: var(--muted); font-size: 12px; }
+.popover { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: min(340px, calc(100vw - 48px)); max-height: 60vh; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.5); padding: 6px; }
+.popover .opt { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 10px; }
+.popover .opt span { font-size: 13px; color: var(--muted); }
+.popover .opt:hover, .popover .opt.on { background: var(--bg); }
+.popover .opt.on b { color: var(--accent); }
+.popover .opt b::after { content: none !important; }
