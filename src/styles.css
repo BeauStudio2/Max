@@ -150,3 +150,16 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--muted); f
 .setupedit { display: flex; gap: 4px; margin-top: 4px; }
 .setupedit select { min-height: 32px; padding: 4px 6px; font-size: 12px; width: auto; }
 .loadout .wide { grid-column: 1 / -1; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.tile { display: flex; flex-direction: column; gap: 2px; text-align: left; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px; }
+.tile b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.tile b small { font-size: 12px; font-weight: 500; }
+.tile.on { border-color: var(--accent); }
+.detailbox { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.detailbox h3 { margin: 0 0 6px; font-size: 15px; }
+svg.trend .proj { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 5; opacity: .7; }
+.entries li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.entries li .x { margin-left: auto; font-size: 16px; }
+.addform { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.tabs button { padding: 10px 4px; }
