@@ -92,3 +92,69 @@ export function e1rmFromRpe(weight: number, reps: number, rpe: number | null) {
 }
 
 export const roundTo = (v: number, step: number) => Math.round(v / step) * step
+
+/* ---------- Plate planning (sheet rule from 11/02: 45s and 25s stay on, run the rest down with 10s and small plates) ---------- */
+
+export interface Kept { n45: number; n25: number }
+/** Plates owned per side, beyond the 45s. */
+export const OWNED = { 25: 4, 10: 9, 5: 2, 2.5: 2, 1.25: 2 } as const
+
+/** One side of the bar, inner to outer. Null when the owned plates can't make it with these kept plates. */
+export function loadSide(perSide: number, kept: Kept): number[] | null {
+  let rem = Math.round((perSide - 45 * kept.n45 - 25 * kept.n25) * 100) / 100
+  if (rem < -0.01) return null
+  const stack: number[] = [...Array(kept.n45).fill(45), ...Array(kept.n25).fill(25)]
+  // More than the 10s and small plates can make: add 45s outside the kept plates.
+  const smallMax = 10 * OWNED[10] + 5 * OWNED[5] + 2.5 * OWNED[2.5] + 1.25 * OWNED[1.25]
+  while (rem > smallMax + 0.01) { stack.push(45); rem = Math.round((rem - 45) * 100) / 100 }
+  for (const p of [10, 5, 2.5, 1.25] as const) {
+    const k = Math.min(OWNED[p], Math.floor(rem / p + 1e-9))
+    for (let i = 0; i < k; i++) stack.push(p)
+    rem = Math.round((rem - k * p) * 100) / 100
+  }
+  return rem > 0.01 ? null : stack
+}
+
+/** Which 45s and 25s to keep on all session: as many as fit the lightest working set. */
+export function keptFor(lightestPlates: number): Kept {
+  const side = Math.max(0, lightestPlates / 2)
+  const n45 = Math.floor(side / 45 + 1e-9)
+  const n25 = Math.min(OWNED[25], Math.floor((side - 45 * n45) / 25 + 1e-9))
+  return { n45, n25 }
+}
+
+/** Plate moves per side to go from one stack to the next (plates come off the outside first). */
+export function plateMoves(a: number[], b: number[]) {
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  return a.length - i + (b.length - i)
+}
+
+export function changeText(a: number[] | null, b: number[]) {
+  if (!a) return ''
+  let i = 0
+  while (i < a.length && i < b.length && a[i] === b[i]) i++
+  const off = a.slice(i), on = b.slice(i)
+  if (!off.length && !on.length) return 'no change'
+  const fmtList = (l: number[]) => stackText(l)
+  return [off.length ? `off ${fmtList(off)}` : '', on.length ? `on ${fmtList(on)}` : ''].filter(Boolean).join(' · ')
+}
+
+export function stackText(stack: number[]) {
+  const counts = new Map<number, number>()
+  for (const p of stack) counts.set(p, (counts.get(p) ?? 0) + 1)
+  return [...counts.entries()].sort((x, y) => y[0] - x[0]).map(([p, k]) => (k > 1 ? `${k}×${p}` : `${p}`)).join(' + ') || 'empty bar'
+}
+
+/** Ideal weight or one step either side, whichever needs the fewest plate moves from the last set (ties go to the ideal). */
+export function choosePlates(ideal: number, step: number, kept: Kept, prev: number[] | null) {
+  const cands = [ideal, ideal - step, ideal + step].filter(w => w >= 0)
+  let best: { weight: number; stack: number[]; moves: number } | null = null
+  for (const w of cands) {
+    const stack = loadSide(w / 2, kept)
+    if (!stack) continue
+    const moves = prev ? plateMoves(prev, stack) : 0
+    if (!best || moves < best.moves) best = { weight: w, stack, moves }
+  }
+  return best
+}

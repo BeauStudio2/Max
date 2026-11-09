@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
-import { localDate, round, roundTo, weekdayOf } from '../lib/load'
+import { fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import Ladder, { type LadderPlan } from './today/Ladder'
 import SpeedBlock from './today/Speed'
@@ -48,11 +48,23 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const [{ data: h }, { data: p }] = await Promise.all([
       supabase.from('session_summary').select('*').eq('lifter_id', lifterId).eq('primary_lift', lift)
         .lt('session_date', date).order('session_date', { ascending: false }).limit(30),
-      supabase.from('sessions').select('planned').eq('lifter_id', lifterId).eq('primary_lift', lift)
+      supabase.from('sessions').select('id, session_date, planned, sick, hurt').eq('lifter_id', lifterId).eq('primary_lift', lift)
         .lt('session_date', date).order('session_date', { ascending: false }).limit(1),
     ])
     setHistory((h as SummaryRow[]) ?? [])
-    setPrevPlan((p?.[0]?.planned as Record<string, any>) ?? {})
+    const prev = p?.[0]
+    const carried: Record<string, any> = { ...((prev?.planned as Record<string, any>) ?? {}) }
+    if (prev && !prev.sick && !prev.hurt) {
+      // Same rule as the sheet: a healthy previous session hands on its actual set-1 max and its fitted fatigue rate.
+      const { data: est } = await supabase.from('set_estimates').select('set_index, e1rm_lb')
+        .eq('session_id', prev.id).in('block', ['primary', 'deadlift']).order('set_index')
+      const e = (est ?? []).map(r => (r.e1rm_lb === null ? null : Number(r.e1rm_lb)))
+      if (e[0]) carried.planned_e1rm = Math.round(e[0])
+      const fit = fitFatigue(e)
+      if (fit && fit.ratePct > 0) carried.fatigue_rate_used_pct = Math.round(fit.ratePct * 100) / 100
+      carried.from = prev.session_date
+    } else if (prev) carried.from = prev.session_date + ' (sick/hurt: its planned values)'
+    setPrevPlan(carried)
   }
   useEffect(() => { if (lifterId) load() }, [lifterId, date, lift])
 
@@ -65,12 +77,15 @@ export default function Today({ lifterId }: { lifterId: string }) {
     }
     const { data, error } = await supabase.from('sessions').insert({
       lifter_id: lifterId, session_date: date, primary_lift: lift, template_id: tpl?.id ?? null,
-      started_at: new Date().toISOString(), source: 'app', ...patch,
+      started_at: new Date().toISOString(), source: 'app',
+      planned: lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current, ...patch,
     }).select().single()
     if (error) { setErr(error.message); return null }
     setSession(data as Session); return data as Session
   }
 
+  const ladderPlanRef = useRef<Record<string, any>>({})
+  const dlPlanRef = useRef<Record<string, any>>({})
   const exId = (name: string) => exercises.find(e => e.name === name)?.id
   const api: Api = {
     exId,
@@ -121,6 +136,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     bar_lb: pick(sp.bar_lb) ?? (String(wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
   }
 
+  ladderPlanRef.current = ladderPlan
+  dlPlanRef.current = dlPlan
   const savePlan = (base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: { ...base, ...patch } })
 
   const order: string[] = tpl?.spec?.order ?? ['speed', 'heavy', 'support']
@@ -163,7 +180,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
         )
         if (b === 'heavy') return lift === 'deadlift'
           ? <Deadlift key="dl" week={dlWeek} cycle={cycle} plan={dlPlan} setPlan={savePlan(dlPlan)} sets={sets.filter(s => s.block === 'deadlift')} api={api} best={best} />
-          : <Ladder key={'ladder' + lift} lift={lift} plan={ladderPlan} setPlan={savePlan(ladderPlan)} sets={sets.filter(s => s.block === 'primary')} api={api} currentMax={currentMax} />
+          : <Ladder key={'ladder' + lift} lift={lift} plan={ladderPlan} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} setPlan={savePlan(ladderPlan)} sets={sets.filter(s => s.block === 'primary')} api={api} currentMax={currentMax} />
         if (b === 'support') return <Support key={'support' + date + lift} support={support} sets={sets.filter(s => s.block === 'support')} api={api} />
         return null
       })}

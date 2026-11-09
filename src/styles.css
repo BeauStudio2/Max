@@ -146,3 +146,7 @@ table.sets button.flag { padding: 3px 4px; }
 .popover .opt:hover, .popover .opt.on { background: var(--bg); }
 .popover .opt.on b { color: var(--accent); }
 .popover .opt b::after { content: none !important; }
+button.linkish { background: none; border: 0; padding: 0; color: var(--muted); font-size: 11px; text-decoration: underline dotted; }
+.setupedit { display: flex; gap: 4px; margin-top: 4px; }
+.setupedit select { min-height: 32px; padding: 4px 6px; font-size: 12px; width: auto; }
+.loadout .wide { grid-column: 1 / -1; }

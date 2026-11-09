@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
-import { LIFT_EXERCISE, e1rm, expectedReps, fitFatigue, platesPerSide, round, roundTo, totals, effectiveLoad, type LoadSetup } from '../../lib/load'
+import { LIFT_EXERCISE, e1rm, expectedReps, fitFatigue, platesPerSide, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { Lift, SetRow } from '../../lib/types'
 import { Num, fmt, useClock, type Api } from './shared'
 
@@ -29,6 +29,9 @@ export function setupOf(r?: SetRow): LoadSetup {
   return { bar: s.bar ?? BAR, clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0) }
 }
 
+/** Chains hang from the chain clamp; with no chains the set goes back to Eleiko clamps. */
+const withClamp = (s: LoadSetup): LoadSetup => ({ ...s, clamp: s.chain_half || s.chain_5_8 ? CHAIN_CLAMP : ELEIKO })
+
 export const setupLabel = (s: LoadSetup) => {
   const parts = []
   if (s.chain_half) parts.push(`½×${s.chain_half}`)
@@ -36,8 +39,8 @@ export const setupLabel = (s: LoadSetup) => {
   return parts.length ? parts.join(' ') : s.clamp === ELEIKO ? 'straight' : 'no chains'
 }
 
-export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
-  lift: Lift; plan: LadderPlan; setPlan: (p: Partial<LadderPlan>) => void; sets: SetRow[]; api: Api; currentMax: number | null
+export default function Ladder({ lift, plan, setPlan, sets, api, currentMax, carriedFrom }: {
+  carriedFrom?: string; lift: Lift; plan: LadderPlan; setPlan: (p: Partial<LadderPlan>) => void; sets: SetRow[]; api: Api; currentMax: number | null
 }) {
   const { equipment, cfg } = useStore()
   const exerciseId = api.exId(LIFT_EXERCISE[lift])
@@ -63,22 +66,37 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
     return Math.max(0, roundTo(needed - extras, plan.step_lb))
   }
 
-  // Projected remaining sets.
-  const projected = useMemo(() => {
-    const out: { idx: number; target: number; setup: LoadSetup; weight: number }[] = []
+  // Projected remaining sets: ideal weights first, then the 45s/25s to keep on (from the lightest working set),
+  // then each set's weight nudged one step either way if that saves plate moves.
+  const plan2 = useMemo(() => {
+    const ideal: { idx: number; target: number; setup: LoadSetup; weight: number }[] = []
     let idx = (logged.at(-1)?.set_index ?? 0) + 1
     let target = logged.length === 0 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
-    if (!target || stopped) return out
-    while (idx <= 40 && (floor === null || target >= floor)) {
-      const setup = idx === 1 ? straight : chained(plan)
-      const weight = weightFor(target, setup)
-      if (weight <= 0 && idx > 1) break
-      out.push({ idx, target, setup, weight })
-      target *= 1 - f
-      idx++
+    if (target && !stopped) {
+      while (idx <= 40 && (floor === null || target >= floor)) {
+        const setup = idx === 1 ? straight : chained(plan)
+        const weight = weightFor(target, setup)
+        if (weight <= 0 && idx > 1) break
+        ideal.push({ idx, target, setup, weight })
+        target *= 1 - f
+        idx++
+      }
     }
-    return out
+    const working = [...logged.map(r => r.weight_lb ?? 0), ...ideal.map(p => p.weight)].filter(w => w > 0)
+    const kept: Kept = keptFor(working.length ? Math.min(...working) : 0)
+    let prev: number[] | null = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
+    const out = ideal.map(p => {
+      const c = choosePlates(p.weight, plan.step_lb, kept, prev)
+      const weight = c?.weight ?? p.weight
+      const stack = c?.stack ?? null
+      const change = stack ? changeText(prev, stack) : ''
+      if (stack) prev = stack
+      return { ...p, weight, stack, change }
+    })
+    return { projected: out, kept }
   }, [logged, plan, lastActual, floor, stopped, equipment, cfg])
+  const projected = plan2.projected
+  const kept = plan2.kept
 
   const next = projected[0]
   const nextIdx = (logged.at(-1)?.set_index ?? 0) + 1
@@ -88,14 +106,21 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
   const [assisted, setAssisted] = useState(false)
   const [failed, setFailed] = useState(false)
   const [showAll, setShowAll] = useState(false)
+  const [editing, setEditing] = useState<string | null>(null)
   const formKey = `${nextIdx}|${next?.weight}|${setupLabel(next?.setup ?? straight)}`
   useEffect(() => {
     setSetup(next?.setup ?? (nextIdx === 1 ? straight : chained(plan)))
     setWeight(next ? String(next.weight) : '')
   }, [formKey])
 
-  const t = totals(weight === '' ? null : Number(weight), setup, equipment)
   const nextTarget = nextIdx === 1 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
+  const t = totals(weight === '' ? null : Number(weight), setup, equipment)
+  const lastStack = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
+  const changeSetup = (ns: LoadSetup) => {
+    setSetup(ns)
+    if (nextTarget) { const ideal = weightFor(nextTarget, ns); setWeight(String(choosePlates(ideal, plan.step_lb, kept, lastStack)?.weight ?? ideal)) }
+  }
+  const formStack = weight === '' ? null : loadSide(Number(weight) / 2, kept)
   const expNext = nextTarget ? expectedReps(nextTarget, t.bottom, t.top, cfg) : null
   const preview = e1rm(t.bottom, t.top, reps === '' ? null : Number(reps), assisted || failed, cfg)
   const fit = fitFatigue(actual)
@@ -134,7 +159,9 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
           <select value={plan.chain_5_8} onChange={e => setPlan({ chain_5_8: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
         </label>
       </div>
+      {(kept.n45 > 0 || kept.n25 > 0) && <p className="small">Keep on all session, per side: <b>{stackText([...Array(kept.n45).fill(45), ...Array(kept.n25).fill(25)])}</b></p>}
       <p className="small muted">
+        {carriedFrom ? <>Planned max and fatigue carried from {carriedFrom}. </> : null}
         {currentMax ? <>Current max {round(currentMax)}. </> : null}
         {fit && <>Today’s fit: fatigue {fit.ratePct.toFixed(2)}%/set, fresh {round(fit.fresh)}. </>}
         Stop line {floor ? round(floor) : '—'}.
@@ -157,7 +184,11 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
                         const tt = totals(v, setupOf(r), equipment)
                         api.updateSet(r.id!, { weight_lb: v, total_bottom_lb: tt.bottom, total_top_lb: tt.top })
                       }} />
-                      <div className="sub2">{round(r.total_bottom_lb, 1)}{r.total_top_lb !== r.total_bottom_lb ? `→${round(r.total_top_lb, 1)}` : ''} · {setupLabel(setupOf(r))}</div>
+                      <div className="sub2">{round(r.total_bottom_lb, 1)}{r.total_top_lb !== r.total_bottom_lb ? `→${round(r.total_top_lb, 1)}` : ''} · <button className="linkish" onClick={() => setEditing(editing === r.id ? null : r.id!)}>{setupLabel(setupOf(r))} ✎</button></div>
+                      {editing === r.id && <SetupEdit setup={setupOf(r)} onChange={ns => {
+                        const tt = totals(r.weight_lb, ns, equipment)
+                        api.updateSet(r.id!, { setup: { ...r.setup, bar: ns.bar, clamp: ns.clamp, chain_half: ns.chain_half, chain_5_8: ns.chain_5_8 }, total_bottom_lb: tt.bottom, total_top_lb: tt.top })
+                      }} />}
                     </td>
                     <td className="nowrap">
                       <Num className="cell tiny" value={r.reps} onSave={v => api.updateSet(r.id!, { reps: v })} />
@@ -190,19 +221,20 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
         </div>
         <div className="row wrap">
           <label className="grow">Clamps
-            <select value={setup.clamp} onChange={e => setSetup({ ...setup, clamp: e.target.value })}>
+            <select value={setup.clamp} onChange={e => changeSetup({ ...setup, clamp: e.target.value })}>
               <option value={ELEIKO}>Eleiko</option><option value={CHAIN_CLAMP}>Chain clamp</option>
             </select>
           </label>
           <label className="narrow">½ chains/side
-            <select value={setup.chain_half} onChange={e => setSetup({ ...setup, chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
+            <select value={setup.chain_half} onChange={e => changeSetup(withClamp({ ...setup, chain_half: Number(e.target.value) }))}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
           </label>
           <label className="narrow">⅝ chains/side
-            <select value={setup.chain_5_8} onChange={e => setSetup({ ...setup, chain_5_8: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
+            <select value={setup.chain_5_8} onChange={e => changeSetup(withClamp({ ...setup, chain_5_8: Number(e.target.value) }))}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
           </label>
         </div>
         <div className="loadout">
-          <div><span className="muted small">Per side</span><b>{platesPerSide(weight === '' ? null : Number(weight)) || '—'}</b></div>
+          <div className="wide"><span className="muted small">Per side{formStack && lastStack ? ` · ${changeText(lastStack, formStack)}` : ''}</span>
+            <b>{formStack ? stackText(formStack) : platesPerSide(weight === '' ? null : Number(weight)) || '—'}</b></div>
           <div><span className="muted small">Total</span><b>{round(t.bottom, 1)}{t.top !== t.bottom ? ` → ${round(t.top, 1)}` : ''}</b></div>
           <div><span className="muted small">Expect</span><b>{expNext !== null ? `${expNext.toFixed(1)} reps` : '—'}</b></div>
           <div><span className="muted small">This set</span><b>{preview !== null ? round(preview) : '—'}</b></div>
@@ -215,13 +247,13 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
         <div className="planned">
           <p className="small muted">Planned after this ({projected.length - 1} more sets to the stop line, re-planned after every set):</p>
           <table className="sets plannedrows">
-            <thead><tr><th>#</th><th>Plates</th><th>Per side</th><th>Total</th></tr></thead>
+            <thead><tr><th>#</th><th>Plates</th><th>Per side · change</th><th>Total</th></tr></thead>
             <tbody>
               {shown.map(p => {
                 const tt = totals(p.weight, p.setup, equipment)
                 return (
                   <tr key={p.idx}>
-                    <td>{p.idx}</td><td>{p.weight}</td><td className="small">{platesPerSide(p.weight)}</td>
+                    <td>{p.idx}</td><td>{p.weight}</td><td className="small">{p.stack ? stackText(p.stack) : platesPerSide(p.weight)}{p.change ? <div className="sub2">{p.change}</div> : null}</td>
                     <td className="small">{round(tt.bottom, 1)}{tt.top !== tt.bottom ? `→${round(tt.top, 1)}` : ''}<div className="sub2">{setupLabel(p.setup)}</div></td>
                   </tr>
                 )
@@ -232,5 +264,21 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax }: {
         </div>
       )}
     </section>
+  )
+}
+
+function SetupEdit({ setup, onChange }: { setup: LoadSetup; onChange: (s: LoadSetup) => void }) {
+  return (
+    <div className="setupedit">
+      <select value={setup.clamp} onChange={e => onChange({ ...setup, clamp: e.target.value })} aria-label="Clamps">
+        <option value={ELEIKO}>Eleiko</option><option value={CHAIN_CLAMP}>Chain clamp</option>
+      </select>
+      <select value={setup.chain_half} onChange={e => onChange(withClamp({ ...setup, chain_half: Number(e.target.value) }))} aria-label="Half-inch chains per side">
+        {[0, 1, 2].map(v => <option key={v} value={v}>½×{v}</option>)}
+      </select>
+      <select value={setup.chain_5_8} onChange={e => onChange(withClamp({ ...setup, chain_5_8: Number(e.target.value) }))} aria-label="Five-eighths chains per side">
+        {[0, 1, 2].map(v => <option key={v} value={v}>⅝×{v}</option>)}
+      </select>
+    </div>
   )
 }
