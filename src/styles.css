@@ -105,3 +105,30 @@ ul.sessions { list-style: none; margin: 0; padding: 0; }
 .plangrid > div { display: flex; flex-direction: column; gap: 2px; }
 @media (max-width: 520px) { .plangrid { grid-template-columns: 1fr; } }
 .account { margin: 12px 16px 0; display: flex; flex-direction: column; gap: 8px; }
+.planfields { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-bottom: 6px; }
+.planfields input, .planfields select { min-height: 40px; padding: 8px 10px; }
+.loadout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 2px; }
+.loadout div { display: flex; flex-direction: column; background: var(--bg); border-radius: 10px; padding: 8px; }
+.loadout b { font-variant-numeric: tabular-nums; font-size: 15px; }
+@media (max-width: 480px) { .loadout { grid-template-columns: repeat(2, 1fr); } }
+input.cell.tiny { width: 44px; }
+.nowrap { white-space: nowrap; }
+button.flag { background: none; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 11px; padding: 3px 5px; margin-left: 3px; }
+button.flag.on { background: var(--warn); color: #1a1200; border-color: var(--warn); }
+.up { color: var(--accent); } .down { color: var(--warn); }
+.planned { margin-top: 12px; }
+table.plannedrows td { color: var(--muted); }
+.tiny-f { flex: 0 1 72px; }
+button.addset { align-self: flex-end; min-height: 44px; }
+button.tick { background: none; border: 1px solid var(--line); border-radius: 8px; color: var(--accent); padding: 4px 10px; }
+tr.donerow td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.card > button.ghost { width: 100%; margin-top: 10px; }
+.sub2 { font-size: 11px; color: var(--muted); white-space: nowrap; margin-top: 2px; }
+.sub p.small.muted { overflow-wrap: anywhere; }
+table.sets.dl input.cell { width: 58px; }
+.sub2.wrap { white-space: normal; max-width: 150px; }
+table.sets.dl { width: 100%; }
+table.sets td { padding: 4px 3px; }
+table.sets input.cell { width: 64px; }
+table.plannedrows td.small:nth-child(3) { white-space: normal; }
+table.sets button.flag { padding: 3px 4px; }

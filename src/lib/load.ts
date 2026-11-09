@@ -52,3 +52,43 @@ export function weekdayOf(iso: string) {
   const [y, m, d] = iso.split('-').map(Number)
   return new Date(y, m - 1, d).getDay()
 }
+
+/** Reps the model expects at this load when the set's target estimated max is `target`. */
+export function expectedReps(target: number, bottom: number | null, top: number | null, cfg: Config) {
+  const load = effectiveLoad(bottom, top, cfg)
+  if (!load) return null
+  return cfg.rep_divisor * (target / load - 1)
+}
+
+const PLATES = [45, 25, 10, 5, 2.5, 1.25]
+/** Plates per side for a total plate weight (both sides), largest first. */
+export function platesPerSide(totalPlates: number | null) {
+  if (totalPlates === null || totalPlates <= 0) return totalPlates === 0 ? 'empty bar' : ''
+  let side = Math.round((totalPlates / 2) * 100) / 100
+  const out: string[] = []
+  for (const p of PLATES) {
+    const k = Math.floor(side / p + 1e-9)
+    if (k > 0) { out.push(k > 1 ? `${k}×${p}` : `${p}`); side = Math.round((side - k * p) * 100) / 100 }
+  }
+  return out.join(' + ') + (side > 0.01 ? ` (+${side})` : '')
+}
+
+/** Log-linear fit of estimated max against set number: fatigue rate per set and fresh strength. */
+export function fitFatigue(e1rms: (number | null)[]) {
+  const pts = e1rms.map((v, i) => [i + 1, v] as const).filter(([, v]) => v && v > 0).slice(0, 10) as [number, number][]
+  if (pts.length < 3) return null
+  const n = pts.length
+  const xs = pts.map(p => p[0]), ys = pts.map(p => Math.log(p[1]))
+  const mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n
+  const b = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0) / xs.reduce((s, x) => s + (x - mx) ** 2, 0)
+  const a = my - b * mx
+  return { ratePct: (1 - Math.exp(b)) * 100, fresh: Math.exp(a + b) }
+}
+
+/** Deadlift estimated max from a single and its RPE (same rule as the sheet's Tracker). */
+export function e1rmFromRpe(weight: number, reps: number, rpe: number | null) {
+  if (rpe !== null && reps === 1) return weight / (1 - 0.039 * (10 - rpe))
+  return weight * (1 + reps / 30)
+}
+
+export const roundTo = (v: number, step: number) => Math.round(v / step) * step
