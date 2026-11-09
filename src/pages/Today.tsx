@@ -9,6 +9,7 @@ import Support from './today/Support'
 import Deadlift, { type DeadliftPlan } from './today/Deadlift'
 import { fmt, useClock, type Api } from './today/shared'
 
+const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 const DL_CYCLE_START = '2026-11-07'
 /** Sheet rule: trap-bar weeks build 2% a week from the week-1 top; conventional weeks work off the best conventional pull. */
 function dlDefaultTop(week: number | null, week1: number | null, best?: number) {
@@ -77,7 +78,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     }
     const { data, error } = await supabase.from('sessions').insert({
       lifter_id: lifterId, session_date: date, primary_lift: lift, template_id: tpl?.id ?? null,
-      started_at: new Date().toISOString(), source: 'app',
+      source: 'app',
       planned: lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current, ...patch,
     }).select().single()
     if (error) { setErr(error.message); return null }
@@ -176,7 +177,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     await relabel(speedSlotSets(it), name)
     await savePlanned({ speed_ex: { ...(sp.speed_ex ?? {}), [it.name]: name } })
   }
-  const elapsed = useClock(session?.started_at)
+  const elapsed = useClock(session?.started_at && !session.ended_at ? session.started_at : null)
 
   return (
     <div className="stack">
@@ -207,13 +208,23 @@ export default function Today({ lifterId }: { lifterId: string }) {
         </div>
         {tpl && <p className="muted small"><b>{tpl.name}</b>{tpl.spec?.logic ? ` · ${tpl.spec.logic}` : ''}</p>}
         <Status session={session} save={ensureSession} />
-        {session?.started_at && (
-          <p className="small muted">Started {new Date(session.started_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-            {session.ended_at
-              ? ` · finished ${new Date(session.ended_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} (${fmt(Math.round((Date.parse(session.ended_at) - Date.parse(session.started_at)) / 1000))})`
-              : date === localDate() ? ` · ${fmt(elapsed)} so far` : ''}
-          </p>
-        )}
+        <div className="timer">
+          {!session?.started_at ? (
+            <button className="primary" onClick={() => ensureSession({ started_at: new Date().toISOString(), ended_at: null })}>▶ Start workout</button>
+          ) : !session.ended_at ? (
+            <>
+              <div><span className="small muted">Started {clock(session.started_at)}</span><b className="elapsed">{fmt(elapsed)}</b></div>
+              <button className="ghost" onClick={() => ensureSession({ ended_at: new Date().toISOString() })}>■ Finish</button>
+            </>
+          ) : (
+            <>
+              <div><span className="small muted">{clock(session.started_at)} – {clock(session.ended_at)}</span>
+                <b className="elapsed">{fmt(Math.round((Date.parse(session.ended_at) - Date.parse(session.started_at)) / 1000))}</b></div>
+              <button className="ghost small" onClick={() => ensureSession({ ended_at: null })}>Resume</button>
+              <button className="ghost small" onClick={() => confirm('Clear the start and finish times?') && ensureSession({ started_at: null, ended_at: null })}>Reset</button>
+            </>
+          )}
+        </div>
       </section>
 
       {err && <p className="err">{err}</p>}
@@ -234,11 +245,6 @@ export default function Today({ lifterId }: { lifterId: string }) {
         return null
       })}
 
-      {session && (
-        <button className="ghost" onClick={() => ensureSession({ ended_at: session.ended_at ? null : new Date().toISOString() })}>
-          {session.ended_at ? 'Reopen session' : 'Finish session'}
-        </button>
-      )}
       {currentMax && <p className="small muted center-text">Current {lift} max {round(currentMax)} (latest session not sick or injured).</p>}
     </div>
   )

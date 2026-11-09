@@ -167,3 +167,7 @@ svg.trend .proj { fill: none; stroke: var(--accent); stroke-width: 2; stroke-das
 @media (max-width: 480px) { .choices { grid-template-columns: 1fr; } }
 .exrow { margin-bottom: 8px; }
 .setcount { white-space: nowrap; align-self: flex-end; padding-bottom: 12px; }
+.timer { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.timer > div { display: flex; flex-direction: column; margin-right: auto; }
+.timer .elapsed { font-size: 26px; font-variant-numeric: tabular-nums; }
+.timer button.primary { margin-top: 0; }
