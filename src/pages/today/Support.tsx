@@ -4,6 +4,8 @@ import { useStore } from '../../lib/store'
 import type { SetRow } from '../../lib/types'
 import type { Api } from './shared'
 
+const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF']
+
 interface Slot { key: string; slot: string | null; exerciseId: string; setIndex: number; existing?: SetRow; defaults: any }
 
 export default function Support({ support, sets, api }: { support: any; sets: SetRow[]; api: Api }) {
@@ -56,7 +58,8 @@ export default function Support({ support, sets, api }: { support: any; sets: Se
 }
 
 function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; api: Api; onAddSet: () => void; onRemove: () => void; onSaved: () => void }) {
-  const { exercises, isCoach, reload } = useStore()
+  const { exercises, isCoach, reload, templates } = useStore()
+  const schemeOptions = Array.from(new Set([...SCHEMES, ...templates.flatMap(t => (t.spec?.support?.items ?? []).map((i: any) => i.scheme).filter(Boolean))]))
   const e = slot.existing, d = slot.defaults
   const init = () => ({
     exerciseId: slot.exerciseId,
@@ -126,7 +129,18 @@ function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; ap
       </div>
       {d.note && <p className="small muted">{d.note}</p>}
       <div className="row wrap">
-        <label className="narrow">Scheme<input value={v.scheme} onChange={set('scheme')} onBlur={() => save()} /></label>
+        <label className="grow">Scheme
+          <select value={v.scheme} onChange={ev => {
+            let scheme = ev.target.value
+            if (scheme === '__other') { scheme = window.prompt('Scheme', v.scheme)?.trim() ?? v.scheme }
+            const next = { ...v, scheme }
+            setV(next); save(next)
+          }}>
+            <option value="">—</option>
+            {[...schemeOptions, ...(v.scheme && !schemeOptions.includes(v.scheme) ? [v.scheme] : [])].map(o => <option key={o} value={o}>{o}</option>)}
+            <option value="__other">Other…</option>
+          </select>
+        </label>
         <label className="narrow">Start lb<input inputMode="decimal" value={v.start} onChange={set('start')} onBlur={() => save()} /></label>
         <label className="tiny-f">Step<input inputMode="decimal" value={v.step} onChange={set('step')} onBlur={() => save()} /></label>
         <label className="tiny-f">Drops<input inputMode="numeric" value={v.drops} onChange={set('drops')} onBlur={() => save()} /></label>
