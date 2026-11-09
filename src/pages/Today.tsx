@@ -239,7 +239,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
           {session.ended_at ? 'Reopen session' : 'Finish session'}
         </button>
       )}
-      {currentMax && <p className="small muted center-text">Current {lift} max {round(currentMax)} (latest session not sick or hurt).</p>}
+      {currentMax && <p className="small muted center-text">Current {lift} max {round(currentMax)} (latest session not sick or injured).</p>}
     </div>
   )
 }
@@ -256,8 +256,8 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
     <div className="status">
       <div className="row wrap">
         <label className="check"><input type="checkbox" checked={!!session?.sick} onChange={e => save({ sick: e.target.checked })} /> Sick</label>
-        <label className="grow">Hurt (describe)
-          <input value={hurt} placeholder="blank = not hurt" onChange={e => setHurt(e.target.value)}
+        <label className="grow">Injury (describe)
+          <input value={hurt} placeholder="blank = no injury" onChange={e => setHurt(e.target.value)}
             onBlur={() => hurt !== (session?.hurt ?? '') && save({ hurt: hurt.trim() || null })} />
         </label>
         <label className="narrow">Body wt
@@ -265,7 +265,7 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
             onBlur={() => bw !== (session?.bodyweight_lb?.toString() ?? '') && save({ bodyweight_lb: bw ? Number(bw) : null })} />
         </label>
       </div>
-      {excluded && <p className="warn small">Left out of max and projections (sick or hurt).</p>}
+      {excluded && <p className="warn small">Left out of max and projections (sick or injured).</p>}
       <label>Notes
         <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
           onBlur={() => notes !== (session?.notes ?? '') && save({ notes: notes.trim() || null })} />

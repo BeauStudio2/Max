@@ -153,7 +153,7 @@ function Detail({ m, pts, lifterId, onChange }: { m: Metric; pts: Point[]; lifte
       <h3>{m.label}</h3>
       <Chart pts={pts} tr={tr} unit={m.unit} />
       {tr && <p className="small">Trend {tr.perWeek >= 0 ? '+' : ''}{round(tr.perWeek, dp)} {m.unit}/week · projected {round(tr.at(today + 28), dp)} {m.unit} in 4 weeks.</p>}
-      {!tr && <p className="small muted">A projection appears once there are three entries{m.derived ? ' not marked sick or hurt' : ''} spread over at least a week.</p>}
+      {!tr && <p className="small muted">A projection appears once there are three entries{m.derived ? ' not marked sick or injured' : ''} spread over at least a week.</p>}
       {!m.derived && (
         <div className="row wrap">
           <label className="grow">Date<input type="date" value={d} onChange={e => setD(e.target.value)} /></label>
@@ -164,7 +164,7 @@ function Detail({ m, pts, lifterId, onChange }: { m: Metric; pts: Point[]; lifte
       <ul className="plain small entries">
         {[...pts].reverse().map((p, i) => (
           <li key={p.id ?? p.d + i}>
-            {p.d} · <b>{round(p.v, dp)}</b> {m.unit}{p.x ? ' · sick/hurt' : ''}{p.src && p.src !== 'app' ? <span className="muted"> · {p.src.replace('_', ' ')}</span> : null}
+            {p.d} · <b>{round(p.v, dp)}</b> {m.unit}{p.x ? ' · sick/injury' : ''}{p.src && p.src !== 'app' ? <span className="muted"> · {p.src.replace('_', ' ')}</span> : null}
             {p.id && !m.derived && <button className="x" onClick={() => del(p.id!)} aria-label="Delete entry">×</button>}
           </li>
         ))}
