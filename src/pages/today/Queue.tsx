@@ -32,42 +32,51 @@ export default function Queue({ api, L, D, heavyExerciseId, restS, speed, speedE
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
-  const supportDone = S.slots.filter(s => s.existing).map(s => s.existing!)
-  const done = useMemo(() => [...mainSets, ...allSpeed, ...supportDone].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')),
-    [mainSets, allSpeed, supportDone])
+  const done = useMemo(() => [...mainSets, ...allSpeed].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')),
+    [mainSets, allSpeed])
   const lastDone = done.at(-1)
   const lastMain = [...done].reverse().find(isMain)
 
-  const speedRem = useMemo(() => {
+  // Speed work in rounds: one set of every speed exercise per round (a heavy set, then all speed sets, then heavy...).
+  // If a round is part done, its first round holds only the speed exercises not yet done since the last main set.
+  const { speedRounds, partial } = useMemo(() => {
+    const since = new Set<string>()
+    for (let i = done.length - 1; i >= 0 && !isMain(done[i]); i--) if (done[i].setup?.slot) since.add(done[i].setup.slot)
     const left = items.map(it => ({ it, done: speedSets(it).length, left: Math.max(0, (it.sets ?? 0) - speedSets(it).length) }))
-    const alternate = items.some(it => /alternat/i.test(it.rule ?? '') || /alt\b/i.test(it.scheme ?? ''))
-    const out: Up[] = []
-    const take = (s: typeof left[number]) => { s.done++; s.left--; out.push({ kind: 'speed', key: `s:${s.it.name}:${s.done}`, group: 'speed:' + s.it.name, it: s.it, n: s.done }) }
-    if (alternate) { let more = true; while (more) { more = false; for (const s of left) if (s.left > 0) { take(s); more = true } } }
-    else for (const s of left) while (s.left > 0) take(s)
-    return out
-  }, [items, allSpeed.length])
+    const rounds: Up[][] = []
+    let first = since.size > 0, partial = false
+    while (left.some(x => x.left > 0)) {
+      const round: Up[] = []
+      for (const x of left) if (x.left > 0 && !(first && since.has(x.it.name))) {
+        x.done++; x.left--
+        round.push({ kind: 'speed', key: `s:${x.it.name}:${x.done}`, group: 'speed:' + x.it.name, it: x.it, n: x.done })
+      }
+      if (round.length) { rounds.push(round); if (first) partial = true }
+      first = false
+    }
+    return { speedRounds: rounds, partial }
+  }, [items, allSpeed.length, done.length])
 
   const upcoming = useMemo(() => {
     const main: Up[] = L
       ? L.projected.map(p => ({ kind: 'heavy' as const, key: 'h' + p.idx, group: 'heavy', p }))
       : (D?.rows ?? []).filter(r => !r.existing).map(r => ({ kind: 'pull' as const, key: 'd:' + r.row.step, group: 'pull:' + r.row.step, row: r.row }))
-    const sp = [...speedRem]
+    const rounds = speedRounds.map(r => [...r])
     const out: Up[] = []
-    if (placement === 'first') out.push(...sp, ...main)
-    else if (placement === 'after') out.push(...main, ...sp)
+    if (placement === 'first') out.push(...rounds.flat(), ...main)
+    else if (placement === 'after') out.push(...main, ...rounds.flat())
     else {
-      let turn: 'main' | 'speed' = isMain(lastDone) ? 'speed' : 'main'
-      while (main.length || sp.length) {
+      let turn: 'main' | 'speed' = isMain(lastDone) || partial ? 'speed' : 'main'
+      while (main.length || rounds.length) {
         if (turn === 'main' && main.length) out.push(main.shift()!)
-        else if (turn === 'speed' && sp.length) out.push(sp.shift()!)
-        else out.push((main.shift() ?? sp.shift())!)
+        else if (turn === 'speed' && rounds.length) out.push(...rounds.shift()!)
+        else if (main.length) out.push(main.shift()!)
+        else out.push(...rounds.shift()!)
         turn = turn === 'main' ? 'speed' : 'main'
       }
     }
-    for (const slot of S.slots.filter(s => !s.existing)) out.push({ kind: 'support', key: 'p:' + slot.key, group: 'sup:' + slot.key, slot })
     return out
-  }, [L?.projected, D?.rows, speedRem, placement, lastDone?.id, S.slots])
+  }, [L?.projected, D?.rows, speedRounds, partial, placement, lastDone?.id])
 
   const [active, setActive] = useState<string | null>(null)
   useEffect(() => { setActive(null) }, [done.length])
@@ -117,17 +126,10 @@ export default function Queue({ api, L, D, heavyExerciseId, restS, speed, speedE
             <SpeedBlock key={current.it.name} item={current.it} exerciseName={speedEx(current.it)} onExercise={n => onSpeedEx(current.it, n)}
               sets={speedSets(current.it)} api={api} extraSetup={afterMain} />
           )}
-          {current.kind === 'support' && (
-            <SupportRow key={current.slot.key} slot={current.slot} api={api} mode="now"
-              onAddSet={() => S.addSetFor(current.slot)} onRemove={() => S.remove(current.slot)} onSaved={() => S.saved(current.slot)} />
-          )}
         </div>
-      ) : <p className="muted">Everything planned is done. Add more below, or finish the workout.</p>}
+      ) : <p className="muted">{S.slots.length ? 'Main and speed sets are done. Support is below.' : 'Everything planned is done.'}</p>}
 
-      <div className="qadd">
-        <button className="ghost small" onClick={() => setActive('sup:' + S.addExercise())}>+ Support exercise</button>
-        {D && <button className="ghost small" onClick={D.addPull}>+ Pull</button>}
-      </div>
+      {D && <div className="qadd"><button className="ghost small" onClick={D.addPull}>+ Pull</button></div>}
 
       {upcoming.length > 1 && (
         <>
@@ -153,6 +155,15 @@ export default function Queue({ api, L, D, heavyExerciseId, restS, speed, speedE
         </>
       )}
 
+      <div className="supgroup">
+        <h3>Support</h3>
+        {S.slots.map(slot => (
+          <SupportRow key={slot.key} slot={slot} api={api} mode={slot.existing ? 'edit' : 'now'}
+            onAddSet={() => S.addSetFor(slot)} onRemove={() => S.remove(slot)} onSaved={() => S.saved(slot)} />
+        ))}
+        <button className="ghost" onClick={() => S.addExercise()}>+ Add exercise</button>
+      </div>
+
       {done.length > 0 && (
         <>
           <p className="small muted qhead">Done ({done.length}){L?.fit ? ` · fatigue ${L.fit.ratePct.toFixed(2)}%/set` : ''}{D?.todayMax ? ` · deadlift estimate ${round(D.todayMax)}` : ''}</p>
@@ -164,12 +175,6 @@ export default function Queue({ api, L, D, heavyExerciseId, restS, speed, speedE
                 return def ? <DoneLine key={r.id} tag={['D', 'h']} title={pullLabel(def.row)} detail={`${r.weight_lb ?? r.setup?.inertia ?? ''} × ${r.reps ?? ''}${r.rpe ? ` @${r.rpe}` : ''}`}>
                   <PullForm row={def.row} existing={r} D={D} mode="edit" />
                 </DoneLine> : null
-              }
-              if (r.block === 'support') {
-                const slot = S.slots.find(s => s.existing?.id === r.id)!
-                return <DoneLine key={r.id} tag={['+', 'p']} title={exName(r.exercise_id)} detail={`${r.start_weight_lb ?? '—'}${r.reps ? ` × ${r.reps}` : ''}${r.scheme ? ` · ${r.scheme}` : ''}`}>
-                  {slot && <SupportRow slot={slot} api={api} onAddSet={() => S.addSetFor(slot)} onRemove={() => S.remove(slot)} onSaved={() => S.saved(slot)} />}
-                </DoneLine>
               }
               return (
                 <li key={r.id} className="qdone">
@@ -217,3 +222,4 @@ function speedSummary(r: SetRow) {
   if (s.bell_hits != null) bits.push(`${s.bell_hits} bell`)
   return bits.join(' · ')
 }
+

@@ -120,7 +120,7 @@ export function SupportRow({ slot, api, onAddSet, onRemove, onSaved, mode = 'edi
   return (
     <div className={'sub' + (e && mode === 'edit' ? '' : '')}>
       <div className="row">
-        <label className="grow">{slot.setIndex > 1 ? `Set ${slot.setIndex}` : 'Exercise'}
+        <label className="grow">{slot.setIndex > 1 ? `Set ${slot.setIndex}` : 'Exercise'}{e ? <span className="logged"> ✓ logged</span> : null}
           <select value={v.exerciseId} onChange={ev => pick(ev.target.value)}>
             <option value="">choose…</option>
             {exercises.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
