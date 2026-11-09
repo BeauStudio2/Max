@@ -34,6 +34,7 @@ function Shell() {
   const { isCoach, myLifter, lifters, auth } = useStore()
   const initial = (location.hash.slice(1) as Tab) || 'today'
   const [tab, setTab] = useState<Tab>(TABS.some(t => t.id === initial) ? initial : 'today')
+  const [showAccount, setShowAccount] = useState(false)
   const [lifterId, setLifterId] = useState<string>(myLifter?.id ?? lifters[0]?.id ?? '')
 
   useEffect(() => { history.replaceState(null, '', '#' + tab) }, [tab])
@@ -51,8 +52,9 @@ function Shell() {
             {lifters.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         ) : <div className="lifter-name">{myLifter?.name ?? ''}</div>}
-        <button className="ghost small" onClick={() => supabase.auth.signOut()}>Sign out</button>
+        <button className="ghost small" onClick={() => setShowAccount(v => !v)}>Account</button>
       </header>
+      {showAccount && <Account email={auth.user.email ?? ''} />}
 
       <main>
         {noAccess ? (
@@ -76,6 +78,30 @@ function Shell() {
           <button key={t.id} className={tab === t.id ? 'on' : ''} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </nav>
+    </div>
+  )
+}
+
+function Account({ email }: { email: string }) {
+  const [pw, setPw] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+  async function change(e: React.FormEvent) {
+    e.preventDefault()
+    const { error } = await supabase.auth.updateUser({ password: pw })
+    setMsg(error ? error.message : 'Password changed.')
+    if (!error) setPw('')
+  }
+  return (
+    <div className="account card">
+      <p className="small muted">Signed in as {email}</p>
+      <form className="row" onSubmit={change}>
+        <label className="grow">New password
+          <input type="password" value={pw} onChange={e => setPw(e.target.value)} minLength={6} required autoComplete="new-password" />
+        </label>
+        <button className="primary inline">Change</button>
+      </form>
+      {msg && <p className="small">{msg}</p>}
+      <button className="ghost" onClick={() => supabase.auth.signOut()}>Sign out</button>
     </div>
   )
 }
