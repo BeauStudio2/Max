@@ -196,3 +196,6 @@ li.qdone.below .grow { opacity: .6; }
 .qedit .flag { font-size: 12px; padding: 6px 8px; }
 .qedit p { width: 100%; margin: 0; }
 .now .sub { border-top: 0; padding-top: 4px; }
+.qadd { display: flex; gap: 8px; margin-top: 8px; }
+.qedit.block { display: block; }
+.now .sub { padding: 0; }

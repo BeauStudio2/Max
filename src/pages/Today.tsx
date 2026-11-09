@@ -5,9 +5,8 @@ import { LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from 
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
 import Queue, { type Placement } from './today/Queue'
-import SpeedBlock from './today/Speed'
-import Support from './today/Support'
-import Deadlift, { type DeadliftPlan } from './today/Deadlift'
+import { useSupportSlots } from './today/Support'
+import { DeadliftPlanFields, useDeadlift, type DeadliftPlan } from './today/Deadlift'
 import { ExercisePicker, Num, fmt, useClock, type Api } from './today/shared'
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -136,6 +135,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const dlPlan: DeadliftPlan = {
     planned_top_lb: pick(sp.planned_top_lb, dlDefaultTop(dlWeek, st.deadlift_planned_top_lb ?? (best ? best * 0.825 : null), best)) ?? null,
     bar_lb: pick(sp.bar_lb) ?? (String(wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
+    rest_s: pick(sp.rest_s) ?? 180,
   }
 
   ladderPlanRef.current = ladderPlan
@@ -181,7 +181,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const L = useLadder(ladderPlan, sets.filter(s => s.block === 'primary'))
   const placement: Placement = sp.speed_placement ?? 'between'
   const offsetS: number = sp.speed_offset_s ?? 20
-  const supportNames: string[] = (support?.items ?? []).map((i: any) => i.name)
+  const D = useDeadlift({ week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
+  const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey)
   const [planOpen, setPlanOpen] = useState(false)
 
   return (
@@ -234,50 +235,38 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       {err && <p className="err">{err}</p>}
 
-      {lift === 'deadlift' ? (
-        <>
-          {speedFor?.items?.length ? (
-            <section className="card">
-              <h2>Speed · {speedFor.lift}</h2>
-              {speedFor.items.map((it: any) => (
-                <SpeedBlock key={date + it.name} item={it} exerciseName={speedEx(it)} onExercise={n => setSpeedEx(it, n)} sets={speedSlotSets(it)} api={api} />
-              ))}
-            </section>
-          ) : null}
-          <Deadlift key="dl" exerciseName={heavyEx} onExercise={setHeavyEx} week={dlWeek} cycle={cycle} plan={dlPlan} setPlan={savePlan(dlPlan)} sets={sets.filter(s => s.block === 'deadlift')} api={api} best={best} />
-        </>
-      ) : (
-        <>
-          <section className="card">
-            <button className="planhead" onClick={() => setPlanOpen(o => !o)} aria-expanded={planOpen}>
-              <h2 style={{ margin: 0 }}>Plan · {lift}</h2>
-              <span className="small muted">{ladderPlan.planned_e1rm ? `max ${round(ladderPlan.planned_e1rm)} · ` : ''}{ladderPlan.target_reps} reps · stop {ladderPlan.stop_pct}% · {ladderPlan.fatigue_rate_used_pct}%/set {planOpen ? '▴' : '▾'}</span>
-            </button>
-            {planOpen && (
-              <div className="planbody">
-                <ExercisePicker label="Heavy exercise" value={heavyEx} onChange={setHeavyEx} className="exrow" />
-                <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} />
-                {speedFor?.items?.length ? (
-                  <div className="planfields">
-                    <label>Speed sets
-                      <select value={placement} onChange={e => savePlanned({ speed_placement: e.target.value })}>
-                        <option value="between">Between heavy sets</option>
-                        <option value="first">All first</option>
-                        <option value="after">All after</option>
-                      </select>
-                    </label>
-                    <Num label="Speed starts (s into rest)" value={offsetS} onSave={v => v !== null && savePlanned({ speed_offset_s: v })} />
-                  </div>
-                ) : null}
+      <section className="card">
+        <button className="planhead" onClick={() => setPlanOpen(o => !o)} aria-expanded={planOpen}>
+          <h2 style={{ margin: 0 }}>Plan · {lift}{lift === 'deadlift' && dlWeek ? ` week ${dlWeek}` : ''}</h2>
+          <span className="small muted">{lift === 'deadlift'
+            ? `top ${dlPlan.planned_top_lb ?? '—'} · bar ${dlPlan.bar_lb} · rest ${dlPlan.rest_s}s`
+            : `${ladderPlan.planned_e1rm ? `max ${round(ladderPlan.planned_e1rm)} · ` : ''}${ladderPlan.target_reps} reps · stop ${ladderPlan.stop_pct}% · ${ladderPlan.fatigue_rate_used_pct}%/set`} {planOpen ? '▴' : '▾'}</span>
+        </button>
+        {planOpen && (
+          <div className="planbody">
+            <ExercisePicker label="Main exercise" value={heavyEx} onChange={setHeavyEx} className="exrow" />
+            {lift === 'deadlift'
+              ? <DeadliftPlanFields D={D} setPlan={savePlan(dlPlan)} best={best} />
+              : <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} />}
+            {speedFor?.items?.length ? (
+              <div className="planfields">
+                <label>Speed sets
+                  <select value={placement} onChange={e => savePlanned({ speed_placement: e.target.value })}>
+                    <option value="between">Between main sets</option>
+                    <option value="first">All first</option>
+                    <option value="after">All after</option>
+                  </select>
+                </label>
+                <Num label="Speed starts (s into rest)" value={offsetS} onSave={v => v !== null && savePlanned({ speed_offset_s: v })} />
               </div>
-            )}
-          </section>
-          <Queue L={L} api={api} heavyExerciseId={exId(heavyEx)} speed={speedFor} speedEx={speedEx} onSpeedEx={setSpeedEx}
-            speedSets={speedSlotSets} placement={placement} offsetS={offsetS} support={supportNames} />
-        </>
-      )}
+            ) : null}
+          </div>
+        )}
+      </section>
 
-      {support && <div id="support"><Support key={'support' + date + lift + supportKey} support={support} sets={sets.filter(s => s.block === 'support')} api={api} /></div>}
+      <Queue key={date + lift + supportKey} api={api} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
+        heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
+        speed={speedFor} speedEx={speedEx} onSpeedEx={setSpeedEx} speedSets={speedSlotSets} placement={placement} offsetS={offsetS} S={S} />
 
       {currentMax && <p className="small muted center-text">Current {lift} max {round(currentMax)} (latest session not sick or injured).</p>}
     </div>

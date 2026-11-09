@@ -9,11 +9,16 @@ const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + S
 
 interface Slot { key: string; slot: string | null; exerciseId: string; setIndex: number; existing?: SetRow; defaults: any }
 
-export default function Support({ support, sets, api }: { support: any; sets: SetRow[]; api: Api }) {
+export type SupportSlot = Slot
+export type SupportCtl = ReturnType<typeof useSupportSlots>
+
+/** The day's support work as slots: plan exercises, extra sets and added exercises, each logged or not yet. */
+export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '') {
   const { exercises } = useStore()
   const items: any[] = support?.items ?? []
   const [extras, setExtras] = useState<Slot[]>([])
   const [hidden, setHidden] = useState<string[]>([])
+  useEffect(() => { setExtras([]); setHidden([]) }, [resetKey])
   const nameOf = (id: string) => exercises.find(e => e.id === id)?.name
 
   const slots = useMemo(() => {
@@ -39,7 +44,9 @@ export default function Support({ support, sets, api }: { support: any; sets: Se
     setExtras(prev => [...prev, { key: 'x' + Math.random(), slot: s.slot, exerciseId: s.exerciseId, setIndex: nextIdx, defaults: { ...s.defaults, start_lb: s.existing?.start_weight_lb ?? s.defaults.start_lb } }])
   }
   function addExercise() {
-    setExtras(prev => [...prev, { key: 'x' + Math.random(), slot: 'extra:' + Math.random().toString(36).slice(2, 8), exerciseId: '', setIndex: 1, defaults: {} }])
+    const key = 'x' + Math.random()
+    setExtras(prev => [...prev, { key, slot: 'extra:' + Math.random().toString(36).slice(2, 8), exerciseId: '', setIndex: 1, defaults: {} }])
+    return key
   }
   async function remove(s: Slot) {
     if (s.existing) await api.deleteSet(s.existing.id!)
@@ -47,18 +54,11 @@ export default function Support({ support, sets, api }: { support: any; sets: Se
     else setExtras(prev => prev.filter(x => x.key !== s.key))
   }
   const saved = (s: Slot) => setExtras(prev => prev.filter(x => x.key !== s.key))
-
-  return (
-    <section className="card">
-      <h2>Support{support?.group ? ` · ${support.group}` : ''}</h2>
-      <p className="small muted">Log the start weight and the reps at that weight. Tap a scheme to see what each one means.</p>
-      {slots.map(s => <SupportRow key={s.key} slot={s} api={api} onAddSet={() => addSetFor(s)} onRemove={() => remove(s)} onSaved={() => saved(s)} />)}
-      <button className="ghost" onClick={addExercise}>+ Add exercise</button>
-    </section>
-  )
+  return { slots, addSetFor, addExercise, remove, saved }
 }
 
-function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; api: Api; onAddSet: () => void; onRemove: () => void; onSaved: () => void }) {
+/** One support exercise. In the Now card it saves when you tap Log; when editing a logged one it saves as you go. */
+export function SupportRow({ slot, api, onAddSet, onRemove, onSaved, mode = 'edit' }: { slot: Slot; api: Api; onAddSet: () => void; onRemove: () => void; onSaved: () => void; mode?: 'now' | 'edit' }) {
   const { exercises, isCoach, reload, templates } = useStore()
   const schemeOptions = Array.from(new Set([...SCHEMES, ...templates.flatMap(t => (t.spec?.support?.items ?? []).map((i: any) => i.scheme).filter(Boolean))]))
   const e = slot.existing, d = slot.defaults
@@ -82,8 +82,9 @@ function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; ap
     return Array.from({ length: Math.min(drops, 30) + 1 }, (_, i) => Math.max(0, start - i * step)).join('→')
   })()
 
-  async function save(next = v) {
-    if (!next.exerciseId) return
+  const auto = mode === 'edit' || !!e
+  async function save(next = v, force = false) {
+    if (!next.exerciseId || (!auto && !force)) return
     const patch = {
       exercise_id: next.exerciseId, scheme: next.scheme || null, start_weight_lb: n(next.start), step_lb: n(next.step),
       drops: n(next.drops), reps: n(next.reps), notes: next.notes.trim() || null,
@@ -91,7 +92,7 @@ function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; ap
     if (e?.id) {
       const changed = (Object.keys(patch) as (keyof typeof patch)[]).some(k => (patch[k] ?? null) !== ((e as any)[k] ?? null))
       if (changed) await api.updateSet(e.id, patch)
-    } else if (patch.start_weight_lb !== null || patch.reps !== null || patch.notes) {
+    } else if (force || patch.start_weight_lb !== null || patch.reps !== null || patch.notes) {
       const row = await api.addSet({
         ...patch, block: 'support', set_index: slot.setIndex, weight_lb: null, total_bottom_lb: null, total_top_lb: null,
         assisted: false, failed: false, setup: { slot: slot.slot },
@@ -117,7 +118,7 @@ function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; ap
 
   const label = exercises.find(x => x.id === v.exerciseId)?.name
   return (
-    <div className={'sub' + (e ? ' done' : '')}>
+    <div className={'sub' + (e && mode === 'edit' ? '' : '')}>
       <div className="row">
         <label className="grow">{slot.setIndex > 1 ? `Set ${slot.setIndex}` : 'Exercise'}
           <select value={v.exerciseId} onChange={ev => pick(ev.target.value)}>
@@ -143,6 +144,7 @@ function SupportRow({ slot, api, onAddSet, onRemove, onSaved }: { slot: Slot; ap
         <button className="ghost small addset" onClick={onAddSet} disabled={!v.exerciseId}>+ set</button>
       </div>
       {loads && <p className="small muted">Loads: {loads}</p>}
+      {!auto && <button className="primary" onClick={() => save(v, true)} disabled={!v.exerciseId}>Log {label ?? 'exercise'}</button>}
     </div>
   )
 }
