@@ -17,7 +17,7 @@ const TABS: { id: Tab; label: string; coach?: boolean }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'plan', label: 'Plan' },
   { id: 'config', label: 'Config' },
-  { id: 'people', label: 'People', coach: true },
+  { id: 'people', label: 'Lifters', coach: true },
 ]
 
 export default function App() {

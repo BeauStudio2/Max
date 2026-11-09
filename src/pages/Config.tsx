@@ -45,19 +45,12 @@ const LIFTER_COLS: { path: string; label: string; kind?: 'num' | 'clamp' }[] = [
 ]
 
 export default function Config() {
-  const { isCoach, lifters, equipment, exercises, templates, reload } = useStore()
+  const { isCoach, equipment, exercises, templates, reload } = useStore()
   const [settings, setSettings] = useState<{ key: string; value: any; notes: string | null }[]>([])
   const [err, setErr] = useState<string | null>(null)
   const ro = !isCoach
   useEffect(() => { supabase.from('settings').select('*').order('key').then(({ data }) => setSettings(data ?? [])) }, [])
   const done = async (p: PromiseLike<{ error: any }>) => { const { error } = await p; if (error) setErr(error.message); else await reload() }
-
-  // Lifters
-  const saveLifter = (l: Lifter, path: string, raw: string) => {
-    const v = path.endsWith('default_clamp') ? raw || null : asNum(raw)
-    if (path === 'bodyweight_lb') return done(supabase.from('lifters').update({ bodyweight_lb: v }).eq('id', l.id))
-    return done(supabase.from('lifters').update({ settings: put(l.settings, path.replace('settings.', ''), v) }).eq('id', l.id))
-  }
 
   // Deadlift cycle lives on the Saturday plan.
   const sat = templates.find(t => t.spec?.deadlift_cycle)
@@ -98,29 +91,6 @@ export default function Config() {
         </table></div>
       </section>
 
-      <section className="card">
-        <h2>Lifters</h2>
-        <div className="tablewrap"><table className="sheet cfg">
-          <thead><tr><th className="stick">Lifter</th>{LIFTER_COLS.map(c => <th key={c.path}>{c.label}</th>)}</tr></thead>
-          <tbody>{lifters.map(l => (
-            <tr key={l.id}>
-              <td className="stick">{l.name}</td>
-              {LIFTER_COLS.map(c => {
-                const v = get(l, c.path)
-                if (c.kind === 'clamp') return (
-                  <td key={c.path}>{ro ? (CLAMPS.find(x => x[0] === v)?.[1] ?? '—') : (
-                    <select className="mini" value={v ?? ''} onChange={e => saveLifter(l, c.path, e.target.value)}>
-                      <option value="">default</option>
-                      {CLAMPS.filter(x => x[0] !== CHAIN_CLAMP).map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}
-                    </select>)}</td>
-                )
-                return <td key={c.path}>{ro ? (v ?? '') : <CellText value={v == null ? '' : String(v)} narrow numeric onSave={x => saveLifter(l, c.path, x)} />}</td>
-              })}
-            </tr>
-          ))}</tbody>
-        </table></div>
-        <p className="small muted">These are each lifter's starting values. A session's own plan (and the previous session) takes over once they train.</p>
-      </section>
 
       {groups.map(([title, test]) => {
         const rows = equipment.filter(test)
@@ -144,7 +114,7 @@ export default function Config() {
                 </tr>
               ))}</tbody>
             </table></div>
-            {title === 'Chains' && <p className="small muted">Load from chains: weight per inch × inches off the floor. At the bottom that's the lifter's chain hang; at the top, hang + range of motion (never more than the whole chain). Until total weight and length are entered, the fallback bottom/top values are used. Hang and range of motion are set per lifter and lift above, and per session in Plan.</p>}
+            {title === 'Chains' && <p className="small muted">Load from chains: weight per inch × inches off the floor. At the bottom that's the lifter's chain hang; at the top, hang + range of motion (never more than the whole chain). Until total weight and length are entered, the fallback bottom/top values are used. Hang and range of motion are set per lifter and lift on the Lifters page, and per session in Plan.</p>}
             {!ro && <button className="ghost small" onClick={() => {
               const name = window.prompt(`New item for ${title}`)?.trim()
               if (!name) return
@@ -193,5 +163,46 @@ export default function Config() {
         }}>+ Add exercise</button>}
       </section>
     </div>
+  )
+}
+
+/** Each lifter's starting values, as one editable table (shown on the Lifters page). */
+export function LifterSettings() {
+  const { isCoach, lifters, reload } = useStore()
+  const [err, setErr] = useState<string | null>(null)
+  const ro = !isCoach
+  const done = async (p: PromiseLike<{ error: any }>) => { const { error } = await p; if (error) setErr(error.message); else await reload() }
+  const saveLifter = (l: Lifter, path: string, raw: string) => {
+    const v = path.endsWith('default_clamp') ? raw || null : asNum(raw)
+    if (path === 'bodyweight_lb') return done(supabase.from('lifters').update({ bodyweight_lb: v }).eq('id', l.id))
+    return done(supabase.from('lifters').update({ settings: put(l.settings, path.replace('settings.', ''), v) }).eq('id', l.id))
+  }
+  return (
+    <>
+      {err && <p className="err">{err}</p>}
+      <section className="card">
+        <h2>Starting values</h2>
+        <div className="tablewrap"><table className="sheet cfg">
+          <thead><tr><th className="stick">Lifter</th>{LIFTER_COLS.map(c => <th key={c.path}>{c.label}</th>)}</tr></thead>
+          <tbody>{lifters.map(l => (
+            <tr key={l.id}>
+              <td className="stick">{l.name}</td>
+              {LIFTER_COLS.map(c => {
+                const v = get(l, c.path)
+                if (c.kind === 'clamp') return (
+                  <td key={c.path}>{ro ? (CLAMPS.find(x => x[0] === v)?.[1] ?? '—') : (
+                    <select className="mini" value={v ?? ''} onChange={e => saveLifter(l, c.path, e.target.value)}>
+                      <option value="">default</option>
+                      {CLAMPS.filter(x => x[0] !== CHAIN_CLAMP).map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}
+                    </select>)}</td>
+                )
+                return <td key={c.path}>{ro ? (v ?? '') : <CellText value={v == null ? '' : String(v)} narrow numeric onSave={x => saveLifter(l, c.path, x)} />}</td>
+              })}
+            </tr>
+          ))}</tbody>
+        </table></div>
+        <p className="small muted">These are each lifter's starting values. A session's own plan (and the previous session) takes over once they train.</p>
+      </section>
+    </>
   )
 }
