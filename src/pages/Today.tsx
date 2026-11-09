@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
-import { fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
+import { LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import Ladder, { type LadderPlan } from './today/Ladder'
 import SpeedBlock from './today/Speed'
@@ -152,8 +152,30 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const supportKey: string = sp.support_choice ?? (lift === planLift ? tpl?.spec?.support?.group : null) ?? 'none'
   const speedFor = speedOptions.get(speedKey) ?? null
   const support = supportOptions.get(supportKey) ?? null
-  const choose = (k: 'speed_choice' | 'support_choice', v: string) =>
-    ensureSession({ planned: { ...(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...(session?.planned ?? {}), [k]: v } })
+  const savePlanned = (patch: Record<string, any>) =>
+    ensureSession({ planned: { ...(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...(session?.planned ?? {}), ...patch } })
+  const choose = (k: 'speed_choice' | 'support_choice', v: string) => savePlanned({ [k]: v })
+
+  // Exercise choices for the heavy block and each speed slot; switching also relabels sets already logged there.
+  const heavyBlock = lift === 'deadlift' ? 'deadlift' : 'primary'
+  const heavyDefault = LIFT_EXERCISE[lift]
+  const heavyEx: string = sp.heavy_exercise ?? heavyDefault
+  const relabel = async (rows: SetRow[], name: string) => {
+    const id = exId(name)
+    if (!id) return
+    for (const r of rows) if (r.exercise_id !== id) await api.updateSet(r.id!, { exercise_id: id })
+  }
+  async function setHeavyEx(name: string) {
+    const oldId = exId(heavyEx)
+    await relabel(sets.filter(r => r.block === heavyBlock && r.exercise_id === oldId), name)
+    await savePlanned({ heavy_exercise: name })
+  }
+  const speedSlotSets = (it: any) => sets.filter(s => s.block === 'speed' && (s.setup?.slot === it.name || (!s.setup?.slot && s.exercise_id === exId(it.name))))
+  const speedEx = (it: any): string => sp.speed_ex?.[it.name] ?? it.name
+  async function setSpeedEx(it: any, name: string) {
+    await relabel(speedSlotSets(it), name)
+    await savePlanned({ speed_ex: { ...(sp.speed_ex ?? {}), [it.name]: name } })
+  }
   const elapsed = useClock(session?.started_at)
 
   return (
@@ -201,13 +223,13 @@ export default function Today({ lifterId }: { lifterId: string }) {
           <section className="card" key="speed">
             <h2>Speed · {speedFor.lift}</h2>
             {speedFor.items.map((it: any) => (
-              <SpeedBlock key={date + it.name} item={it} sets={sets.filter(s => s.block === 'speed' && s.exercise_id === exId(it.name))} api={api} />
+              <SpeedBlock key={date + it.name} item={it} exerciseName={speedEx(it)} onExercise={n => setSpeedEx(it, n)} sets={speedSlotSets(it)} api={api} />
             ))}
           </section>
         )
         if (b === 'heavy') return lift === 'deadlift'
-          ? <Deadlift key="dl" week={dlWeek} cycle={cycle} plan={dlPlan} setPlan={savePlan(dlPlan)} sets={sets.filter(s => s.block === 'deadlift')} api={api} best={best} />
-          : <Ladder key={'ladder' + lift} lift={lift} plan={ladderPlan} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} setPlan={savePlan(ladderPlan)} sets={sets.filter(s => s.block === 'primary')} api={api} currentMax={currentMax} />
+          ? <Deadlift key="dl" exerciseName={heavyEx} onExercise={setHeavyEx} week={dlWeek} cycle={cycle} plan={dlPlan} setPlan={savePlan(dlPlan)} sets={sets.filter(s => s.block === 'deadlift')} api={api} best={best} />
+          : <Ladder key={'ladder' + lift} exerciseName={heavyEx} onExercise={setHeavyEx} lift={lift} plan={ladderPlan} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} setPlan={savePlan(ladderPlan)} sets={sets.filter(s => s.block === 'primary')} api={api} currentMax={currentMax} />
         if (b === 'support' && support) return <Support key={'support' + date + lift + supportKey} support={support} sets={sets.filter(s => s.block === 'support')} api={api} />
         return null
       })}

@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { e1rmFromRpe, platesPerSide, round, roundTo } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
-import { Num, type Api } from './shared'
+import { ExercisePicker, Num, type Api } from './shared'
 
 export interface DeadliftPlan { planned_top_lb: number | null; bar_lb: number }
 
 interface Row { step: string; idx: number; pct: number | null; weight: number | null; reps: number; rpe?: boolean; ex: 'Deadlift' | 'Flywheel deadlift' }
 
-export default function Deadlift({ week, cycle, plan, setPlan, sets, api, best }: {
+export default function Deadlift({ week, cycle, plan, setPlan, sets, api, best, exerciseName, onExercise }: {
+  exerciseName: string; onExercise: (n: string) => void;
   week: number | null; cycle?: any[]; plan: DeadliftPlan; setPlan: (p: Partial<DeadliftPlan>) => void; sets: SetRow[]; api: Api; best?: number
 }) {
   const wk = week && cycle ? cycle.find(c => c.week === week) : null
@@ -28,11 +29,12 @@ export default function Deadlift({ week, cycle, plan, setPlan, sets, api, best }
   for (let i = 1; i <= (wk?.flywheel_sets ?? 0); i++)
     rows.push({ step: `flywheel ${i}`, idx: i, pct: null, weight: null, reps: 6, ex: 'Flywheel deadlift' })
   const extra = sets.filter(s => s.setup?.step?.startsWith('extra')).sort((a, b) => a.set_index - b.set_index)
-  const maxIdx = Math.max(20, ...sets.filter(s => api.exId('Deadlift') === s.exercise_id).map(s => s.set_index))
+  const maxIdx = Math.max(20, ...sets.filter(s => api.exId(exerciseName) === s.exercise_id).map(s => s.set_index))
 
   return (
     <section className="card">
       <h2>Deadlift{week ? ` · cycle week ${week} of 6` : ''}</h2>
+      <ExercisePicker value={exerciseName} onChange={onExercise} className="exrow" />
       {wk && <p className="small"><b>{wk.pull}</b> · top: {wk.top}{wk.backoff ? ` · back-off ${wk.backoff}` : ''}</p>}
       <div className="planfields">
         <Num label="Planned top lb" value={top} onSave={v => setPlan({ planned_top_lb: v })} />
@@ -50,20 +52,20 @@ export default function Deadlift({ week, cycle, plan, setPlan, sets, api, best }
         <table className="sets dl">
           <thead><tr><th></th><th>lb · per side</th><th>Reps</th><th>RPE</th><th></th></tr></thead>
           <tbody>
-            {rows.map(r => <PullRow key={r.step} row={r} existing={sets.find(s => s.setup?.step === r.step)} bar={plan.bar_lb} api={api} />)}
-            {extra.map(s => <PullRow key={s.id} row={{ step: s.setup.step, idx: s.set_index, pct: null, weight: s.weight_lb, reps: s.reps ?? 1, rpe: true, ex: 'Deadlift' }} existing={s} bar={plan.bar_lb} api={api} />)}
+            {rows.map(r => <PullRow key={r.step} main={exerciseName} row={r} existing={sets.find(s => s.setup?.step === r.step)} bar={plan.bar_lb} api={api} />)}
+            {extra.map(s => <PullRow key={s.id} main={exerciseName} row={{ step: s.setup.step, idx: s.set_index, pct: null, weight: s.weight_lb, reps: s.reps ?? 1, rpe: true, ex: 'Deadlift' }} existing={s} bar={plan.bar_lb} api={api} />)}
           </tbody>
         </table>
       </div>
       <button className="ghost" onClick={() => api.addSet({
-        exercise_id: api.exId('Deadlift')!, block: 'deadlift', set_index: maxIdx + 1, weight_lb: null, total_bottom_lb: null, total_top_lb: null,
+        exercise_id: api.exId(exerciseName)!, block: 'deadlift', set_index: maxIdx + 1, weight_lb: null, total_bottom_lb: null, total_top_lb: null,
         reps: null, assisted: false, failed: false, setup: { step: `extra ${extra.length + 1}`, bar_lb: plan.bar_lb },
       })}>+ Add pull</button>
     </section>
   )
 }
 
-function PullRow({ row, existing, bar, api }: { row: Row; existing?: SetRow; bar: number; api: Api }) {
+function PullRow({ row, existing, bar, api, main }: { main: string; row: Row; existing?: SetRow; bar: number; api: Api }) {
   const fly = row.ex === 'Flywheel deadlift'
   const [w, setW] = useState('')
   const [reps, setReps] = useState('')
@@ -83,7 +85,7 @@ function PullRow({ row, existing, bar, api }: { row: Row; existing?: SetRow; bar
     }
     if (existing?.id) await api.updateSet(existing.id, patch)
     else if (patch.reps !== null) await api.addSet({
-      exercise_id: api.exId(row.ex)!, block: 'deadlift', set_index: row.idx, assisted: false, failed: false, ...patch,
+      exercise_id: api.exId(row.ex === 'Deadlift' ? main : row.ex)!, block: 'deadlift', set_index: row.idx, assisted: false, failed: false, ...patch,
     } as any)
   }
 

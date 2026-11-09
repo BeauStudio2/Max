@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SetRow } from '../../lib/types'
+import { useStore } from '../../lib/store'
+import { supabase } from '../../supabase'
 
 export type Api = {
   addSet: (row: Omit<SetRow, 'session_id'>) => Promise<SetRow | null>
@@ -41,4 +43,28 @@ export function useClock(since?: string | null) {
 export function fmt(s: number) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** Exercise dropdown over every exercise in the library; the coach can add a new one from it. */
+export function ExercisePicker({ value, onChange, label = 'Exercise', className = 'grow' }: {
+  value: string; onChange: (name: string) => void; label?: string; className?: string
+}) {
+  const { exercises, isCoach, reload } = useStore()
+  async function pick(name: string) {
+    if (name !== '__new') { onChange(name); return }
+    const n = window.prompt('New exercise name')?.trim()
+    if (!n) return
+    const { error } = await supabase.from('exercises').insert({ name: n, category: 'support' })
+    if (error && !error.message.includes('duplicate')) { alert(error.message); return }
+    await reload(); onChange(n)
+  }
+  return (
+    <label className={className}>{label}
+      <select value={value} onChange={e => pick(e.target.value)}>
+        {!exercises.some(e => e.name === value) && <option value={value}>{value}</option>}
+        {exercises.map(e => <option key={e.id} value={e.name}>{e.name}</option>)}
+        {isCoach && <option value="__new">+ New exercise…</option>}
+      </select>
+    </label>
+  )
 }

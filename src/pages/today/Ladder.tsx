@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
-import { LIFT_EXERCISE, e1rm, expectedReps, fitFatigue, platesPerSide, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
+import { e1rm, expectedReps, fitFatigue, platesPerSide, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { Lift, SetRow } from '../../lib/types'
-import { Num, fmt, useClock, type Api } from './shared'
+import { ExercisePicker, Num, fmt, useClock, type Api } from './shared'
 
 export interface LadderPlan {
   planned_e1rm: number | null
@@ -39,11 +39,11 @@ export const setupLabel = (s: LoadSetup) => {
   return parts.length ? parts.join(' ') : s.clamp === ELEIKO ? 'straight' : 'no chains'
 }
 
-export default function Ladder({ lift, plan, setPlan, sets, api, currentMax, carriedFrom }: {
-  carriedFrom?: string; lift: Lift; plan: LadderPlan; setPlan: (p: Partial<LadderPlan>) => void; sets: SetRow[]; api: Api; currentMax: number | null
+export default function Ladder({ lift, plan, setPlan, sets, api, currentMax, carriedFrom, exerciseName, onExercise }: {
+  exerciseName: string; onExercise: (n: string) => void; carriedFrom?: string; lift: Lift; plan: LadderPlan; setPlan: (p: Partial<LadderPlan>) => void; sets: SetRow[]; api: Api; currentMax: number | null
 }) {
   const { equipment, cfg } = useStore()
-  const exerciseId = api.exId(LIFT_EXERCISE[lift])
+  const exerciseId = api.exId(exerciseName)
   const f = plan.fatigue_rate_used_pct / 100
   const logged = useMemo(() => [...sets].sort((a, b) => a.set_index - b.set_index), [sets])
   const actual = logged.map(r => e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted || r.failed, cfg))
@@ -144,6 +144,7 @@ export default function Ladder({ lift, plan, setPlan, sets, api, currentMax, car
   return (
     <section className="card">
       <h2>Heavy · {lift}</h2>
+      <ExercisePicker value={exerciseName} onChange={onExercise} className="exrow" />
 
       <div className="planfields">
         <Num label="Planned max" value={plan.planned_e1rm} onSave={v => setPlan({ planned_e1rm: v })} />

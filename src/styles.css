@@ -165,3 +165,5 @@ svg.trend .proj { fill: none; stroke: var(--accent); stroke-width: 2; stroke-das
 .tabs button { padding: 10px 4px; }
 .choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
 @media (max-width: 480px) { .choices { grid-template-columns: 1fr; } }
+.exrow { margin-bottom: 8px; }
+.setcount { white-space: nowrap; align-self: flex-end; padding-bottom: 12px; }

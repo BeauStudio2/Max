@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useStore } from '../../lib/store'
 import { round } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
-import type { Api } from './shared'
+import { ExercisePicker, type Api } from './shared'
 
 type Kind = 'throw' | 'bandbench' | 'jump' | 'generic'
 const kindOf = (name: string): Kind => {
@@ -13,11 +13,11 @@ const kindOf = (name: string): Kind => {
   return 'generic'
 }
 
-export default function SpeedBlock({ item, sets, api }: { item: any; sets: SetRow[]; api: Api }) {
+export default function SpeedBlock({ item, sets, api, exerciseName, onExercise }: { item: any; sets: SetRow[]; api: Api; exerciseName: string; onExercise: (n: string) => void }) {
   const { equipment } = useStore()
   const bands = equipment.filter(e => e.kind === 'band')
-  const kind = kindOf(item.name)
-  const exerciseId = api.exId(item.name)
+  const kind = kindOf(exerciseName)
+  const exerciseId = api.exId(exerciseName)
   const sorted = [...sets].sort((a, b) => a.set_index - b.set_index)
   const last = sorted.at(-1)
   const ls = last?.setup ?? {}
@@ -40,7 +40,7 @@ export default function SpeedBlock({ item, sets, api }: { item: any; sets: SetRo
 
   async function log() {
     if (!exerciseId || reps === '') return
-    const setup: Record<string, any> = {}
+    const setup: Record<string, any> = { slot: item.name }
     if (kind === 'throw') setup.bell_reps_of = 7
     if (kind === 'bandbench' || kind === 'jump') Object.assign(setup, { band: band || null, bands: nb ? Number(nb) : null, lockout_lb: lockout, chest_lb: kind === 'bandbench' ? 0 : null })
     if (kind === 'bandbench') Object.assign(setup, { bell_hits: hits ? Number(hits) : null, string_in: string ? Number(string) : null })
@@ -61,8 +61,8 @@ export default function SpeedBlock({ item, sets, api }: { item: any; sets: SetRo
 
   return (
     <div className="sub">
-      <div className="row between"><b>{item.name}</b><span className="small muted">{sorted.length}/{item.sets ?? '?'} sets{item.reps ? ` × ${item.reps}` : ''}</span></div>
-      {item.rule && <p className="small muted">{item.rule}</p>}
+      <div className="row between"><ExercisePicker value={exerciseName} onChange={onExercise} /><span className="small muted setcount">{sorted.length}/{item.sets ?? '?'} sets{item.reps ? ` × ${item.reps}` : ''}</span></div>
+      {item.rule && exerciseName === item.name && <p className="small muted">{item.rule}</p>}
       {sorted.length > 0 && (
         <p className="chips">{sorted.map(r => (
           <span key={r.id} className="chip" onClick={() => api.deleteSet(r.id!)} title="Tap to delete">{chip(r)}</span>
