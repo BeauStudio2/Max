@@ -21,7 +21,7 @@ export interface LadderPlan {
 export const BAR = 'Ohio Power Bar'
 export const ELEIKO = 'Eleiko clamps (pair)'
 export const ROGUE = 'Rogue aluminum clamps (pair)'
-export const CHAIN_CLAMP = 'Chain clamp + carabiner (pair)'
+export const CHAIN_CLAMP = 'Chain clamps (pair)'
 export const CLAMPS: [string, string][] = [[ROGUE, 'Rogue'], [ELEIKO, 'Eleiko'], [CHAIN_CLAMP, 'Chain clamp']]
 
 const geo = (p: LadderPlan) => ({ rom_in: p.rom_in, hang_in: p.hang_in })
