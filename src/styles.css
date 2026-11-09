@@ -243,3 +243,6 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
 .sheetfoot { margin: 8px 0 0; }
 .sheetbar .circuit { gap: 2px; }
 .supsheet .stick .sub2.wrap { max-width: 124px; white-space: normal; }
+.config table.sheet.cfg td { color: var(--text); }
+td.wrapcell { white-space: normal; min-width: 220px; }
+.tabs button { font-size: 13px; padding: 10px 2px; }

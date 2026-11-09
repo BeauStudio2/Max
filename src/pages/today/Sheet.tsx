@@ -70,7 +70,10 @@ type Planned =
 function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: (it: any) => SetRow[], placement: Placement) {
   const since = new Set<string>()
   for (let i = done.length - 1; i >= 0 && !isMain(done[i]); i--) if (done[i].setup?.slot) since.add(done[i].setup.slot)
-  const left = items.map(it => ({ it, done: speedSets(it).length, left: Math.max(0, (it.sets ?? 0) - speedSets(it).length) }))
+  // Between main sets, every main set gets one round of speed, so speed runs as long as the main lift does.
+  const mainTotal = done.filter(isMain).length + main.length
+  const target = (it: any) => placement === 'between' ? mainTotal : (it.sets ?? 0)
+  const left = items.map(it => ({ it, done: speedSets(it).length, left: Math.max(0, target(it) - speedSets(it).length) }))
   const rounds: Planned[][] = []
   let first = since.size > 0, partial = false
   while (left.some(x => x.left > 0)) {
@@ -446,11 +449,11 @@ function SupportTr({ slot, S, api }: { slot: SupportSlot; S: SupportCtl; api: Ap
 
 /* ---------- cells ---------- */
 
-function CellNum({ value, onSave }: { value: number | null; onSave: (v: number | null) => void }) {
+export function CellNum({ value, onSave }: { value: number | null; onSave: (v: number | null) => void }) {
   return <CellText value={value === null ? '' : String(Math.round(value * 100) / 100)} narrow numeric onSave={v => onSave(v === '' ? null : Number(v))} />
 }
 
-function CellText({ value, onSave, placeholder, narrow, wide, full, numeric }: {
+export function CellText({ value, onSave, placeholder, narrow, wide, full, numeric }: {
   value: string; onSave: (v: string) => void; placeholder?: string; narrow?: boolean; wide?: boolean; full?: boolean; numeric?: boolean
 }) {
   const [v, setV] = useState(value)

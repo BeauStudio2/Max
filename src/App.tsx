@@ -8,13 +8,15 @@ import History from './pages/History'
 import Plan from './pages/Plan'
 import People from './pages/People'
 import Profile from './pages/Profile'
+import Config from './pages/Config'
 
-type Tab = 'today' | 'history' | 'profile' | 'plan' | 'people'
+type Tab = 'today' | 'history' | 'profile' | 'plan' | 'config' | 'people'
 const TABS: { id: Tab; label: string; coach?: boolean }[] = [
   { id: 'today', label: 'Log' },
   { id: 'history', label: 'History' },
   { id: 'profile', label: 'Profile' },
   { id: 'plan', label: 'Plan' },
+  { id: 'config', label: 'Config' },
   { id: 'people', label: 'People', coach: true },
 ]
 
@@ -68,6 +70,7 @@ function Shell() {
             {tab === 'history' && <History lifterId={lifterId} />}
             {tab === 'profile' && <><Profile lifterId={lifterId} /><Account email={auth.user.email ?? ''} /></>}
             {tab === 'plan' && <Plan lifterId={lifterId} />}
+            {tab === 'config' && <Config />}
             {tab === 'people' && isCoach && <People />}
           </>
         )}

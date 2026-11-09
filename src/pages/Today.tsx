@@ -150,8 +150,10 @@ export default function Today({ lifterId }: { lifterId: string }) {
     if (t.spec?.speed?.lift && !speedOptions.has(t.spec.speed.lift)) speedOptions.set(t.spec.speed.lift, t.spec.speed)
     if (t.spec?.support?.group && !supportOptions.has(t.spec.support.group)) supportOptions.set(t.spec.support.group, t.spec.support)
   }
-  const speedKey: string = sp.speed_choice ?? (lift === planLift ? tpl?.spec?.speed?.lift : null) ?? 'none'
-  const supportKey: string = sp.support_choice ?? (lift === planLift ? tpl?.spec?.support?.group : null) ?? 'none'
+  // Speed pairs with the other lift: heavy squat gets speed bench and heavy bench gets speed squat, whatever the day planned.
+  const pairedSpeed = lift === 'squat' ? 'bench' : lift === 'bench' ? 'squat' : null
+  const speedKey: string = sp.speed_choice ?? (lift === planLift ? tpl?.spec?.speed?.lift : pairedSpeed) ?? 'none'
+  const supportKey: string = sp.support_choice ?? tpl?.spec?.support?.group ?? 'none'
   const speedFor = speedOptions.get(speedKey) ?? null
   const support = supportOptions.get(supportKey) ?? null
   const savePlanned = (patch: Record<string, any>) =>
