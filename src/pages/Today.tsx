@@ -165,21 +165,21 @@ export default function Today({ lifterId }: { lifterId: string }) {
         <div className="choices">
           <label>Heavy
             <select value={lift} onChange={e => setLift(e.target.value as Lift)}>
-              <option value="bench">Bench ladder{planLift === 'bench' ? ' (plan)' : ''}</option>
-              <option value="squat">Squat ladder{planLift === 'squat' ? ' (plan)' : ''}</option>
-              <option value="deadlift">Deadlift cycle{planLift === 'deadlift' ? ' (plan)' : ''}</option>
+              <option value="squat">Squat</option>
+              <option value="bench">Bench</option>
+              <option value="deadlift">Deadlift</option>
             </select>
           </label>
           <label>Speed
             <select value={speedKey} onChange={e => choose('speed_choice', e.target.value)}>
-              <option value="none">None{lift === planLift && !tpl?.spec?.speed ? ' (plan)' : ''}</option>
-              {[...speedOptions.keys()].map(k => <option key={k} value={k}>Speed {k}{lift === planLift && tpl?.spec?.speed?.lift === k ? ' (plan)' : ''}</option>)}
+              <option value="none">None</option>
+              {[...speedOptions.keys()].map(k => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
             </select>
           </label>
           <label>Support
             <select value={supportKey} onChange={e => choose('support_choice', e.target.value)}>
               <option value="none">None</option>
-              {[...supportOptions.keys()].map(k => <option key={k} value={k}>{k}{lift === planLift && tpl?.spec?.support?.group === k ? ' (plan)' : ''}</option>)}
+              {[...supportOptions.keys()].map(k => <option key={k} value={k}>{k}</option>)}
             </select>
           </label>
         </div>
