@@ -10,7 +10,7 @@ export interface Template { id: string; weekday: number; name: string; spec: any
 export interface Session {
   id: string; lifter_id: string; session_date: string; primary_lift: Lift | null; template_id: string | null
   sick: boolean; hurt: string | null; bodyweight_lb: number | null; notes: string | null
-  planned: Record<string, any>; source: string; started_at: string | null; ended_at: string | null
+  planned: Record<string, any>; extra?: Record<string, any>; source: string; started_at: string | null; ended_at: string | null
 }
 
 export interface SetRow {

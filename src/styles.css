@@ -204,3 +204,42 @@ li.qdone.below .grow { opacity: .6; }
 .supgroup .sub { border-top: 1px solid var(--line); padding: 12px 0; }
 .supgroup .sub:first-of-type { border-top: 0; }
 .logged { color: var(--accent); font-weight: 600; }
+
+/* ---------- session sheet ---------- */
+.sheetcard { padding: 12px; }
+.sheetbar { position: sticky; top: 58px; z-index: 3; display: grid; grid-template-columns: 1fr 1fr 96px; gap: 8px; align-items: end;
+  background: var(--card); padding: 4px 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.sheetbar > div { display: flex; flex-direction: column; }
+.sheetbar b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.sheetbar b.ready { color: var(--accent); }
+.sheetbar .circuit input { min-height: 34px; padding: 6px 8px; }
+table.sheet { border-collapse: separate; border-spacing: 0; font-size: 14px; font-variant-numeric: tabular-nums; min-width: 100%; }
+table.sheet th { position: sticky; top: 0; background: var(--card); font-size: 11px; font-weight: 600; color: var(--muted); text-align: left; padding: 6px 4px; white-space: nowrap; border-bottom: 1px solid var(--line); }
+table.sheet td { padding: 3px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+table.sheet .stick { position: sticky; left: 0; z-index: 2; background: var(--card); font-weight: 600; min-width: 92px; max-width: 132px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+table.sheet thead .stick { z-index: 4; }
+table.sheet tr.plan td { color: var(--muted); }
+table.sheet tr.plan .cellin { color: var(--muted); border-style: dashed; }
+table.sheet tr.next td { background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+table.sheet tr.next .stick { color: var(--accent); }
+table.sheet tr.below td { opacity: .55; }
+table.sheet td.num { text-align: right; }
+.tagdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.tagdot.h { background: var(--accent); } .tagdot.s { background: var(--sick); }
+.cellin { width: 64px; min-height: 34px; padding: 5px 6px; border-radius: 7px; font-size: 14px; }
+.cellin.n { width: 52px; } .cellin.w { width: 112px; } .cellin.f { width: 100%; min-width: 220px; }
+select.mini { width: auto; min-height: 34px; padding: 4px 4px; font-size: 12px; margin-right: 2px; }
+select.exsel { min-height: 34px; padding: 4px 6px; font-size: 13px; width: 124px; }
+table.sheet .picker .pickbtn { min-height: 34px; padding: 5px 8px; font-size: 13px; min-width: 96px; }
+table.sheet .flag { padding: 5px 7px; }
+table.sheet td.loads { max-width: 180px; white-space: normal; font-size: 11px; }
+tr.bandrow td, tr.noterow td { background: var(--bg); }
+.bandedit { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.bandedit .row { gap: 6px; }
+.bandedit select { min-height: 34px; padding: 4px 6px; width: auto; }
+label.inline { flex-direction: row; align-items: center; gap: 8px; }
+.supsheet { margin-top: 16px; }
+.supsheet h3 { margin: 0 0 6px; font-size: 16px; }
+.sheetfoot { margin: 8px 0 0; }
+.sheetbar .circuit { gap: 2px; }
+.supsheet .stick .sub2.wrap { max-width: 124px; white-space: normal; }

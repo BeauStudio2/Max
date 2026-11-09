@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
 import { e1rm, expectedReps, fitFatigue, platesPerSide, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
-import { Num, fmt, type Api } from './shared'
+import { Num } from './shared'
 
 export interface LadderPlan {
   planned_e1rm: number | null
@@ -13,30 +13,34 @@ export interface LadderPlan {
   rest_s: number
   chain_half: number
   chain_5_8: number
+  clamp: string
 }
 
-const BAR = 'Ohio Power Bar'
-const ELEIKO = 'Eleiko clamps (pair)'
-const CHAIN_CLAMP = 'Chain clamp + carabiner (pair)'
+export const BAR = 'Ohio Power Bar'
+export const ELEIKO = 'Eleiko clamps (pair)'
+export const ROGUE = 'Rogue aluminum clamps (pair)'
+export const CHAIN_CLAMP = 'Chain clamp + carabiner (pair)'
+export const CLAMPS: [string, string][] = [[ROGUE, 'Rogue'], [ELEIKO, 'Eleiko'], [CHAIN_CLAMP, 'Chain clamp']]
 
-const straight: LoadSetup = { bar: BAR, clamp: ELEIKO, chain_half: 0, chain_5_8: 0 }
+const straightOf = (p: LadderPlan): LoadSetup => ({ bar: BAR, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0 })
 const chained = (p: LadderPlan): LoadSetup =>
-  p.chain_half || p.chain_5_8 ? { bar: BAR, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8 } : straight
+  p.chain_half || p.chain_5_8 ? { bar: BAR, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8 } : straightOf(p)
 
 export function setupOf(r?: SetRow): LoadSetup {
   const s = r?.setup ?? {}
-  const clamp = s.clamp === 'Eleiko' ? ELEIKO : s.clamp === 'chain clamp' ? CHAIN_CLAMP : s.clamp ?? ELEIKO
+  const clamp = s.clamp === 'Eleiko' ? ELEIKO : s.clamp === 'chain clamp' ? CHAIN_CLAMP : s.clamp ?? ROGUE
   return { bar: s.bar ?? BAR, clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0) }
 }
 
-/** Chains hang from the chain clamp; with no chains the set goes back to Eleiko clamps. */
-const withClamp = (s: LoadSetup): LoadSetup => ({ ...s, clamp: s.chain_half || s.chain_5_8 ? CHAIN_CLAMP : ELEIKO })
+/** Chains hang from the chain clamp; with no chains the set goes back to the lifter's normal clamps. */
+export const withClamp = (s: LoadSetup, straightClamp: string): LoadSetup =>
+  ({ ...s, clamp: s.chain_half || s.chain_5_8 ? CHAIN_CLAMP : s.clamp === CHAIN_CLAMP ? straightClamp : s.clamp })
 
 export const setupLabel = (s: LoadSetup) => {
   const parts = []
   if (s.chain_half) parts.push(`½×${s.chain_half}`)
   if (s.chain_5_8) parts.push(`⅝×${s.chain_5_8}`)
-  return parts.length ? parts.join(' ') : s.clamp === ELEIKO ? 'straight' : 'no chains'
+  return parts.length ? parts.join(' ') : 'straight'
 }
 
 export type Ladder = ReturnType<typeof useLadder>
@@ -73,7 +77,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     let target = logged.length === 0 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
     if (target && !stopped) {
       while (idx <= 40 && (floor === null || target >= floor)) {
-        const setup = idx === 1 ? straight : chained(plan)
+        const setup = idx === 1 ? straightOf(plan) : chained(plan)
         const weight = weightFor(target, setup)
         if (weight <= 0 && idx > 1) break
         ideal.push({ idx, target, setup, weight })
@@ -99,7 +103,8 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const nextTarget = nextIdx === 1 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
   const lastStack = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
   const fit = fitFatigue(actual)
-  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit }
+  const straight = straightOf(plan)
+  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight }
 }
 
 export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
@@ -115,6 +120,9 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
         <Num label="Fatigue %/set" value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
         <Num label="Weight step" value={plan.step_lb} onSave={v => v && setPlan({ step_lb: v })} />
         <Num label="Rest (s)" value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
+        <label>Clamps (straight sets)
+          <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+        </label>
         <label>½ chains/side, sets 2+
           <select value={plan.chain_half} onChange={e => setPlan({ chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
         </label>
@@ -133,133 +141,3 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
   )
 }
 
-/** The form for the next heavy set, prefilled from the projection. */
-export function HeavyNext({ L, api, exerciseId }: { L: Ladder; api: Api; exerciseId?: string }) {
-  const { equipment, cfg } = useStore()
-  const plan = L.plan
-  const next = L.projected[0]
-  const nextIdx = L.nextIdx
-  const [setup, setSetup] = useState<LoadSetup>(next?.setup ?? (nextIdx === 1 ? straight : chained(plan)))
-  const [weight, setWeight] = useState(next ? String(next.weight) : '')
-  const [reps, setReps] = useState('')
-  const [assisted, setAssisted] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const formKey = `${nextIdx}|${next?.weight}|${setupLabel(next?.setup ?? straight)}`
-  useEffect(() => {
-    setSetup(next?.setup ?? (nextIdx === 1 ? straight : chained(plan)))
-    setWeight(next ? String(next.weight) : '')
-  }, [formKey])
-
-  const t = totals(weight === '' ? null : Number(weight), setup, equipment)
-  const changeSetup = (ns: LoadSetup) => {
-    setSetup(ns)
-    if (L.nextTarget) { const ideal = L.weightFor(L.nextTarget, ns); setWeight(String(choosePlates(ideal, plan.step_lb, L.kept, L.lastStack)?.weight ?? ideal)) }
-  }
-  const formStack = weight === '' ? null : loadSide(Number(weight) / 2, L.kept)
-  const expNext = L.nextTarget ? expectedReps(L.nextTarget, t.bottom, t.top, cfg) : null
-  const preview = e1rm(t.bottom, t.top, reps === '' ? null : Number(reps), assisted || failed, cfg)
-
-  async function log() {
-    if (!exerciseId || weight === '' || reps === '') return
-    const last = L.logged.at(-1)
-    const rest = last?.created_at ? Math.round((Date.now() - Date.parse(last.created_at)) / 1000) : null
-    await api.addSet({
-      exercise_id: exerciseId, block: 'primary', set_index: nextIdx,
-      weight_lb: Number(weight), total_bottom_lb: t.bottom, total_top_lb: t.top, reps: Number(reps),
-      assisted, failed, rest_s: rest,
-      setup: { bar: setup.bar, clamp: setup.clamp, chain_half: setup.chain_half, chain_5_8: setup.chain_5_8, target_e1rm: L.nextTarget },
-    })
-    setReps(''); setAssisted(false); setFailed(false)
-  }
-
-  return (
-    <div>
-      {L.stopped && <p className="warn small">Last set fell below {plan.stop_pct}% of set 1: ladder done. You can still log more.</p>}
-      <div className="row wrap">
-        <label className="narrow">Plates lb<input inputMode="decimal" value={weight} onChange={e => setWeight(e.target.value)} /></label>
-        <label className="narrow">Reps<input inputMode="numeric" value={reps} onChange={e => setReps(e.target.value)}
-          placeholder={expNext !== null ? expNext.toFixed(1) : String(plan.target_reps)} /></label>
-        <label className="check"><input type="checkbox" checked={assisted} onChange={e => setAssisted(e.target.checked)} /> Assisted</label>
-        <label className="check"><input type="checkbox" checked={failed} onChange={e => setFailed(e.target.checked)} /> Failed</label>
-      </div>
-      <div className="row wrap">
-        <label className="grow">Clamps
-          <select value={setup.clamp} onChange={e => changeSetup({ ...setup, clamp: e.target.value })}>
-            <option value={ELEIKO}>Eleiko</option><option value={CHAIN_CLAMP}>Chain clamp</option>
-          </select>
-        </label>
-        <label className="narrow">½ chains/side
-          <select value={setup.chain_half} onChange={e => changeSetup(withClamp({ ...setup, chain_half: Number(e.target.value) }))}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
-        </label>
-        <label className="narrow">⅝ chains/side
-          <select value={setup.chain_5_8} onChange={e => changeSetup(withClamp({ ...setup, chain_5_8: Number(e.target.value) }))}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
-        </label>
-      </div>
-      <div className="loadout">
-        <div className="wide"><span className="muted small">Per side{formStack && L.lastStack ? ` · ${changeText(L.lastStack, formStack)}` : ''}</span>
-          <b>{formStack ? stackText(formStack) : platesPerSide(weight === '' ? null : Number(weight)) || '—'}</b></div>
-        <div><span className="muted small">Total</span><b>{round(t.bottom, 1)}{t.top !== t.bottom ? ` → ${round(t.top, 1)}` : ''}</b></div>
-        <div><span className="muted small">Expect</span><b>{expNext !== null ? `${expNext.toFixed(1)} reps` : '—'}</b></div>
-        <div><span className="muted small">This set</span><b>{preview !== null ? round(preview) : '—'}</b></div>
-      </div>
-      {!plan.planned_e1rm && nextIdx === 1 && <p className="small warn">Enter a planned max in Plan to get set 1 weight.</p>}
-      <button className="primary" onClick={log} disabled={!exerciseId || weight === '' || reps === ''}>Log heavy set {nextIdx}</button>
-    </div>
-  )
-}
-
-/** A logged heavy set in the session list; tap to edit weight, reps, flags and chains. */
-export function HeavyDone({ r, L, api }: { r: SetRow; L: Ladder; api: Api }) {
-  const { equipment, cfg } = useStore()
-  const [open, setOpen] = useState(false)
-  const i = L.logged.findIndex(x => x.id === r.id)
-  const exp = L.targets[i] ? expectedReps(L.targets[i]!, r.total_bottom_lb, r.total_top_lb, cfg) : null
-  const diff = exp !== null && r.reps !== null ? r.reps - (r.assisted || r.failed ? 1 : 0) - exp : null
-  const est = L.actual[i]
-  const pct = est && L.actual[0] ? round((est / L.actual[0]) * 100) : ''
-  return (
-    <li className={'qdone heavy' + (L.floor && est && est < L.floor ? ' below' : '')}>
-      <button className="qline" onClick={() => setOpen(o => !o)}>
-        <span className="qtag h">H{r.set_index}</span>
-        <span className="grow">{round(r.weight_lb, 1)} × {r.reps}{r.assisted ? ' A' : ''}{r.failed ? ' F' : ''} <span className="muted small">{setupLabel(setupOf(r))}</span></span>
-        <span className="small">{diff !== null ? <span className={diff >= 0 ? 'up' : 'down'}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)} </span> : null}<b>{round(est)}</b> <span className="muted">{pct}%</span></span>
-        <span className="small muted qtime">{r.rest_s ? fmt(r.rest_s) : ''}</span>
-      </button>
-      {open && (
-        <div className="qedit">
-          <Num label="Plates lb" className="narrow" value={r.weight_lb} onSave={v => {
-            const tt = totals(v, setupOf(r), equipment)
-            api.updateSet(r.id!, { weight_lb: v, total_bottom_lb: tt.bottom, total_top_lb: tt.top })
-          }} />
-          <Num label="Reps" className="narrow" value={r.reps} onSave={v => api.updateSet(r.id!, { reps: v })} />
-          <div className="field"><span className="flabel">Flags</span><div>
-            <button className={'flag' + (r.assisted ? ' on' : '')} onClick={() => api.updateSet(r.id!, { assisted: !r.assisted })}>Assisted</button>
-            <button className={'flag' + (r.failed ? ' on' : '')} onClick={() => api.updateSet(r.id!, { failed: !r.failed })}>Failed</button>
-          </div></div>
-          <div className="field"><span className="flabel">Clamps · chains</span><SetupEdit setup={setupOf(r)} onChange={ns => {
-            const tt = totals(r.weight_lb, ns, equipment)
-            api.updateSet(r.id!, { setup: { ...r.setup, bar: ns.bar, clamp: ns.clamp, chain_half: ns.chain_half, chain_5_8: ns.chain_5_8 }, total_bottom_lb: tt.bottom, total_top_lb: tt.top })
-          }} /></div>
-          <p className="small muted">Total {round(r.total_bottom_lb, 1)}{r.total_top_lb !== r.total_bottom_lb ? `→${round(r.total_top_lb, 1)}` : ''}{exp !== null ? ` · expected ${exp.toFixed(1)} reps` : ''}</p>
-          <button className="ghost small" onClick={() => api.deleteSet(r.id!)}>Delete set</button>
-        </div>
-      )}
-    </li>
-  )
-}
-
-function SetupEdit({ setup, onChange }: { setup: LoadSetup; onChange: (s: LoadSetup) => void }) {
-  return (
-    <div className="setupedit">
-      <select value={setup.clamp} onChange={e => onChange({ ...setup, clamp: e.target.value })} aria-label="Clamps">
-        <option value={ELEIKO}>Eleiko</option><option value={CHAIN_CLAMP}>Chain clamp</option>
-      </select>
-      <select value={setup.chain_half} onChange={e => onChange(withClamp({ ...setup, chain_half: Number(e.target.value) }))} aria-label="Half-inch chains per side">
-        {[0, 1, 2].map(v => <option key={v} value={v}>½×{v}</option>)}
-      </select>
-      <select value={setup.chain_5_8} onChange={e => onChange(withClamp({ ...setup, chain_5_8: Number(e.target.value) }))} aria-label="Five-eighths chains per side">
-        {[0, 1, 2].map(v => <option key={v} value={v}>⅝×{v}</option>)}
-      </select>
-    </div>
-  )
-}

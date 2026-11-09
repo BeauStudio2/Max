@@ -4,7 +4,7 @@ import { templateFor, useStore } from '../lib/store'
 import { LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
-import Queue, { type Placement } from './today/Queue'
+import SessionSheet, { type Placement } from './today/Sheet'
 import { useSupportSlots } from './today/Support'
 import { DeadliftPlanFields, useDeadlift, type DeadliftPlan } from './today/Deadlift'
 import { ExercisePicker, Num, fmt, useClock, type Api } from './today/shared'
@@ -123,6 +123,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     rest_s: pick(sp.rest_s, prevPlan.rest_s, st.rest_s) ?? 100,
     chain_half: pick(sp.chain_half, prevPlan.chain_half, st.chain_setup?.[lift]?.chain_half) ?? 0,
     chain_5_8: pick(sp.chain_5_8, prevPlan.chain_5_8, st.chain_setup?.[lift]?.chain_5_8) ?? 1,
+    clamp: pick(sp.clamp, prevPlan.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
   }
 
   const dlWeek = (() => {
@@ -248,6 +249,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
             {lift === 'deadlift'
               ? <DeadliftPlanFields D={D} setPlan={savePlan(dlPlan)} best={best} />
               : <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} />}
+            {speedFor?.items?.map((it: any, i: number) => (
+              <ExercisePicker key={it.name} label={`Speed exercise ${i + 1}`} value={speedEx(it)} onChange={n => setSpeedEx(it, n)} className="exrow" />
+            ))}
             {speedFor?.items?.length ? (
               <div className="planfields">
                 <label>Speed sets
@@ -264,9 +268,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
         )}
       </section>
 
-      <Queue key={date + lift + supportKey} api={api} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
+      <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} onSpeedEx={setSpeedEx} speedSets={speedSlotSets} placement={placement} offsetS={offsetS} S={S} />
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} S={S}
+        circuit={(session?.extra as any)?.circuit_minutes ?? null}
+        onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 
       {currentMax && <p className="small muted center-text">Current {lift} max {round(currentMax)} (latest session not sick or injured).</p>}
     </div>
