@@ -171,3 +171,4 @@ svg.trend .proj { fill: none; stroke: var(--accent); stroke-width: 2; stroke-das
 .timer > div { display: flex; flex-direction: column; margin-right: auto; }
 .timer .elapsed { font-size: 26px; font-variant-numeric: tabular-nums; }
 .timer button.primary { margin-top: 0; }
+.stack + .account { margin: 14px 0 0; }

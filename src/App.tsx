@@ -36,7 +36,6 @@ function Shell() {
   const { isCoach, myLifter, lifters, auth } = useStore()
   const initial = (location.hash.slice(1) as Tab) || 'today'
   const [tab, setTab] = useState<Tab>(TABS.some(t => t.id === initial) ? initial : 'today')
-  const [showAccount, setShowAccount] = useState(false)
   const [lifterId, setLifterId] = useState<string>(myLifter?.id ?? lifters[0]?.id ?? '')
 
   useEffect(() => { history.replaceState(null, '', '#' + tab) }, [tab])
@@ -54,9 +53,7 @@ function Shell() {
             {lifters.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         ) : <div className="lifter-name">{myLifter?.name ?? ''}</div>}
-        <button className="ghost small" onClick={() => setShowAccount(v => !v)}>Account</button>
       </header>
-      {showAccount && <Account email={auth.user.email ?? ''} />}
 
       <main>
         {noAccess ? (
@@ -69,7 +66,7 @@ function Shell() {
           <>
             {tab === 'today' && <Today lifterId={lifterId} />}
             {tab === 'history' && <History lifterId={lifterId} />}
-            {tab === 'profile' && <Profile lifterId={lifterId} />}
+            {tab === 'profile' && <><Profile lifterId={lifterId} /><Account email={auth.user.email ?? ''} /></>}
             {tab === 'plan' && <Plan lifterId={lifterId} />}
             {tab === 'people' && isCoach && <People />}
           </>
@@ -85,7 +82,7 @@ function Shell() {
   )
 }
 
-function Account({ email }: { email: string }) {
+export function Account({ email }: { email: string }) {
   const [pw, setPw] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   async function change(e: React.FormEvent) {
@@ -96,6 +93,7 @@ function Account({ email }: { email: string }) {
   }
   return (
     <div className="account card">
+      <h2>Account</h2>
       <p className="small muted">Signed in as {email}</p>
       <form className="row" onSubmit={change}>
         <label className="grow">New password
