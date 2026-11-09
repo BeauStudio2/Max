@@ -13,7 +13,7 @@ const kindOf = (name: string): Kind => {
   return 'generic'
 }
 
-export default function SpeedBlock({ item, sets, api, exerciseName, onExercise }: { item: any; sets: SetRow[]; api: Api; exerciseName: string; onExercise: (n: string) => void }) {
+export default function SpeedBlock({ item, sets, api, exerciseName, onExercise, extraSetup }: { item: any; sets: SetRow[]; api: Api; exerciseName: string; onExercise: (n: string) => void; extraSetup?: () => Record<string, any> }) {
   const { equipment } = useStore()
   const bands = equipment.filter(e => e.kind === 'band')
   const kind = kindOf(exerciseName)
@@ -40,7 +40,7 @@ export default function SpeedBlock({ item, sets, api, exerciseName, onExercise }
 
   async function log() {
     if (!exerciseId || reps === '') return
-    const setup: Record<string, any> = { slot: item.name }
+    const setup: Record<string, any> = { slot: item.name, ...(extraSetup?.() ?? {}) }
     if (kind === 'throw') setup.bell_reps_of = 7
     if (kind === 'bandbench' || kind === 'jump') Object.assign(setup, { band: band || null, bands: nb ? Number(nb) : null, lockout_lb: lockout, chest_lb: kind === 'bandbench' ? 0 : null })
     if (kind === 'bandbench') Object.assign(setup, { bell_hits: hits ? Number(hits) : null, string_in: string ? Number(string) : null })

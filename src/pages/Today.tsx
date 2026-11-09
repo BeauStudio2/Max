@@ -3,11 +3,12 @@ import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
 import { LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
-import Ladder, { type LadderPlan } from './today/Ladder'
+import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
+import Queue, { type Placement } from './today/Queue'
 import SpeedBlock from './today/Speed'
 import Support from './today/Support'
 import Deadlift, { type DeadliftPlan } from './today/Deadlift'
-import { fmt, useClock, type Api } from './today/shared'
+import { ExercisePicker, Num, fmt, useClock, type Api } from './today/shared'
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 const DL_CYCLE_START = '2026-11-07'
@@ -141,7 +142,6 @@ export default function Today({ lifterId }: { lifterId: string }) {
   dlPlanRef.current = dlPlan
   const savePlan = (base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: { ...base, ...patch } })
 
-  const order: string[] = tpl?.spec?.order ?? ['speed', 'heavy', 'support']
   // Every block is a choice: the day's plan is the default, any other day's block can be picked instead.
   const speedOptions = new Map<string, any>()
   const supportOptions = new Map<string, any>()
@@ -178,6 +178,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
     await savePlanned({ speed_ex: { ...(sp.speed_ex ?? {}), [it.name]: name } })
   }
   const elapsed = useClock(session?.started_at && !session.ended_at ? session.started_at : null)
+  const L = useLadder(ladderPlan, sets.filter(s => s.block === 'primary'))
+  const placement: Placement = sp.speed_placement ?? 'between'
+  const offsetS: number = sp.speed_offset_s ?? 20
+  const supportNames: string[] = (support?.items ?? []).map((i: any) => i.name)
+  const [planOpen, setPlanOpen] = useState(false)
 
   return (
     <div className="stack">
@@ -229,21 +234,50 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       {err && <p className="err">{err}</p>}
 
-      {order.map(b => {
-        if (b === 'speed' && speedFor?.items?.length) return (
-          <section className="card" key="speed">
-            <h2>Speed · {speedFor.lift}</h2>
-            {speedFor.items.map((it: any) => (
-              <SpeedBlock key={date + it.name} item={it} exerciseName={speedEx(it)} onExercise={n => setSpeedEx(it, n)} sets={speedSlotSets(it)} api={api} />
-            ))}
+      {lift === 'deadlift' ? (
+        <>
+          {speedFor?.items?.length ? (
+            <section className="card">
+              <h2>Speed · {speedFor.lift}</h2>
+              {speedFor.items.map((it: any) => (
+                <SpeedBlock key={date + it.name} item={it} exerciseName={speedEx(it)} onExercise={n => setSpeedEx(it, n)} sets={speedSlotSets(it)} api={api} />
+              ))}
+            </section>
+          ) : null}
+          <Deadlift key="dl" exerciseName={heavyEx} onExercise={setHeavyEx} week={dlWeek} cycle={cycle} plan={dlPlan} setPlan={savePlan(dlPlan)} sets={sets.filter(s => s.block === 'deadlift')} api={api} best={best} />
+        </>
+      ) : (
+        <>
+          <section className="card">
+            <button className="planhead" onClick={() => setPlanOpen(o => !o)} aria-expanded={planOpen}>
+              <h2 style={{ margin: 0 }}>Plan · {lift}</h2>
+              <span className="small muted">{ladderPlan.planned_e1rm ? `max ${round(ladderPlan.planned_e1rm)} · ` : ''}{ladderPlan.target_reps} reps · stop {ladderPlan.stop_pct}% · {ladderPlan.fatigue_rate_used_pct}%/set {planOpen ? '▴' : '▾'}</span>
+            </button>
+            {planOpen && (
+              <div className="planbody">
+                <ExercisePicker label="Heavy exercise" value={heavyEx} onChange={setHeavyEx} className="exrow" />
+                <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} />
+                {speedFor?.items?.length ? (
+                  <div className="planfields">
+                    <label>Speed sets
+                      <select value={placement} onChange={e => savePlanned({ speed_placement: e.target.value })}>
+                        <option value="between">Between heavy sets</option>
+                        <option value="first">All first</option>
+                        <option value="after">All after</option>
+                      </select>
+                    </label>
+                    <Num label="Speed starts (s into rest)" value={offsetS} onSave={v => v !== null && savePlanned({ speed_offset_s: v })} />
+                  </div>
+                ) : null}
+              </div>
+            )}
           </section>
-        )
-        if (b === 'heavy') return lift === 'deadlift'
-          ? <Deadlift key="dl" exerciseName={heavyEx} onExercise={setHeavyEx} week={dlWeek} cycle={cycle} plan={dlPlan} setPlan={savePlan(dlPlan)} sets={sets.filter(s => s.block === 'deadlift')} api={api} best={best} />
-          : <Ladder key={'ladder' + lift} exerciseName={heavyEx} onExercise={setHeavyEx} lift={lift} plan={ladderPlan} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} setPlan={savePlan(ladderPlan)} sets={sets.filter(s => s.block === 'primary')} api={api} currentMax={currentMax} />
-        if (b === 'support' && support) return <Support key={'support' + date + lift + supportKey} support={support} sets={sets.filter(s => s.block === 'support')} api={api} />
-        return null
-      })}
+          <Queue L={L} api={api} heavyExerciseId={exId(heavyEx)} speed={speedFor} speedEx={speedEx} onSpeedEx={setSpeedEx}
+            speedSets={speedSlotSets} placement={placement} offsetS={offsetS} support={supportNames} />
+        </>
+      )}
+
+      {support && <div id="support"><Support key={'support' + date + lift + supportKey} support={support} sets={sets.filter(s => s.block === 'support')} api={api} /></div>}
 
       {currentMax && <p className="small muted center-text">Current {lift} max {round(currentMax)} (latest session not sick or injured).</p>}
     </div>
