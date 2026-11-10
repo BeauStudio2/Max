@@ -1,4 +1,5 @@
 import { apiKeys } from './keys'
+import { supabase } from '../supabase'
 
 /**
  * Max's voice: one-word cues spoken through the laptop speakers, and spoken commands heard through its microphone
@@ -42,21 +43,59 @@ const cacheUrl = (voice: string, model: string, text: string) => `https://max-vo
 let lastSaid = ''
 let audio: HTMLAudioElement | null = null
 
-async function elevenAudio(text: string, s = state.settings): Promise<Blob> {
+/* Where a phrase's audio comes from, in order: this browser's cache (instant, works offline) → Max's shared store in Supabase
+   (recorded once, used by every browser and laptop) → ElevenLabs (paid; the result is saved to both). */
+const BUCKET = 'voice'
+const slug = (text: string) => text.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'blank'
+const storePath = (voiceId: string, model: string, text: string) => `${voiceId}/${model}/${slug(text)}.mp3`
+
+async function fromStore(path: string): Promise<Blob | null> {
+  const { data, error } = await supabase.storage.from(BUCKET).download(path)
+  return error || !data || data.size < 100 ? null : data
+}
+async function toStore(path: string, blob: Blob) {
+  await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'audio/mpeg', upsert: true })
+}
+async function fromEleven(text: string, s: VoiceSettings): Promise<Blob> {
   const key = apiKeys.get('elevenlabs')
-  if (!key || !s.elevenVoice) throw new Error('ElevenLabs needs an API key (Config → API keys) and a voice (Config → Voice).')
-  const url = cacheUrl(s.elevenVoice, s.elevenModel, text)
-  const cache = 'caches' in window ? await caches.open(CACHE) : null
-  const hit = await cache?.match(url)
-  if (hit) return hit.blob()
+  if (!key) throw new Error('This phrase isn\'t recorded yet, and there\'s no ElevenLabs key on this laptop to record it (Config → API keys).')
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${s.elevenVoice}?output_format=mp3_44100_128`, {
     method: 'POST', headers: { 'xi-api-key': key, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
     body: JSON.stringify({ text, model_id: s.elevenModel }),
   })
   if (!r.ok) throw new Error(`ElevenLabs: ${r.status} ${(await r.text()).slice(0, 160)}`)
-  const blob = await r.blob()
+  return r.blob()
+}
+
+async function elevenAudio(text: string, s = state.settings, stored?: Set<string>): Promise<Blob> {
+  if (!s.elevenVoice) throw new Error('Choose an ElevenLabs voice (Config → Voice).')
+  const url = cacheUrl(s.elevenVoice, s.elevenModel, text), path = storePath(s.elevenVoice, s.elevenModel, text)
+  const cache = 'caches' in window ? await caches.open(CACHE) : null
+  const hit = await cache?.match(url)
+  if (hit) {
+    // Recorded on this laptop before the shared store existed: share it now.
+    const blob = await hit.blob()
+    if (stored && !stored.has(path)) await toStore(path, blob)
+    return blob
+  }
+  let blob = !stored || stored.has(path) ? await fromStore(path) : null
+  if (!blob) { blob = await fromEleven(text, s); await toStore(path, blob) }
   await cache?.put(url, new Response(blob, { headers: { 'Content-Type': 'audio/mpeg' } }))
   return blob
+}
+
+/** Phrases already recorded in the shared store for the chosen voice and model. */
+async function storedPaths(s = state.settings): Promise<Set<string>> {
+  if (!s.elevenVoice) return new Set()
+  const dir = `${s.elevenVoice}/${s.elevenModel}`
+  const out = new Set<string>()
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase.storage.from(BUCKET).list(dir, { limit: 1000, offset })
+    if (error || !data?.length) break
+    data.forEach(f => out.add(`${dir}/${f.name}`))
+    if (data.length < 1000) break
+  }
+  return out
 }
 
 function browserSpeak(text: string, s = state.settings): Promise<void> {
@@ -100,17 +139,22 @@ export function cue(k: CueKey, text?: string) {
 }
 
 /** Fetch phrases ahead of time so they play instantly (and are paid for once, on ElevenLabs). */
+/** Record phrases ahead of time: anything not in the shared store is bought from ElevenLabs once and stored; all of it is also kept in this browser. */
 export async function prefetch(phrases: string[], onProgress?: (done: number) => void) {
+  const stored = await storedPaths()
   let n = 0
-  for (const p of phrases) { try { await elevenAudio(p) } catch (e: any) { set({ error: e?.message }); return n } onProgress?.(++n) }
+  for (const p of phrases) { try { await elevenAudio(p, state.settings, stored) } catch (e: any) { set({ error: e?.message }); return n } onProgress?.(++n) }
   return n
 }
-export async function cachedCount() {
-  if (!('caches' in window)) return 0
-  const c = await caches.open(CACHE)
+/** How many phrases the chosen voice has: in the shared store, and in this browser. */
+export async function recordedCounts() {
   const v = state.settings.elevenVoice
-  return (await c.keys()).filter(r => !v || r.url.includes('/' + encodeURIComponent(v) + '/')).length
+  const shared = (await storedPaths()).size
+  let local = 0
+  if ('caches' in window && v) local = (await (await caches.open(CACHE)).keys()).filter(r => r.url.includes('/' + encodeURIComponent(v) + '/')).length
+  return { shared, local }
 }
+export const cachedCount = async () => (await recordedCounts()).local
 export async function clearCache() { if ('caches' in window) await caches.delete(CACHE) }
 
 /* ---------- ElevenLabs voice library ---------- */

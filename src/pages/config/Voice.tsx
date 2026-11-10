@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { addLibraryVoice, cachedCount, clearCache, myVoices, prefetch, recognitionAvailable, searchLibrary, speak, voice, type CueKey, type LibVoice } from '../../lib/voice'
+import { addLibraryVoice, recordedCounts, clearCache, myVoices, prefetch, recognitionAvailable, searchLibrary, speak, voice, type CueKey, type LibVoice } from '../../lib/voice'
 import { useVoice } from '../../lib/useVoice'
 import { useKeys } from '../../lib/keys'
 import { T } from '../today/shared'
@@ -26,7 +26,7 @@ export default function Voice() {
   const [q, setQ] = useState({ search: 'russian', gender: 'female' })
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const [cached, setCached] = useState(0)
+  const [cached, setCached] = useState<{ shared: number; local: number }>({ shared: 0, local: 0 })
   const [saving, setSaving] = useState<{ done: number; of: number } | null>(null)
   const [preview, setPreview] = useState<HTMLAudioElement | null>(null)
 
@@ -35,7 +35,7 @@ export default function Voice() {
     load(); window.speechSynthesis?.addEventListener('voiceschanged', load)
     return () => window.speechSynthesis?.removeEventListener('voiceschanged', load)
   }, [])
-  useEffect(() => { cachedCount().then(setCached) }, [s.elevenVoice, saving?.done, v.speaking])
+  useEffect(() => { recordedCounts().then(setCached) }, [s.elevenVoice, !!saving, v.speaking])
 
   // English voices plus Russian ones (a Russian voice reading English has the accent); "all" shows every voice installed.
   const shown = voices.filter(x => all || x.lang.startsWith('en') || x.lang.startsWith('ru'))
@@ -127,10 +127,10 @@ export default function Voice() {
               })()}
               {lib && (lib.length ? <div className="tablewrap"><table className="sheet cfg vtable"><tbody>{lib.map(x => libRow(x, true))}</tbody></table></div> : <p className="small muted">No voices found.</p>)}
               <p className="small muted">
-                Each phrase is bought once and saved in this browser: <b>{cached}</b> saved for this voice.{' '}
+                <T tip="Each phrase is bought from ElevenLabs once, stored in Max (every browser and laptop plays it from there, no key needed), and kept in this browser so it plays instantly and offline." pos="right">Recorded</T> for this voice: <b>{cached.shared}</b> in Max · <b>{cached.local}</b> on this laptop.{' '}
                 <button className="linkish" disabled={!s.elevenVoice || !!saving} onClick={async () => { const ph = phrases(s.cues.rest.word); setSaving({ done: 0, of: ph.length }); await prefetch(ph, d => setSaving({ done: d, of: ph.length })); setSaving(null) }}
-                  data-tip="Fetch the cue words, 0–30 and every weight from 45 to 600 now (about 250 short phrases), so nothing is bought mid-session." data-pos="right">{saving ? `saving ${saving.done}/${saving.of}…` : 'Save all cue words now'}</button>
-                {' · '}<button className="linkish" onClick={async () => { await clearCache(); setCached(0) }}>clear saved</button>
+                  data-tip="Record the cue words, 0–30 and every weight from 45 to 600 (about 250 short phrases). Ones already in Max are copied to this laptop, not bought again." data-pos="right">{saving ? `recording ${saving.done}/${saving.of}…` : 'Record all cue words now'}</button>
+                {' · '}<button className="linkish" onClick={async () => { await clearCache(); setCached(await recordedCounts()) }} data-tip="Clear this laptop's copies. The recordings stored in Max stay." data-pos="right">clear this laptop</button>
               </p>
             </>
           )}
