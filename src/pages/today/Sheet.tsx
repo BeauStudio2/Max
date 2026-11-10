@@ -138,25 +138,26 @@ function ChainCells({ half, big, onSet }: { half: number; big: number; onSet?: (
   })}</>
 }
 
-/** One row's bands: each band is its own colour dropdown with a per-side count; + adds another (same colour allowed). Clearing a count removes that band. */
+/**
+ * One row's bands: each chip is one band per side, picked by colour. + adds another (the same colour is fine);
+ * "remove" in a chip's list takes it off. Stored as one entry per band, so two of a colour are two chips.
+ */
 function BandEditor({ bands, onChange }: { bands: BandPick[]; onChange: (b: BandPick[]) => void }) {
   const C = useContext(ColsCtx)
-  const add = () => onChange([...bands, { name: bands.at(-1)?.name ?? C.allBands[0]?.name ?? '', per_side: 1 }])
+  const chips = bands.flatMap(b => Array.from({ length: Math.max(1, b.per_side) }, () => b.name))
+  const save = (names: string[]) => onChange(names.map(name => ({ name, per_side: 1 })))
   return (
     <div className="bandlist">
-      {bands.map((b, i) => (
-        <span key={i} className="bandpick" style={{ ['--band' as any]: bandColor(b.name) }}>
-          <select value={b.name} aria-label={`Band ${i + 1} colour`} onChange={e => onChange(bands.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}>
-            {C.allBands.map(x => <option key={x.id} value={x.name}>{x.name.replace('Rogue band ', '')} · {x.props?.one_band_lockout_lb} lb</option>)}
-            {!C.allBands.some(x => x.name === b.name) && <option value={b.name}>{b.name}</option>}
+      {chips.map((name, i) => (
+        <span key={i} className="bandpick" style={{ ['--band' as any]: bandColor(name) }}>
+          <select value={name} aria-label={`Band ${i + 1}`} onChange={e => save(e.target.value === '' ? chips.filter((_, j) => j !== i) : chips.map((x, j) => (j === i ? e.target.value : x)))}>
+            {C.allBands.map(x => <option key={x.id} value={x.name}>{x.name.replace('Rogue band ', '')}</option>)}
+            {!C.allBands.some(x => x.name === name) && <option value={name}>{name}</option>}
+            <option value="">remove</option>
           </select>
-          <CellText value={String(b.per_side)} narrow numeric onSave={v => {
-            const n = v === '' ? 0 : Math.max(0, Math.round(Number(v)))
-            onChange(n ? bands.map((x, j) => (j === i ? { ...x, per_side: n } : x)) : bands.filter((_, j) => j !== i))
-          }} />
         </span>
       ))}
-      <button type="button" className="bandadd" onClick={add} aria-label="Add a band">+</button>
+      <button type="button" className="bandadd" onClick={() => save([...chips, chips.at(-1) ?? C.allBands[0]?.name ?? ''])} aria-label="Add a band">+</button>
     </div>
   )
 }
@@ -284,7 +285,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
               {PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}
               <th className="c-setup" data-tip="Clamps on this set. Adding chains switches to the chain clamps; removing them switches back.">Clamps</th>
               {chains && <><th className="c-chain" data-tip="½ in chains per side">½ ch</th><th className="c-chain" data-tip="⅝ in chains per side">⅝ ch</th></>}
-              <th className="c-band" data-tip="Bands on this set: pick each band's colour and how many per side. + adds another band (the same colour is fine). Clear a count to remove a band." data-pos="right">Bands</th>
+              <th className="c-band" data-tip="Bands per side: each chip is one band. + adds another (the same colour is fine); pick “remove” in a chip to take it off." data-pos="right">Bands</th>
               <th className="c-rest num" data-tip="Rest taken before this set (heavy rows), or which heavy set a speed round followed." data-pos="right">Rest</th><th className="c-del" />
             </tr>
           </thead>
