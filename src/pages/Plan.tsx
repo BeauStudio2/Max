@@ -75,6 +75,12 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
           onBlur={e => e.target.value !== (s.logic ?? '') && save({ ...s, logic: e.target.value.trim() || undefined })} />
       )}
 
+      <div className="dayorder small">
+        <label className="check" data-tip="On: one speed round after each heavy set. Off: all heavy sets, then all speed." data-pos="left">
+          <input type="checkbox" disabled={ro} checked={(s.speed_placement ?? 'between') === 'between'} onChange={e => save({ ...s, speed_placement: e.target.checked ? 'between' : 'after' })} /> Interleave heavy and speed</label>
+        <label className="check" data-tip="On: one support set after each heavy + speed round, in one list. Off: support at the end." data-pos="left">
+          <input type="checkbox" disabled={ro} checked={!!s.support_interleave} onChange={e => save({ ...s, support_interleave: e.target.checked })} /> Interleave support</label>
+      </div>
       <h3><T tip="The main lift. Every session of this day inherits these unless it changes them itself.">Heavy</T></h3>
       <div className="tablewrap"><table className="sheet cfg plantable">
         <thead><tr>

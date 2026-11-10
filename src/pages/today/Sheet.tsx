@@ -184,6 +184,21 @@ type Planned =
   | { kind: 'main'; key: string; p: Ladder['projected'][number] }
   | { kind: 'pull'; key: string; row: PullRowDef }
   | { kind: 'speed'; key: string; it: any; n: number }
+  | { kind: 'sup'; key: string; slot: SupportSlot }
+
+/** Support interleaved: one support set after each heavy set and its speed round; anything left goes at the end. */
+function withSupport(planned: Planned[], slots: SupportSlot[]): Planned[] {
+  const out: Planned[] = []
+  const left = [...slots]
+  let seenMain = false
+  for (const p of planned) {
+    if ((p.kind === 'main' || p.kind === 'pull') && seenMain && left.length) { const sl = left.shift()!; out.push({ kind: 'sup', key: 'sup:' + sl.key, slot: sl }) }
+    if (p.kind === 'main' || p.kind === 'pull') seenMain = true
+    out.push(p)
+  }
+  for (const sl of left) out.push({ kind: 'sup', key: 'sup:' + sl.key, slot: sl })
+  return out
+}
 
 function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: (it: any) => SetRow[], placement: Placement) {
   const since = new Set<string>()
@@ -217,9 +232,9 @@ function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: 
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, S, circuit, onCircuit }: {
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
-  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement
+  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement; supInterleave?: boolean; running?: boolean
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
   const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
@@ -229,14 +244,18 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
-  const done = useMemo(() => [...mainSets, ...allSpeed].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')), [mainSets, allSpeed])
+  // With support interleaved, its logged sets sit in the same list, in the order they were done.
+  const supDone = supInterleave ? (S.slots.filter(x => x.existing).map(x => x.existing!) as SetRow[]) : []
+  const done = useMemo(() => [...mainSets, ...allSpeed, ...supDone].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')), [mainSets, allSpeed, supDone])
   const mainPlanned: Planned[] = L
     ? L.projected.map(p => ({ kind: 'main', key: 'h' + p.idx, p }))
     : (D?.rows ?? []).filter(r => !r.existing).map(r => ({ kind: 'pull', key: 'd:' + r.row.step, row: r.row }))
-  const planned = plannedOrder(done, mainPlanned, items, speedSets, placement)
+  const planned0 = plannedOrder(done.filter(r => r.block !== 'support'), mainPlanned, items, speedSets, placement)
+  const planned = supInterleave ? withSupport(planned0, S.slots.filter(x => !x.existing)) : planned0
   const lastMain = [...done].reverse().find(isMain)
-  const rest = useClock(lastMain?.created_at)
-  const nextMain = planned.find(p => p.kind !== 'speed')
+  // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
+  const rest = useClock(running ? lastMain?.created_at : null)
+  const nextMain = planned.find(p => p.kind === 'main' || p.kind === 'pull')
 
   // Circuit time: what you entered, or first to last set of the circuit.
   const autoMin = done.length > 1 ? (Date.parse(done.at(-1)!.created_at!) - Date.parse(done[0].created_at!)) / 60000 : null
@@ -253,8 +272,8 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   return (
     <section className="card sheetcard">
       <div className="sheetbar">
-        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={lastMain && rest >= restS ? 'ready' : ''}>{lastMain ? `${fmt(rest)} / ${fmt(restS)}` : '—'}</b></div>
-        <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p.idx}` : nextMain.row.step : 'done'}</b></div>
+        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restS ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restS)}</span> : lastMain ? `${fmt(rest)} / ${fmt(restS)}` : `0:00 / ${fmt(restS)}`}</b></div>
+        <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p.idx}` : nextMain.kind === 'pull' ? nextMain.row.step : '' : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
@@ -277,12 +296,14 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             </tr>
           </thead>
           <tbody>
-            {done.map(r => r.block === 'primary' && L ? <MainTr key={r.id} L={L} api={api} r={r} exerciseId={heavyExerciseId} label={liftLabel} />
+            {done.map(r => r.block === 'support' ? (() => { const sl = S.slots.find(x => x.existing?.id === r.id); return sl ? <SupportTr key={r.id} slot={sl} S={S} api={api} inline /> : null })()
+              : r.block === 'primary' && L ? <MainTr key={r.id} L={L} api={api} r={r} exerciseId={heavyExerciseId} label={liftLabel} />
               : r.block === 'deadlift' && D ? <PullTr key={r.id} D={D} def={D.rows.find(x => x.existing?.id === r.id)!.row} r={r} />
                 : <SpeedTr key={r.id} api={api} r={r} it={items.find(i => i.name === r.setup?.slot) ?? { name: r.setup?.slot }} name={slotName(r)} n={r.set_index} sets={[]} />)}
             {planned.map((p, i) => p.kind === 'main' && L ? <MainTr key={p.key} L={L} api={api} p={p.p} exerciseId={heavyExerciseId} label={liftLabel} next={i === 0} />
               : p.kind === 'pull' && D ? <PullTr key={p.key} D={D} def={p.row} next={i === 0} />
-                : p.kind === 'speed' ? <SpeedTr key={p.key} api={api} it={p.it} name={speedEx(p.it)} n={p.n} sets={speedSets(p.it)} next={i === 0} lastMain={lastMain} /> : null)}
+                : p.kind === 'speed' ? <SpeedTr key={p.key} api={api} it={p.it} name={speedEx(p.it)} n={p.n} sets={speedSets(p.it)} next={i === 0} lastMain={lastMain} />
+                  : p.kind === 'sup' ? <SupportTr key={p.key} slot={p.slot} S={S} api={api} inline /> : null)}
           </tbody>
         </table>
         </ColsCtx.Provider>
@@ -293,7 +314,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         {D?.todayMax ? `Deadlift estimate ${round(D.todayMax)}.` : ''}
       </p>
 
-      <SupportTable S={S} api={api} />
+      {supInterleave
+        ? <button className="ghost small" onClick={() => S.addExercise()} data-tip="Add a support exercise; it joins the interleaved list." data-pos="left">+ Add support exercise</button>
+        : <SupportTable S={S} api={api} />}
     </section>
   )
 }
@@ -568,7 +591,8 @@ function SupportTable({ S, api }: { S: SupportCtl; api: Api }) {
 
 const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF']
 
-function SupportTr({ slot, S, api }: { slot: SupportSlot; S: SupportCtl; api: Api }) {
+function SupportTr({ slot, S, api, inline }: { slot: SupportSlot; S: SupportCtl; api: Api; inline?: boolean }) {
+  const C = useContext(ColsCtx)
   const { exercises, templates } = useStore()
   const schemeOptions = Array.from(new Set([...SCHEMES, ...templates.flatMap(t => (t.spec?.support?.items ?? []).map((i: any) => i.scheme).filter(Boolean))]))
   const e = slot.existing, d = slot.defaults ?? {}
@@ -618,6 +642,31 @@ function SupportTr({ slot, S, api }: { slot: SupportSlot; S: SupportCtl; api: Ap
   const [more, setMore] = useState(false)
   const scheme = <SchemePicker value={v.scheme} options={schemeOptions} onChange={scheme => { const nv = { ...v, scheme }; setV(nv); save(nv) }} />
   const note = <CellText value={v.notes} placeholder={d.note ? 'see plan note' : 'note'} wide onSave={x => { const nv = { ...v, notes: x }; setV(nv); save(nv) }} />
+  if (inline) return (
+    <tr className={(e ? 'done' : 'plan') + ' supinline'}>
+      <td className="stick"><span className="tagdot u" />
+        <select className="exsel" value={v.ex} onChange={ev => { const nv = { ...v, ex: ev.target.value }; setV(nv); save(nv) }}>
+            <option value="">choose…</option>
+            {exercises.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+          </select>
+        {slot.setIndex > 1 && <span className="small muted"> set {slot.setIndex}</span>}
+      </td>
+      <td colSpan={C.span}>
+        <div className="supfields">
+          <label data-tip="Starting weight (the first, heaviest load).">Start{field('start')}</label>
+          <label data-tip="Reps at the start weight.">Reps{field('reps')}</label>
+          <label data-tip="Reps at each drop, e.g. 3 or 3,3,4.">Each drop{field('each', true, false)}</label>
+          <label data-tip="Reps at the last drop.">Final{field('final')}</label>
+          <div className="field"><span className="flabel">Scheme</span>{scheme}</div>
+          <label data-tip="Weight removed at each drop.">Step{field('step')}</label>
+          <label data-tip="Number of drops after the start weight.">Drops{field('drops')}</label>
+          <label className="grow">Note{note}</label>
+          <span className="nowrap"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} data-tip="Add another set of this exercise" data-pos="right" aria-label="Another set">+</button>
+            <button className="x" onClick={() => S.remove(slot)} aria-label="Remove" data-tip="Remove this exercise or set" data-pos="right">×</button></span>
+        </div>
+      </td>
+    </tr>
+  )
   return (
     <>
       <tr className={e ? 'done' : 'plan'}>

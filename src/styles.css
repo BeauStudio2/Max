@@ -163,8 +163,8 @@ svg.trend .proj { fill: none; stroke: var(--accent); stroke-width: 2; stroke-das
 .entries li .x { margin-left: auto; font-size: 16px; }
 .addform { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .tabs button { padding: 10px 4px; }
-.choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
-@media (max-width: 480px) { .choices { grid-template-columns: 1fr; } }
+.choices { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; margin-top: 10px; align-items: end; }
+@media (max-width: 480px) { .choices { grid-template-columns: 1fr; } .choices .interleave { justify-self: center; } }
 .exrow { margin-bottom: 8px; }
 .setcount { white-space: nowrap; align-self: flex-end; padding-bottom: 12px; }
 .timer { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
@@ -278,7 +278,7 @@ main { max-width: 1680px; margin: 0 auto; }
   .stack.today { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: start; column-gap: 16px; }
   .stack.today > * { grid-column: 1; }
   .stack.today > .sheetcard { grid-column: 2; grid-row: 1 / span 20; }
-  .stack.today .choices { grid-template-columns: 1fr; }
+  .stack.today .choices { grid-template-columns: 1fr; } .stack.today .choices .interleave { justify-self: center; }
 }
 @media (min-width: 1100px) {
   table.sheet { font-size: 15px; }
@@ -383,6 +383,7 @@ ul.mlist li:first-child .mrow { border-top: 0; }
 .toggle .switch.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--muted, #888); }
 .stats b { color: var(--text, inherit); }
+.timer + .stats b { font-size: 14px; font-weight: 700; }
 .stats .warn b, .stats .warn { color: var(--warn, #c60); }
 
 /* ---------- Tracker (profile) ---------- */
@@ -529,3 +530,18 @@ p.edited .linkish { color: var(--warn); font-size: 12px; }
   .plantable td.nowrap { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
   .plantable td.stick { max-width: none; overflow: visible; background: transparent; }
 }
+
+/* interleave toggles between the Heavy / Speed / Support choices */
+button.interleave { display: inline-flex; flex-direction: column; align-items: center; gap: 0; min-height: 44px; padding: 4px 8px; border-radius: 10px;
+  border: 1px dashed var(--line); background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; margin-bottom: 2px; }
+button.interleave .ilabel { font-size: 10px; letter-spacing: .02em; margin-top: 3px; }
+button.interleave.on { border-style: solid; border-color: var(--accent); color: var(--accent); }
+@media (max-width: 480px) { button.interleave { flex-direction: row; gap: 6px; min-height: 32px; } button.interleave .ilabel { margin-top: 0; } }
+/* support rows inside the main list */
+tr.supinline td { background: color-mix(in srgb, var(--card) 85%, var(--line)); }
+.tagdot.u { background: var(--muted); }
+.supfields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px 10px; padding: 2px 0; }
+.supfields label, .supfields .field { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--muted); min-width: 0; }
+.supfields label.grow { flex: 1 1 140px; }
+.supfields .cellin.n { width: 56px; }
+.dayorder { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; color: var(--muted); }

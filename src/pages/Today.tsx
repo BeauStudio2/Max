@@ -20,7 +20,7 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
 }
 const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
   chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', clamp: 'clamps', kept_45: '45s kept', kept_25: '25s kept', set1_lb: 'set 1 lb', bar_lb: 'bar',
-  speed_choice: 'speed', support_choice: 'support', speed_placement: 'speed placement', speed_offset_s: 'speed start' }
+  speed_choice: 'speed', support_choice: 'support', speed_placement: 'speed order', speed_offset_s: 'speed start', support_interleave: 'support order' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
 export default function Today({ lifterId }: { lifterId: string }) {
@@ -186,7 +186,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const own = () => (session?.planned ?? {}) as Record<string, any>
   const savePlan = (_base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
   async function freeze(s: Session) {
-    const plan = strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current)
+    const plan = { ...strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), speed_placement: placement, support_interleave: supInter }
     const { deadlift_cycle, ...daySpec } = tpl?.spec ?? {}
     const snapSpec = { ...daySpec, speed: speedFor ?? daySpec.speed ?? null, support: support ?? daySpec.support ?? null, deadlift_cycle: deadlift_cycle ? deadlift_cycle : undefined }
     const { data, error } = await supabase.from('sessions').update({ planned: { ...((s.planned as any) ?? {}), snap: { plan, spec: snapSpec, at: new Date().toISOString() } } }).eq('id', s.id).select().single()
@@ -194,7 +194,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'kept_45', 'kept_25', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s']
+  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'kept_45', 'kept_25', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s', 'support_interleave']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
@@ -238,7 +238,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
   }
   const elapsed = useClock(session?.started_at && !session.ended_at ? session.started_at : null)
   const L = useLadder(ladderPlan, sets.filter(s => s.block === 'primary'))
-  const placement: Placement = sp.speed_placement ?? 'between'
+  const placement: Placement = pick(sp.speed_placement, frozen.speed_placement, spec.speed_placement) ?? 'between'
+  const supInter: boolean = pick(sp.support_interleave, frozen.support_interleave, spec.support_interleave) ?? false
   const offsetS: number = sp.speed_offset_s ?? 20
   const D = useDeadlift({ week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
   const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey)
@@ -258,12 +259,18 @@ export default function Today({ lifterId }: { lifterId: string }) {
               <option value="deadlift">Deadlift</option>
             </select>
           </label>
+          <Interleave on={placement === 'between'} label="heavy and speed"
+            tip={placement === 'between' ? 'Interleaved: one round of speed after each heavy set. Tap to do all heavy sets first, then all speed.' : 'In order: all heavy sets, then all speed sets. Tap to interleave them.'}
+            onToggle={() => savePlanned({ speed_placement: placement === 'between' ? 'after' : 'between' })} />
           <label><T tip="Speed work done between heavy sets (the opposite lift). None hides it.">Speed</T>
             <select value={speedKey} onChange={e => choose('speed_choice', e.target.value)}>
               <option value="none">None</option>
               {[...speedOptions.keys()].map(k => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
             </select>
           </label>
+          <Interleave on={supInter} label="speed and support"
+            tip={supInter ? 'Interleaved: one support set after each heavy + speed round, all in one list. Tap to do support at the end.' : 'In order: support after all heavy and speed sets, in its own table. Tap to interleave it.'}
+            onToggle={() => savePlanned({ support_interleave: !supInter })} />
           <label><T tip="Accessory group for after the heavy work. Exercises can be swapped or added in the Support table.">Support</T>
             <select value={supportKey} onChange={e => choose('support_choice', e.target.value)}>
               <option value="none">None</option>
@@ -336,7 +343,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} S={S}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} supInterleave={supInter} S={S} running={!!session?.started_at && !session?.ended_at}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 
@@ -408,5 +415,14 @@ function SessionStats({ session, sets, volume, bwDefault, lifterId, date }: { se
       {since !== null && since > 0 ? <span className={since < rec ? 'warn' : ''} data-tip={`Hours from the end of the previous session to the start of this one. Under ${rec} h is flagged.`}><b>{Math.round(since)}</b> h since {prev!.date.slice(5).replace('-', '/')}{since < rec ? ` (under ${rec} h)` : ''}</span> : null}
       {session?.started_at ? <span data-tip={`Earliest next session: ${rec} h recommended recovery after this one.`} data-pos="right">next ≥ <b>{next.toLocaleDateString(undefined, { weekday: 'short' })} {next.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</b></span> : null}
     </div>
+  )
+}
+
+/** The toggle between two blocks: interleave their sets, or do one block to the end before the next. */
+function Interleave({ on, onToggle, tip, label }: { on: boolean; onToggle: () => void; tip: string; label: string }) {
+  return (
+    <button type="button" className={'interleave' + (on ? ' on' : '')} onClick={onToggle} aria-pressed={on} aria-label={`Interleave ${label}`} data-tip={tip} data-pos="center">
+      <span aria-hidden>{on ? '⇄' : '→'}</span><span className="ilabel">{on ? 'interleave' : 'in order'}</span>
+    </button>
   )
 }
