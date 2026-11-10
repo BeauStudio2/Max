@@ -241,7 +241,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const allSpeed = items.flatMap(it => speedSets(it))
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
   // With support interleaved, its logged sets sit in the same list, in the order they were done.
-  const supDone = supInterleave ? (S.slots.filter(x => x.existing).map(x => x.existing!) as SetRow[]) : []
+  // A support set only counts as done once it has reps; one with just a start weight typed stays in its planned place.
+  const supIsDone = (x: SupportSlot) => !!x.existing && x.existing.reps != null
+  const supDone = supInterleave ? (S.slots.filter(supIsDone).map(x => x.existing!) as SetRow[]) : []
   const done = useMemo(() => [...mainSets, ...allSpeed, ...supDone].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')), [mainSets, allSpeed, supDone])
   const mainPlanned: Planned[] = L
     ? L.projected.map(p => ({ kind: 'main', key: 'h' + p.idx, p }))
@@ -249,7 +251,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   // Heavy with no planned max can't plan its sets; speed then runs on its own count so the rounds still exist.
   const heavyUnplanned = !!L && !L.plan.planned_e1rm
   const planned0 = plannedOrder(done.filter(r => r.block !== 'support'), mainPlanned, items, speedSets, placement, heavyUnplanned)
-  const planned = supInterleave ? withSupport(planned0, S.slots.filter(x => !x.existing), placement, done.at(-1)) : planned0
+  const planned = supInterleave ? withSupport(planned0, S.slots.filter(x => !supIsDone(x)), placement, done.at(-1)) : planned0
   const lastMain = [...done].reverse().find(isMain)
   // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
   const rest = useClock(running ? lastMain?.created_at : null)
