@@ -225,14 +225,15 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const heavy: Item[] = L
     ? [...L.logged.map(r => ({ kind: 'main' as const, key: r.id!, r })), ...L.projected.map(p => ({ kind: 'main' as const, key: 'h' + p.idx, p }))]
     : (D?.rows ?? []).map(x => ({ kind: 'pull' as const, key: 'd:' + x.row.step, row: x.row, r: x.existing }))
+  const heavyCount = heavy.length
   const speedRounds: Item[][] = []
   for (const it of items) {
     const logged = [...speedSets(it)].sort((a, b) => a.set_index - b.set_index)
-    // Speed runs to its own number of sets: if heavy ends first, the cycle carries on without it.
-    const planned = it.sets ?? 0
-    // A max-sets cap trims the planned rounds; sets already logged always stay.
+    // Interleaved with heavy and no max sets: one speed round per heavy set. A max sets number overrides that
+    // (and carries the cycle on past the heavy sets if it's bigger). Not interleaved: the day's own number of sets.
     const cap = speedMax[it.name]
-    const rounds = Math.max(cap != null ? Math.min(planned, cap) : planned, logged.at(-1)?.set_index ?? 0)
+    const planned = cap != null ? cap : placement === 'between' && heavyCount > 0 ? heavyCount : (it.sets ?? 0)
+    const rounds = Math.max(planned, logged.at(-1)?.set_index ?? 0)
     for (let n = 1; n <= rounds; n++) {
       const here = logged.filter(x => x.set_index === n)
       const round = (speedRounds[n - 1] ??= [])
