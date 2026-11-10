@@ -273,19 +273,21 @@ main { max-width: 1680px; margin: 0 auto; }
   .config table.sheet td.wrapcell { min-width: 360px; }
 }
 
-@media (min-width: 1100px) {
-  /* Log: session controls and plan on the left, the set table filling the rest. */
+@media (min-width: 1600px) {
+  /* Log: session controls and plan on the left, the set table filling the rest (only once the table has room for every column). */
   .stack.today { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: start; column-gap: 16px; }
   .stack.today > * { grid-column: 1; }
   .stack.today > .sheetcard { grid-column: 2; grid-row: 1 / span 20; }
   .stack.today .choices { grid-template-columns: 1fr; }
+}
+@media (min-width: 1100px) {
   table.sheet { font-size: 15px; }
   .cellin { width: 76px; } .cellin.n { width: 62px; } .cellin.w { width: 190px; }
   table.sheet .stick { min-width: 140px; max-width: 200px; }
   .sheetbar { grid-template-columns: 200px 200px 140px; justify-content: start; }
 }
 
-@media (min-width: 1500px) {
+@media (min-width: 1800px) {
   .stack.today { grid-template-columns: 420px minmax(0, 1fr); }
 }
 
@@ -304,7 +306,7 @@ tr.morerow td, tr.morerow .morebox { background: var(--bg); }
 
 /* Narrow screens: plates per side under the weight; setup, expected reps and rest open from the set name. */
 @media (max-width: 760px) {
-  table.sheet .c-side, table.sheet .c-plate, table.sheet .c-setup, table.sheet .c-exp, table.sheet .c-rest { display: none; }
+  table.sheet .c-side, table.sheet .c-plate, table.sheet .c-chain, table.sheet .c-band, table.sheet .c-setup, table.sheet .c-exp, table.sheet .c-rest { display: none; }
   .side-inline { display: block; }
   p.side-inline { display: block; }
   tr.morerow { display: table-row; }
@@ -452,3 +454,31 @@ table.sheet td.c-plate.kept .cellin { box-shadow: inset 0 -2px 0 var(--muted); }
 .plategrid label.off { opacity: .35; text-decoration: line-through; }
 .plategrid .cellin { width: 100%; min-width: 0 !important; text-align: center; }
 .morebox label.wide { flex: 1 1 100%; }
+
+/* chain and band columns */
+table.sheet th.c-chain, table.sheet th.c-band { text-align: center; min-width: 34px; white-space: nowrap; }
+table.sheet td.c-chain, table.sheet td.c-band { padding-left: 2px; padding-right: 2px; text-align: center; }
+table.sheet td.c-chain .cellin.n, table.sheet td.c-band .cellin.n { min-width: 32px; max-width: 44px; text-align: center; padding-left: 2px; padding-right: 2px; }
+table.sheet td.c-band .cellin { border-color: color-mix(in srgb, var(--band) 70%, transparent); background: color-mix(in srgb, var(--band) 14%, transparent); }
+table.sheet td.c-band.has .cellin { background: var(--band); border-color: var(--band); color: #fff; font-weight: 700; text-shadow: 0 1px 1px rgba(0,0,0,.45); }
+.bandchip { display: inline-block; min-width: 30px; padding: 2px 5px; border-radius: 5px; background: var(--band); color: #fff; font-size: 11px; font-weight: 700; text-shadow: 0 1px 1px rgba(0,0,0,.45); }
+table.sheet th.c-addband, table.sheet td.c-addband { min-width: 0; width: 1%; padding-left: 2px; }
+select.addband { width: auto; min-height: 30px; padding: 2px 6px; font-size: 13px; background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+select.addband.compact { width: 34px; padding: 2px; text-align: center; appearance: none; -webkit-appearance: none; }
+.bandgrid label { color: var(--text); }
+.bandgrid label .cellin { border-color: color-mix(in srgb, var(--band) 70%, transparent); background: color-mix(in srgb, var(--band) 14%, transparent); }
+.bandgrid label.has .cellin { background: var(--band); border-color: var(--band); color: #fff; font-weight: 700; }
+.bandgrid select.addband { align-self: end; grid-column: span 2; width: 100%; min-height: 38px; }
+.chaingrid { grid-template-columns: repeat(2, minmax(0, 72px)); }
+
+/* Medium widths: when the table can't fit every column, chains, bands, expected reps and rest move into the row's drop-down. */
+.tablewrap { container-type: inline-size; }
+@media (min-width: 761px) {
+  @container (max-width: 960px) {
+    table.sheet .c-chain, table.sheet .c-band, table.sheet .c-exp, table.sheet .c-rest { display: none; }
+    tr.morerow { display: table-row; }
+    .moretoggle { display: inline; }
+    table.sheet td.stick { cursor: pointer; }
+    .morebox .m-plates, .morebox .m-clamp { display: none; }
+  }
+}

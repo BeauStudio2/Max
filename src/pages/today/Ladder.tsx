@@ -51,7 +51,7 @@ const chained = (p: LadderPlan): LoadSetup =>
 export function setupOf(r?: SetRow): LoadSetup {
   const s = r?.setup ?? {}
   const clamp = s.clamp === 'Eleiko' ? ELEIKO : s.clamp === 'chain clamp' ? CHAIN_CLAMP : s.clamp ?? ROGUE
-  return { bar: s.bar === undefined ? BAR : s.bar ?? '', clamp: s.bar === '' || s.bar === null ? (s.clamp ?? '') : clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0), rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null }
+  return { bar: s.bar === undefined ? BAR : s.bar ?? '', clamp: s.bar === '' || s.bar === null ? (s.clamp ?? '') : clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0), rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: Array.isArray(s.bands) ? s.bands : [] }
 }
 
 /** Chains hang from the chain clamp; with no chains the set goes back to the lifter's normal clamps. */

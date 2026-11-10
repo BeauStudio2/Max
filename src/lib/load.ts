@@ -1,7 +1,7 @@
 import type { Config, Equipment } from './types'
 
 /** rom_in = bar travel bottom to top; hang_in = chain off the floor with the bar at the bottom. */
-export interface LoadSetup { bar: string; clamp: string; chain_half: number; chain_5_8: number; rom_in?: number | null; hang_in?: number | null }
+export interface LoadSetup { bar: string; clamp: string; chain_half: number; chain_5_8: number; rom_in?: number | null; hang_in?: number | null; bands?: { name: string; per_side: number }[] }
 
 /**
  * Pounds one chain adds at the bottom and top of the lift. With total weight and length known, the chain lifts off
@@ -31,7 +31,13 @@ export function totals(weight: number | null, s: LoadSetup, eq: Equipment[]) {
   const base = weight + n(bar?.weight_lb) + n(clamp?.weight_lb)
   const bottom = base + 2 * (n(s.chain_half) * half.bottom + n(s.chain_5_8) * big.bottom)
   const top = base + 2 * (n(s.chain_half) * half.top + n(s.chain_5_8) * big.top)
-  return { bottom, top }
+  // Bands: lockout tension at the top; at the bottom their bottom tension (0 when set up to go slack at the chest).
+  let bTop = 0, bBottom = 0
+  for (const b of s.bands ?? []) {
+    const p = eq.find(e => e.name === b.name)?.props ?? {}
+    bTop += n(p.one_band_lockout_lb) * n(b.per_side); bBottom += n(p.bottom_lb) * n(b.per_side)
+  }
+  return { bottom: bottom + 2 * bBottom, top: top + 2 * bTop }
 }
 
 export function effectiveLoad(bottom: number | null, top: number | null, cfg: Config) {

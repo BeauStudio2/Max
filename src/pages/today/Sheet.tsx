@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
 import { e1rm, e1rmFromRpe, expectedReps, lostReps, repGoal, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
 import type { Equipment, SetRow } from '../../lib/types'
@@ -116,6 +116,65 @@ const bandLabel = (bands: BandPick[]) => bands.length
   ? bands.map(b => `${b.name.replace('Rogue band ', '')}${b.per_side > 1 ? `×${b.per_side}` : ''}`).join(' + ') + ' /side'
   : 'no bands'
 
+/* ---------- chain and band columns ---------- */
+
+/** Rogue band colours, from the band's name. */
+const BAND_COLORS: [RegExp, string, string][] = [
+  [/orange/i, '#f08a24', 'Or'], [/red.*wide/i, '#c62828', 'Red W'], [/red/i, '#e5484d', 'Red'], [/blue/i, '#2f6fd6', 'Blue'],
+  [/green/i, '#2e9e4f', 'Grn'], [/black/i, '#3a3a3a', 'Blk'], [/purple/i, '#7b3fc4', 'Pur'], [/silver|gr[ae]y/i, '#a9adb5', 'Sil'],
+]
+export const bandColor = (name: string) => BAND_COLORS.find(([re]) => re.test(name))?.[1] ?? '#888'
+const bandShort = (name: string) => BAND_COLORS.find(([re]) => re.test(name))?.[2] ?? name.replace('Rogue band ', '').slice(0, 4)
+
+interface Cols { bands: string[]; chains: boolean; span: number; addBand: (name: string) => void; allBands: Equipment[] }
+const ColsCtx = createContext<Cols>({ bands: [], chains: false, span: 12, addBand: () => {}, allBands: [] })
+
+const withBand = (bands: BandPick[], name: string, n: number) =>
+  n > 0 ? (bands.some(b => b.name === name) ? bands.map(b => b.name === name ? { ...b, per_side: n } : b) : [...bands, { name, per_side: n }]) : bands.filter(b => b.name !== name)
+
+function BandCells({ bands, onSet }: { bands: BandPick[] | null; onSet?: (name: string, n: number) => void }) {
+  const C = useContext(ColsCtx)
+  return <>{C.bands.map(name => {
+    const n = bands?.find(b => b.name === name)?.per_side ?? 0
+    return <td key={name} className={'c-band' + (n ? ' has' : '')} style={{ ['--band' as any]: bandColor(name) }}>
+      {onSet && bands ? <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(name, v === '' ? 0 : Number(v))} /> : null}
+    </td>
+  })}<td className="c-band c-addband" /></>
+}
+function ChainCells({ half, big, onSet }: { half: number; big: number; onSet?: (which: 'chain_half' | 'chain_5_8', n: number) => void }) {
+  const C = useContext(ColsCtx)
+  if (!C.chains) return null
+  return <>{(['chain_half', 'chain_5_8'] as const).map(k => {
+    const n = k === 'chain_half' ? half : big
+    return <td key={k} className="c-chain">{onSet ? <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(k, v === '' ? 0 : Number(v))} /> : null}</td>
+  })}</>
+}
+/** Phone: the same chain and band counts as a grid in the row's drop-down. */
+function BandGrid({ bands, onSet }: { bands: BandPick[]; onSet: (name: string, n: number) => void }) {
+  const C = useContext(ColsCtx)
+  return (
+    <div className="plategrid bandgrid">
+      {C.bands.map(name => {
+        const n = bands.find(b => b.name === name)?.per_side ?? 0
+        return <label key={name} style={{ ['--band' as any]: bandColor(name) }} className={n ? 'has' : ''}>{bandShort(name)}
+          <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(name, v === '' ? 0 : Number(v))} /></label>
+      })}
+      <AddBand />
+    </div>
+  )
+}
+function AddBand({ compact }: { compact?: boolean }) {
+  const C = useContext(ColsCtx)
+  const left = C.allBands.filter(b => !C.bands.includes(b.name))
+  if (!left.length) return null
+  return (
+    <select className={'mini addband' + (compact ? ' compact' : '')} value="" aria-label="Add a band column" onChange={e => e.target.value && C.addBand(e.target.value)}>
+      <option value="">{compact ? '+' : '+ band'}</option>
+      {left.map(b => <option key={b.id} value={b.name}>{b.name.replace('Rogue band ', '')} · {b.props?.one_band_lockout_lb} lb</option>)}
+    </select>
+  )
+}
+
 /* ---------- the order of rows: main set, then one round of speed, then main... ---------- */
 
 type Planned =
@@ -161,6 +220,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
   const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
+  const { equipment } = useStore()
+  const allBands = useMemo(() => equipment.filter(e => e.kind === 'band').sort((a, b) => n0(a.props?.one_band_lockout_lb) - n0(b.props?.one_band_lockout_lb)), [equipment])
+  const [extraBands, setExtraBands] = useState<string[]>([])
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
@@ -178,6 +240,11 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const minutes = circuit ?? (autoMin && autoMin > 1 ? Math.round(autoMin) : null)
   const mainCount = mainSets.length
   const perMin = L?.fit && minutes && mainCount ? L.fit.ratePct / (minutes / mainCount) : null
+  // Band columns: every band used today (logged or planned speed work), plus any added with "+ band".
+  const usedBands = new Set<string>([...done.flatMap(r => bandsOf(r.setup).map(b => b.name)), ...items.flatMap(it => it.band ? ['Rogue band ' + String(it.band).split(' ')[0]] : []), ...extraBands])
+  const bandCols = allBands.map(b => b.name).filter(nm => usedBands.has(nm) || [...usedBands].some(u => nm.startsWith(u)))
+  const chains = !!(L && L.plan.bar && L.plan.chains_ok)
+  const cols: Cols = { bands: bandCols, chains, span: 6 + PLATE_COLS.length + 1 + (chains ? 2 : 0) + bandCols.length + 1 + 1 - 1, addBand: nm => setExtraBands(x => [...x, nm]), allBands }
   const slotName = (r: SetRow) => { const it = items.find(i => i.name === r.setup?.slot); return it ? speedEx(it) : r.setup?.slot ?? 'Speed' }
 
   return (
@@ -192,11 +259,18 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       </div>
 
       <div className="tablewrap">
+        <ColsCtx.Provider value={cols}>
         <table className="sheet">
           <thead>
             <tr>
-              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th>{PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}<th className="c-setup">Clamps · chains</th>
-              <th className="c-exp">Exp ±</th><th>e1RM</th><th className="c-rest">Rest</th>
+              <th className="stick">Set</th><th>lb</th><th className="c-exp" data-tip="Expected reps, and how far off the set came">Exp</th><th>Reps</th>
+              <th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th><th>e1RM</th>
+              {PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}
+              <th className="c-setup">Clamps</th>
+              {chains && <><th className="c-chain" data-tip="½ in chains per side">½ ch</th><th className="c-chain" data-tip="⅝ in chains per side">⅝ ch</th></>}
+              {bandCols.map(nm => { const b = allBands.find(x => x.name === nm); return <th key={nm} className="c-band" style={{ ['--band' as any]: bandColor(nm) }} data-tip={`${nm.replace('Rogue band ', '')} band per side · ${b?.props?.one_band_lockout_lb ?? '?'} lb at lockout`}><span className="bandchip">{bandShort(nm)}</span></th> })}
+              <th className="c-band c-addband"><AddBand compact /></th>
+              <th className="c-rest">Rest</th>
             </tr>
           </thead>
           <tbody>
@@ -208,6 +282,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
                 : p.kind === 'speed' ? <SpeedTr key={p.key} api={api} it={p.it} name={speedEx(p.it)} n={p.n} sets={speedSets(p.it)} next={i === 0} lastMain={lastMain} /> : null)}
           </tbody>
         </table>
+        </ColsCtx.Provider>
       </div>
       <p className="small muted sheetfoot">
         Grey rows are the plan; type reps in one to log it. {L?.floor ? `Stop line ${round(L.floor)}. ` : ''}
@@ -259,7 +334,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const rp = patch.reps !== undefined ? patch.reps : reps, aa = patch.a ?? a, ff = patch.f ?? f
     const tt = totals(pl, s, eq)
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
-      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null,
+      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [],
         stack, kept: r?.setup?.kept ?? (L.plan.bar ? { n45: L.kept.n45, n25: L.kept.n25 } : null) } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
@@ -286,53 +361,50 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const keptN = { 45: L.kept.n45, 25: L.kept.n25 }
   const straightClamp = L.plan.clamp || CLAMPS[0][0]
   const setupCell = !hasBar ? <span className="small muted">—</span> : (
-    <div className="setup2">
-      <select className="mini" value={setup.clamp} aria-label="Clamps"
-        onChange={e => setSet({ ...setup, clamp: e.target.value })}>
-        {CLAMPS.map(([v, l]) => <option key={v} value={v}>{v === CHAIN_CLAMP ? 'Chain' : l}</option>)}
-        {!CLAMPS.some(c => c[0] === setup.clamp) && <option value={setup.clamp}>{setup.clamp || 'none'}</option>}
-      </select>
-      {L.plan.chains_ok && (
-        <select className="mini" value={`${setup.chain_half}|${setup.chain_5_8}`} aria-label="Chains"
-          onChange={e => {
-            const [h, b] = e.target.value.split('|').map(Number)
-            // Chains hang from the chain clamps; taking them off goes back to the normal clamps.
-            const clamp = h || b ? CHAIN_CLAMP : setup.clamp === CHAIN_CLAMP ? straightClamp : setup.clamp
-            setSet({ ...setup, chain_half: h, chain_5_8: b, clamp })
-          }}>
-          <option value="0|0">no chains</option>
-          {CHAIN_COMBOS.map(([h, b]) => <option key={`${h}|${b}`} value={`${h}|${b}`}>{comboLabel(h, b)}</option>)}
-          {!CHAIN_COMBOS.some(([h, b]) => h === setup.chain_half && b === setup.chain_5_8) && (setup.chain_half || setup.chain_5_8)
-            ? <option value={`${setup.chain_half}|${setup.chain_5_8}`}>{comboLabel(setup.chain_half, setup.chain_5_8)}</option> : null}
-        </select>
-      )}
-    </div>
+    <select className="mini" value={setup.clamp} aria-label="Clamps" onChange={e => setSet({ ...setup, clamp: e.target.value })}>
+      {CLAMPS.map(([v, l]) => <option key={v} value={v}>{v === CHAIN_CLAMP ? 'Chain' : l}</option>)}
+      {!CLAMPS.some(c => c[0] === setup.clamp) && <option value={setup.clamp}>{setup.clamp || 'none'}</option>}
+    </select>
   )
+  // Chains hang from the chain clamps; taking the last chain off goes back to the normal clamps.
+  const setChain = (k: 'chain_half' | 'chain_5_8', n: number) => {
+    const next = { ...setup, [k]: Math.max(0, Math.round(n)) }
+    const any = next.chain_half || next.chain_5_8
+    setSet({ ...next, clamp: any ? CHAIN_CLAMP : setup.clamp === CHAIN_CLAMP ? straightClamp : setup.clamp })
+  }
+  const setBand = (name: string, n: number) => setSet({ ...setup, bands: withBand(setup.bands ?? [], name, Math.max(0, Math.round(n))) })
+  const C = useContext(ColsCtx)
 
   return (
     <>
     <tr className={(logged ? 'done' : 'plan') + (next ? ' next' : '') + (below ? ' below' : '')}>
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
-        <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}</div></td>
+        <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}{setup.bands?.length ? ` · ${bandLabel(setup.bands)}` : ''}</div></td>
+      <td className="num c-exp">{exp !== null ? exp.toFixed(1) : ''}{diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
       <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
       </td>
+      <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
+        {pct !== null && (logged || repsN !== null) && <div className="sub2">{round(pct)}%</div>}</td>
       {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} />
         : <td colSpan={PLATE_COLS.length} className="c-plate small muted">{loadNote(L.plan)}</td>}
       <td className="c-setup">{setupCell}</td>
-      <td className="num c-exp">{exp !== null ? exp.toFixed(1) : ''}{diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
-      <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
-        {pct !== null && (logged || repsN !== null) && <div className="sub2">{round(pct)}%</div>}</td>
+      <ChainCells half={setup.chain_half} big={setup.chain_5_8} onSet={hasBar && L.plan.chains_ok ? setChain : undefined} />
+      <BandCells bands={setup.bands ?? []} onSet={setBand} />
       <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}{logged && <button className="x" onClick={() => api.deleteSet(r!.id!)} aria-label="Delete set">×</button>}</td>
     </tr>
     {more && (
-      <tr className="morerow"><td className="stick" /><td colSpan={12}>
+      <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
         <div className="morebox">
-          {hasBar && <label className="wide">Plates per side<PlateGrid stack={stack} on={L.plan.plates_on} onSet={setPlate} /></label>}
-          <label>Clamps · chains{setupCell}</label>
+          {hasBar && <label className="wide m-plates">Plates per side<PlateGrid stack={stack} on={L.plan.plates_on} onSet={setPlate} /></label>}
+          {hasBar && <label className="m-clamp">Clamps{setupCell}</label>}
+          {C.chains && <label className="wide">Chains per side
+            <div className="plategrid chaingrid">{(['chain_half', 'chain_5_8'] as const).map(k => <label key={k}>{k === 'chain_half' ? '½ in' : '⅝ in'}
+              <CellText value={setup[k] ? String(setup[k]) : ''} narrow numeric onSave={v => setChain(k, v === '' ? 0 : Number(v))} /></label>)}</div></label>}
+          <label className="wide">Bands per side<BandGrid bands={setup.bands ?? []} onSet={setBand} /></label>
           {exp !== null && <span className="small muted">Goal {goal} · expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
           {r?.rest_s ? <span className="small muted">Rest {fmt(r.rest_s)}</span> : null}
           {logged && <button className="ghost small" onClick={() => api.deleteSet(r!.id!)}>Delete set</button>}
@@ -361,33 +433,53 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
   const [peak, setPeak] = useState<string>(r?.setup?.peak?.toString() ?? '')
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
   const [rpe, setRpe] = useState(r?.rpe?.toString() ?? '')
+  const [bands, setBands] = useState<BandPick[]>(bandsOf(r?.setup))
+  const [more, setMore] = useState(false)
+  const C = useContext(ColsCtx)
   useEffect(() => { if (!r) setW(def.weight) }, [def.weight])
-  async function commit(p: { w?: number | null; reps?: string; rpe?: string; inertia?: string; peak?: string }) {
-    const ww = p.w !== undefined ? p.w : w, rp = p.reps ?? reps, rr = p.rpe ?? rpe, ii = p.inertia ?? inertia, pk = p.peak ?? peak
+  async function commit(p: { w?: number | null; reps?: string; rpe?: string; inertia?: string; peak?: string; bands?: BandPick[] }) {
+    const ww = p.w !== undefined ? p.w : w, rp = p.reps ?? reps, rr = p.rpe ?? rpe, ii = p.inertia ?? inertia, pk = p.peak ?? peak, bb = p.bands ?? bands
     const weight = fly ? null : ww
     const row: Partial<SetRow> = { weight_lb: weight, total_bottom_lb: weight, total_top_lb: weight, reps: rp === '' ? null : Number(rp), rpe: rr === '' ? null : Number(rr),
-      setup: { ...(r?.setup ?? {}), step: def.step, bar_lb: bar, ...(fly ? { inertia: ii || null, peak: pk === '' ? null : Number(pk) } : {}) } }
+      setup: { ...(r?.setup ?? {}), step: def.step, bar_lb: bar, bands: bb, ...(fly ? { inertia: ii || null, peak: pk === '' ? null : Number(pk) } : {}) } }
     if (r) await D.api.updateSet(r.id!, row)
     else if (row.reps !== null) await D.api.addSet({ ...(row as any), exercise_id: D.api.exId(def.ex === 'Deadlift' ? D.main : def.ex)!, block: 'deadlift', set_index: def.idx, assisted: false, failed: false })
   }
   const est = !fly && w && reps ? e1rmFromRpe(w, Number(reps), rpe === '' ? null : Number(rpe)) : null
+  const setBand = (name: string, n: number) => { const bb = withBand(bands, name, Math.max(0, Math.round(n))); setBands(bb); commit({ bands: bb }) }
+  const pstack = stackFor(w === null ? null : w - bar, undefined, null, D.plan.plates_on)
   return (
+    <>
     <tr className={(r ? 'done' : 'plan') + (next ? ' next' : '')}>
-      <td className="stick"><span className="tagdot h" />{def.step}</td>
+      <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{def.step}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td>{fly ? <CellText value={inertia} placeholder="inertia" onSave={v => { setInertia(v); commit({ inertia: v }) }} />
         : <CellNum value={w} onSave={v => { setW(v); commit({ w: v }) }} />}
-        {!fly && <div className="sub2 side-inline">{sideText(w === null ? null : w - bar, undefined, D.plan.plates_on)}{def.pct ? ` · ${def.pct}%` : ''}</div>}</td>
+        {!fly && <div className="sub2 side-inline">{sideText(w === null ? null : w - bar, undefined, D.plan.plates_on)}{def.pct ? ` · ${def.pct}%` : ''}{bands.length ? ` · ${bandLabel(bands)}` : ''}</div>}</td>
+      <td className="c-exp" />
       <td><CellText value={reps} narrow numeric placeholder={String(def.reps)} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td>{def.rpe ? <CellText value={rpe} narrow numeric onSave={v => { setRpe(v); commit({ rpe: v }) }} /> : null}</td>
+      <td className="num"><b>{est ? round(est) : ''}</b></td>
       {fly ? <td colSpan={PLATE_COLS.length} className="c-plate" />
-        : <PlateCells stack={stackFor(w === null ? null : w - bar, undefined, null, D.plan.plates_on)} on={D.plan.plates_on}
-            onSet={(pl, n) => { const next = withCount(stackFor(w === null ? null : w - bar, undefined, null, D.plan.plates_on), pl, n); const nw = next.reduce((t, x) => t + x, 0) * 2 + bar; setW(nw); commit({ w: nw }) }} />}
+        : <PlateCells stack={pstack} on={D.plan.plates_on}
+            onSet={(pl, n) => { const next = withCount(pstack, pl, n); const nw = next.reduce((t, x) => t + x, 0) * 2 + bar; setW(nw); commit({ w: nw }) }} />}
       <td className="small muted nowrap c-setup">{fly
         ? <CellText value={peak} narrow numeric placeholder="peak" onSave={v => { setPeak(v); commit({ peak: v }) }} />
         : <>{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}{def.setup ? ` · ${def.setup}` : ''}</>}</td>
-      <td className="c-exp" /><td className="num"><b>{est ? round(est) : ''}</b></td>
+      <ChainCells half={0} big={0} />
+      <BandCells bands={bands} onSet={setBand} />
       <td className="num c-rest">{r && <button className="x" onClick={() => D.api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
     </tr>
+    {more && (
+      <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
+        <div className="morebox">
+          {!fly && <label className="wide m-plates">Plates per side<PlateGrid stack={pstack} on={D.plan.plates_on} onSet={(pl, n) => { const next = withCount(pstack, pl, n); const nw = next.reduce((t, x) => t + x, 0) * 2 + bar; setW(nw); commit({ w: nw }) }} /></label>}
+          {fly && <label>Peak<CellText value={peak} narrow numeric onSave={v => { setPeak(v); commit({ peak: v }) }} /></label>}
+          <label className="wide">Bands per side<BandGrid bands={bands} onSet={setBand} /></label>
+          {!fly && <span className="small muted">{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}{def.setup ? ` · ${def.setup}` : ''}</span>}
+        </div>
+      </td></tr>
+    )}
+    </>
   )
 }
 
@@ -397,12 +489,12 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
   api: Api; r?: SetRow; it: any; name: string; n: number; sets: SetRow[]; next?: boolean; lastMain?: SetRow
 }) {
   const { equipment: eq } = useStore()
+  const C = useContext(ColsCtx)
   const prev = r ? undefined : sets.at(-1)
   const lower = name.toLowerCase()
-  const banded = lower.includes('band') || lower.includes('jump')
   const isBench = lower.includes('banded bench')
   const src = r?.setup ?? prev?.setup ?? {}
-  const defBands: BandPick[] = bandsOf(src).length ? bandsOf(src) : it.band ? [{ name: 'Rogue band ' + String(it.band).split(' ')[0], per_side: it.bands_per_side ?? 1 }] : []
+  const defBands: BandPick[] = bandsOf(src).length ? bandsOf(src) : it.band ? [{ name: eq.find(e => e.kind === 'band' && e.name.startsWith('Rogue band ' + String(it.band).split(' ')[0]))?.name ?? 'Rogue band ' + String(it.band).split(' ')[0], per_side: it.bands_per_side ?? 1 }] : []
   const [load, setLoad] = useState<number | null>(r?.weight_lb ?? prev?.weight_lb ?? it.load_lb ?? (isBench ? n0(eq.find(e => e.name === LIGHT_BAR)?.weight_lb) || 5 : null))
   const [bands, setBands] = useState<BandPick[]>(defBands)
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
@@ -414,8 +506,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
   async function commit(p: { load?: number | null; bands?: BandPick[]; reps?: string; hits?: string; string?: string }) {
     const bb = p.bands ?? bands, rp = p.reps ?? reps, hh = p.hits ?? hits, ss = p.string ?? string
     const tt = bandTension(bb, eq)
-    const setup: Record<string, any> = { ...(r?.setup ?? {}), slot: it.name }
-    if (banded) Object.assign(setup, { bands: bb, lockout_per_side_lb: tt.perSide, lockout_lb: tt.total, chest_lb: 0 })
+    const setup: Record<string, any> = { ...(r?.setup ?? {}), slot: it.name, bands: bb, lockout_per_side_lb: tt.perSide, lockout_lb: tt.total, chest_lb: 0 }
     if (isBench) Object.assign(setup, { bar: LIGHT_BAR, bell_hits: hh === '' ? null : Number(hh), string_in: ss === '' ? null : Number(ss) })
     if (lower.includes('throw')) setup.bell_reps_of = 7
     delete setup.band
@@ -429,49 +520,34 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
       await api.addSet({ ...row, exercise_id: id, block: 'speed', set_index: n, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
     }
   }
+  const setBand = (nm: string, k: number) => { const bb = withBand(bands, nm, Math.max(0, Math.round(k))); setBands(bb); commit({ bands: bb }) }
 
   return (
     <>
       <tr className={(r ? 'done' : 'plan') + (next ? ' next' : '') + ' speed'}>
-        <td className="stick" onClick={() => banded && setOpen(o => !o)}><span className="tagdot s" />{name} {n}{banded && <span className="moretoggle">{open ? '▴' : '▾'}</span>}</td>
-        <td><CellNum value={load} onSave={v => { setLoad(v); commit({ load: v }) }} /></td>
+        <td className="stick" onClick={() => setOpen(o => !o)}><span className="tagdot s" />{name} {n}<span className="moretoggle">{open ? '▴' : '▾'}</span></td>
+        <td><CellNum value={load} onSave={v => { setLoad(v); commit({ load: v }) }} />
+          {bands.length > 0 && <div className="sub2 side-inline">{bandLabel(bands)}</div>}</td>
+        <td className="c-exp" />
         <td><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td>{isBench ? <CellText value={hits} narrow numeric placeholder="bell" onSave={v => { setHits(v); commit({ hits: v }) }} /> : null}</td>
-        <td colSpan={PLATE_COLS.length} className="small muted c-plate">{banded ? `bands ${round(ten.perSide, 1)} lb/side` : ''}</td>
-        <td className="c-setup">{banded ? <button className="linkish" onClick={() => setOpen(o => !o)}>{bandLabel(bands)} ✎</button> : <span className="small muted">{lower.includes('throw') ? 'reps = bell hits /7' : ''}</span>}</td>
-        <td className="c-exp" /><td />
+        <td className="num small muted">{bands.length ? `+${round(ten.perSide, 1)}/s` : ''}</td>
+        <td colSpan={PLATE_COLS.length} className="small muted c-plate">{lower.includes('throw') ? 'reps = bell hits ÷ 7' : isBench ? <span className="inline">string <CellText value={string} narrow numeric onSave={v => { setString(v); commit({ string: v }) }} /> in</span> : ''}</td>
+        <td className="c-setup" />
+        <ChainCells half={0} big={0} />
+        <BandCells bands={bands} onSet={setBand} />
         <td className="num muted c-rest">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}{r && <button className="x" onClick={() => api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
       </tr>
-      {open && banded && (
-        <tr className="bandrow"><td className="stick" /><td colSpan={12}>
-          <p className="small side-inline">{bandLabel(bands)}</p>
-          <BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }) }} />
-          <p className="small muted">Lockout {round(ten.perSide, 1)} lb per side, {round(ten.total, 1)} lb total · 0 at chest (anchor gap set for zero tension on the safeties).</p>
-          {isBench && <label className="inline">Bell string (in) <CellText value={string} narrow numeric onSave={v => { setString(v); commit({ string: v }) }} /></label>}
+      {open && (
+        <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
+          <div className="morebox">
+            <label className="wide">Bands per side<BandGrid bands={bands} onSet={setBand} /></label>
+            {bands.length > 0 && <span className="small muted">Lockout {round(ten.perSide, 1)} lb per side, {round(ten.total, 1)} lb total · 0 at chest.</span>}
+            {isBench && <label>Bell string (in)<CellText value={string} narrow numeric onSave={v => { setString(v); commit({ string: v }) }} /></label>}
+          </div>
         </td></tr>
       )}
     </>
-  )
-}
-
-function BandEditor({ bands, onChange }: { bands: BandPick[]; onChange: (b: BandPick[]) => void }) {
-  const { equipment } = useStore()
-  const all = equipment.filter(e => e.kind === 'band')
-  return (
-    <div className="bandedit">
-      {bands.map((b, i) => (
-        <div key={i} className="row">
-          <select value={b.name} onChange={e => onChange(bands.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}>
-            {all.map(e => <option key={e.id} value={e.name}>{e.name.replace('Rogue band ', '')} ({e.props?.one_band_lockout_lb} lb)</option>)}
-          </select>
-          <select value={b.per_side} onChange={e => onChange(bands.map((x, j) => j === i ? { ...x, per_side: Number(e.target.value) } : x))} aria-label="Per side">
-            {[1, 2, 3].map(v => <option key={v} value={v}>×{v} per side</option>)}
-          </select>
-          <button className="x" onClick={() => onChange(bands.filter((_, j) => j !== i))} aria-label="Remove band">×</button>
-        </div>
-      ))}
-      <button className="ghost small" onClick={() => onChange([...bands, { name: all[0]?.name ?? '', per_side: 1 }])}>+ band</button>
-    </div>
   )
 }
 
