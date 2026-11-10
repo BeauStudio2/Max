@@ -6,18 +6,16 @@ import SignIn from './pages/SignIn'
 import Today from './pages/Today'
 import History from './pages/History'
 import Plan from './pages/Plan'
-import People from './pages/People'
 import Profile from './pages/Profile'
 import Config from './pages/Config'
 
-type Tab = 'today' | 'history' | 'profile' | 'plan' | 'config' | 'people'
+type Tab = 'today' | 'history' | 'profile' | 'plan' | 'config'
 const TABS: { id: Tab; label: string; coach?: boolean }[] = [
   { id: 'today', label: 'Log' },
   { id: 'history', label: 'History' },
   { id: 'profile', label: 'Profile' },
   { id: 'plan', label: 'Plan' },
   { id: 'config', label: 'Config' },
-  { id: 'people', label: 'Lifters', coach: true },
 ]
 
 export default function App() {
@@ -62,7 +60,7 @@ function Shell() {
           <div className="card">
             <h2>Almost in</h2>
             <p>You are signed in as <b>{auth.user.email}</b>, but your account is not linked to a lifter yet.
-              Ask Beau to link you on the People tab, then reload.</p>
+              Ask Beau to link you in Config, then reload.</p>
           </div>
         ) : (
           <>
@@ -71,7 +69,6 @@ function Shell() {
             {tab === 'profile' && <><Profile lifterId={lifterId} /><Account email={auth.user.email ?? ''} /></>}
             {tab === 'plan' && <Plan lifterId={lifterId} />}
             {tab === 'config' && <Config />}
-            {tab === 'people' && isCoach && <People />}
           </>
         )}
       </main>

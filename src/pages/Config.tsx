@@ -4,6 +4,7 @@ import { useStore } from '../lib/store'
 import type { Equipment, Lifter } from '../lib/types'
 import { CellText } from './today/Sheet'
 import { CLAMPS, CHAIN_CLAMP } from './today/Ladder'
+import People from './People'
 
 /** Reads a nested value: get(o, 'planned_e1rm.bench'). */
 const get = (o: any, path: string) => path.split('.').reduce((v, k) => (v == null ? undefined : v[k]), o)
@@ -20,28 +21,28 @@ function put(o: any, path: string, value: any) {
 const asNum = (v: string) => (v.trim() === '' ? null : Number(v))
 
 const LIFTER_COLS: { path: string; label: string; kind?: 'num' | 'clamp' }[] = [
-  { path: 'bodyweight_lb', label: 'Body wt' },
-  { path: 'settings.default_clamp', label: 'Clamps', kind: 'clamp' },
-  { path: 'settings.rest_s', label: 'Rest s' },
-  { path: 'settings.planned_e1rm.bench', label: 'Bench max' },
-  { path: 'settings.target_reps.bench', label: 'Bench reps' },
+  { path: 'bodyweight_lb', label: 'Body weight lb' },
+  { path: 'settings.default_clamp', label: 'Clamps (straight sets)', kind: 'clamp' },
+  { path: 'settings.rest_s', label: 'Rest between heavy sets (s)' },
+  { path: 'settings.planned_e1rm.bench', label: 'Bench planned max' },
+  { path: 'settings.target_reps.bench', label: 'Bench target reps' },
   { path: 'settings.stop_pct.bench', label: 'Bench stop %' },
-  { path: 'settings.fatigue_pct.bench', label: 'Bench fat. %' },
-  { path: 'settings.chain_setup.bench.chain_half', label: 'Bench ½' },
-  { path: 'settings.chain_setup.bench.chain_5_8', label: 'Bench ⅝' },
-  { path: 'settings.chain_geometry.bench.rom_in', label: 'Bench ROM in' },
-  { path: 'settings.chain_geometry.bench.hang_in', label: 'Bench hang in' },
-  { path: 'settings.planned_e1rm.squat', label: 'Squat max' },
-  { path: 'settings.target_reps.squat', label: 'Squat reps' },
+  { path: 'settings.fatigue_pct.bench', label: 'Bench fatigue %/set' },
+  { path: 'settings.chain_setup.bench.chain_half', label: 'Bench ½ chains/side' },
+  { path: 'settings.chain_setup.bench.chain_5_8', label: 'Bench ⅝ chains/side' },
+  { path: 'settings.chain_geometry.bench.rom_in', label: 'Bench range of motion (in)' },
+  { path: 'settings.chain_geometry.bench.hang_in', label: 'Bench chain hang at bottom (in)' },
+  { path: 'settings.planned_e1rm.squat', label: 'Squat planned max' },
+  { path: 'settings.target_reps.squat', label: 'Squat target reps' },
   { path: 'settings.stop_pct.squat', label: 'Squat stop %' },
-  { path: 'settings.fatigue_pct.squat', label: 'Squat fat. %' },
-  { path: 'settings.chain_setup.squat.chain_half', label: 'Squat ½' },
-  { path: 'settings.chain_setup.squat.chain_5_8', label: 'Squat ⅝' },
-  { path: 'settings.chain_geometry.squat.rom_in', label: 'Squat ROM in' },
-  { path: 'settings.chain_geometry.squat.hang_in', label: 'Squat hang in' },
-  { path: 'settings.deadlift_best_conventional_lb', label: 'DL best' },
-  { path: 'settings.deadlift_planned_top_lb', label: 'DL wk-1 top' },
-  { path: 'settings.band_anchor_gap_in', label: 'Band gap in' },
+  { path: 'settings.fatigue_pct.squat', label: 'Squat fatigue %/set' },
+  { path: 'settings.chain_setup.squat.chain_half', label: 'Squat ½ chains/side' },
+  { path: 'settings.chain_setup.squat.chain_5_8', label: 'Squat ⅝ chains/side' },
+  { path: 'settings.chain_geometry.squat.rom_in', label: 'Squat range of motion (in)' },
+  { path: 'settings.chain_geometry.squat.hang_in', label: 'Squat chain hang at bottom (in)' },
+  { path: 'settings.deadlift_best_conventional_lb', label: 'Deadlift best (lb)' },
+  { path: 'settings.deadlift_planned_top_lb', label: 'Deadlift week-1 top (lb)' },
+  { path: 'settings.band_anchor_gap_in', label: 'Band anchor gap (in)' },
 ]
 
 export default function Config() {
@@ -142,6 +143,8 @@ export default function Config() {
         </section>
       )}
 
+      {isCoach && <People />}
+
       <section className="card">
         <h2>Exercises</h2>
         <div className="tablewrap"><table className="sheet cfg">
@@ -166,43 +169,41 @@ export default function Config() {
   )
 }
 
-/** Each lifter's starting values, as one editable table (shown on the Lifters page). */
-export function LifterSettings() {
+/** One lifter's training settings, label by value (shown on their Profile). */
+export function LifterSettings({ lifterId }: { lifterId: string }) {
   const { isCoach, lifters, reload } = useStore()
   const [err, setErr] = useState<string | null>(null)
+  const l = lifters.find(x => x.id === lifterId)
+  if (!l) return null
   const ro = !isCoach
   const done = async (p: PromiseLike<{ error: any }>) => { const { error } = await p; if (error) setErr(error.message); else await reload() }
-  const saveLifter = (l: Lifter, path: string, raw: string) => {
+  const save = (path: string, raw: string) => {
     const v = path.endsWith('default_clamp') ? raw || null : asNum(raw)
     if (path === 'bodyweight_lb') return done(supabase.from('lifters').update({ bodyweight_lb: v }).eq('id', l.id))
     return done(supabase.from('lifters').update({ settings: put(l.settings, path.replace('settings.', ''), v) }).eq('id', l.id))
   }
   return (
-    <>
+    <section className="card">
+      <h2>Training settings</h2>
       {err && <p className="err">{err}</p>}
-      <section className="card">
-        <h2>Starting values</h2>
-        <div className="tablewrap"><table className="sheet cfg">
-          <thead><tr><th className="stick">Lifter</th>{LIFTER_COLS.map(c => <th key={c.path}>{c.label}</th>)}</tr></thead>
-          <tbody>{lifters.map(l => (
-            <tr key={l.id}>
-              <td className="stick">{l.name}</td>
-              {LIFTER_COLS.map(c => {
-                const v = get(l, c.path)
-                if (c.kind === 'clamp') return (
-                  <td key={c.path}>{ro ? (CLAMPS.find(x => x[0] === v)?.[1] ?? '—') : (
-                    <select className="mini" value={v ?? ''} onChange={e => saveLifter(l, c.path, e.target.value)}>
-                      <option value="">default</option>
-                      {CLAMPS.filter(x => x[0] !== CHAIN_CLAMP).map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}
-                    </select>)}</td>
-                )
-                return <td key={c.path}>{ro ? (v ?? '') : <CellText value={v == null ? '' : String(v)} narrow numeric onSave={x => saveLifter(l, c.path, x)} />}</td>
-              })}
+      <div className="tablewrap"><table className="sheet cfg">
+        <tbody>{LIFTER_COLS.map(c => {
+          const v = get(l, c.path)
+          return (
+            <tr key={c.path}>
+              <td className="stick">{c.label}</td>
+              <td>{c.kind === 'clamp'
+                ? (ro ? (CLAMPS.find(x => x[0] === v)?.[1] ?? 'Rogue') : (
+                  <select className="mini" value={v ?? ''} onChange={e => save(c.path, e.target.value)}>
+                    <option value="">Rogue (default)</option>
+                    {CLAMPS.filter(x => x[0] !== CHAIN_CLAMP).map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}
+                  </select>))
+                : (ro ? (v ?? '—') : <CellText value={v == null ? '' : String(v)} narrow numeric onSave={x => save(c.path, x)} />)}</td>
             </tr>
-          ))}</tbody>
-        </table></div>
-        <p className="small muted">These are each lifter's starting values. A session's own plan (and the previous session) takes over once they train.</p>
-      </section>
-    </>
+          )
+        })}</tbody>
+      </table></div>
+      <p className="small muted">Starting values. Once {l.name} trains, each session carries its numbers forward to the next.{ro ? ' The coach edits these.' : ''}</p>
+    </section>
   )
 }

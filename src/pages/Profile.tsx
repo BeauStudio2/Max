@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
+import { LifterSettings } from './Config'
 import { e1rmFromRpe, fitFatigue, localDate, round } from '../lib/load'
 
 interface Metric { metric: string; label: string; unit: string; grp: string; sort: number; derived: boolean }
@@ -95,6 +96,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
           </section>
         )
       })}
+      <LifterSettings lifterId={lifterId} />
     </div>
   )
 }

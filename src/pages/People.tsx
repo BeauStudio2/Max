@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
 import type { Profile } from '../lib/types'
-import { LifterSettings } from './Config'
 
 export default function People() {
   const { lifters, reload, auth } = useStore()
@@ -35,7 +34,7 @@ export default function People() {
   const label = (p: Profile) => p.display_name || p.id.slice(0, 8)
 
   return (
-    <div className="stack">
+    <>
       {err && <p className="err">{err}</p>}
       <section className="card">
         <h2>Lifters and accounts</h2>
@@ -54,7 +53,6 @@ export default function People() {
           <button className="primary inline" onClick={addLifter}>Add</button>
         </div>
       </section>
-      <LifterSettings />
       <section className="card">
         <h2>Accounts</h2>
         {profiles.map(p => (
@@ -66,6 +64,6 @@ export default function People() {
           </div>
         ))}
       </section>
-    </div>
+    </>
   )
 }
