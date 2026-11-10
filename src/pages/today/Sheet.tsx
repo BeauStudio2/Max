@@ -196,13 +196,13 @@ function withSupport(planned: Planned[], slots: SupportSlot[], placement: Placem
   return out
 }
 
-function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: (it: any) => SetRow[], placement: Placement) {
+function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: (it: any) => SetRow[], placement: Placement, heavyUnplanned = false) {
   const since = new Set<string>()
   for (let i = done.length - 1; i >= 0 && !isMain(done[i]); i--) if (done[i].setup?.slot) since.add(done[i].setup.slot)
   // Between main sets, every main set gets one round of speed, so speed runs as long as the main lift does.
   const mainTotal = done.filter(isMain).length + main.length
   // With no heavy sets at all (e.g. a substitute with no planned max yet), speed keeps the day's own set count.
-  const target = (it: any) => placement === 'between' && mainTotal > 0 ? mainTotal : (it.sets ?? 0)
+  const target = (it: any) => placement === 'between' && mainTotal > 0 && !heavyUnplanned ? mainTotal : (it.sets ?? 0)
   const left = items.map(it => ({ it, done: speedSets(it).length, left: Math.max(0, target(it) - speedSets(it).length) }))
   const rounds: Planned[][] = []
   let first = since.size > 0, partial = false
@@ -229,9 +229,9 @@ function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: 
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, onPlannedMax, S, circuit, onCircuit }: {
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
-  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement; supInterleave?: boolean; running?: boolean
+  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement; supInterleave?: boolean; running?: boolean; onPlannedMax?: (v: number | null) => void
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
   const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
@@ -246,7 +246,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const mainPlanned: Planned[] = L
     ? L.projected.map(p => ({ kind: 'main', key: 'h' + p.idx, p }))
     : (D?.rows ?? []).filter(r => !r.existing).map(r => ({ kind: 'pull', key: 'd:' + r.row.step, row: r.row }))
-  const planned0 = plannedOrder(done.filter(r => r.block !== 'support'), mainPlanned, items, speedSets, placement)
+  // Heavy with no planned max can't plan its sets; speed then runs on its own count so the rounds still exist.
+  const heavyUnplanned = !!L && !L.plan.planned_e1rm
+  const planned0 = plannedOrder(done.filter(r => r.block !== 'support'), mainPlanned, items, speedSets, placement, heavyUnplanned)
   const planned = supInterleave ? withSupport(planned0, S.slots.filter(x => !x.existing), placement, done.at(-1)) : planned0
   const lastMain = [...done].reverse().find(isMain)
   // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
@@ -294,6 +296,13 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
               : r.block === 'primary' && L ? <MainTr key={r.id} L={L} api={api} r={r} exerciseId={heavyExerciseId} label={liftLabel} />
               : r.block === 'deadlift' && D ? <PullTr key={r.id} D={D} def={D.rows.find(x => x.existing?.id === r.id)!.row} r={r} />
                 : <SpeedTr key={r.id} api={api} r={r} it={items.find(i => i.name === r.setup?.slot) ?? { name: r.setup?.slot }} name={slotName(r)} n={r.set_index} sets={[]} />)}
+            {heavyUnplanned && (
+              <tr className="noplan"><td className="stick"><span className="tagdot h" />{liftLabel}</td>
+                <td colSpan={cols.span}><div className="noplanbox">
+                  <span>No planned max for <b>{liftLabel}</b> yet, so its sets can't be planned.</span>
+                  <label>Planned max (est. 1-rep max) <CellNum value={null} onSave={v => v && onPlannedMax?.(v)} /></label>
+                </div></td></tr>
+            )}
             {planned.map((p, i) => p.kind === 'main' && L ? <MainTr key={p.key} L={L} api={api} p={p.p} exerciseId={heavyExerciseId} label={liftLabel} next={i === 0} />
               : p.kind === 'pull' && D ? <PullTr key={p.key} D={D} def={p.row} next={i === 0} />
                 : p.kind === 'speed' ? <SpeedTr key={p.key} api={api} it={p.it} name={speedEx(p.it)} n={p.n} sets={speedSets(p.it)} next={i === 0} lastMain={lastMain} />

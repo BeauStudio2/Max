@@ -75,13 +75,13 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const actual = logged.map(r => e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted, r.failed, cfg))
   // Target estimated max for each logged set: set 1 = planned max; after that, the previous set's actual less one set of fatigue.
   const targets: (number | null)[] = logged.map((r, i) => {
-    if (r.set_index === 1 || i === 0) return plan.planned_e1rm
-    const prev = actual[i - 1]
-    return prev !== null ? prev * (1 - f) : null
+    // A set saved without reps has no result: the next set aims from the last set that has one (or the planned max).
+    const prev = actual.slice(0, i).filter((a): a is number => a !== null).at(-1)
+    return prev === undefined ? plan.planned_e1rm : prev * (1 - f)
   })
-  const set1 = actual[0] ?? plan.planned_e1rm
+  const set1 = actual.find(a => a !== null) ?? plan.planned_e1rm
   const floor = set1 ? (set1 * plan.stop_pct) / 100 : null
-  const lastActual = actual.at(-1) ?? null
+  const lastActual = actual.filter((a): a is number => a !== null).at(-1) ?? null
   const stopped = logged.length > 0 && floor !== null && lastActual !== null && lastActual < floor
 
   const weightFor = (target: number, s: LoadSetup) => {
@@ -96,7 +96,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const { projected, kept, autoKept } = useMemo(() => {
     const ideal: { idx: number; target: number; setup: LoadSetup; weight: number }[] = []
     let idx = (logged.at(-1)?.set_index ?? 0) + 1
-    let target = logged.length === 0 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
+    let target = lastActual !== null ? lastActual * (1 - f) : plan.planned_e1rm
     if (target && !stopped) {
       while (idx <= 40 && (floor === null || target >= floor)) {
         const setup = idx === 1 ? straightOf(plan) : chained(plan)
@@ -131,7 +131,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   }, [logged, plan, lastActual, floor, stopped, equipment, cfg])
 
   const nextIdx = (logged.at(-1)?.set_index ?? 0) + 1
-  const nextTarget = nextIdx === 1 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
+  const nextTarget = lastActual !== null ? lastActual * (1 - f) : plan.planned_e1rm
   const lastStack = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
   // Volume, as on the sheet: bar total × reps, an assisted rep counting the bar less the assist, a failed rep nothing.
   const volume = logged.reduce((t, r) => {

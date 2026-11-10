@@ -569,3 +569,6 @@ button.x.armed, button.del.armed { color: #fff; background: var(--err); border-c
 .ttable tr.srow:hover td, .ttable tr.srow.open td { background: color-mix(in srgb, var(--card) 85%, var(--line)); }
 .ttable tr.sdetail td { background: var(--bg); padding: 8px 10px 12px; white-space: normal; }
 @media (max-width: 760px) { .ttable .t-opt { display: none; } .ttable tr.sdetail td { padding: 8px 6px; } }
+tr.noplan td { background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
+.noplanbox { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: var(--text); font-size: 13px; }
+.noplanbox label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
