@@ -528,7 +528,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
         <td className="c-exp" />
         <td><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td />
-        <td className="num small muted">{bands.length ? `+${round(ten.perSide, 1)}/s` : ''}</td>
+        <td />
         <td colSpan={PLATE_COLS.length} className="c-plate" />
         <td className="c-setup" />
         <ChainCells half={0} big={0} />
@@ -539,7 +539,6 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
         <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
           <div className="morebox">
             <label className="wide">Bands per side<BandGrid bands={bands} onSet={setBand} /></label>
-            {bands.length > 0 && <span className="small muted">Lockout {round(ten.perSide, 1)} lb per side, {round(ten.total, 1)} lb total · 0 at chest.</span>}
           </div>
         </td></tr>
       )}
