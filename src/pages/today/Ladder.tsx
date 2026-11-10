@@ -159,11 +159,11 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
         <Num label="Target reps" tip="Reps each set is weighted for. Weights come from target max ÷ (1 + reps/30)." value={plan.target_reps} onSave={v => v && setPlan({ target_reps: v })} />
         <Num label="Stop below %" tip="The session ends when a set's estimated max falls below this % of set 1's." value={plan.stop_pct} onSave={v => v !== null && setPlan({ stop_pct: v })} />
         <Num label="Fatigue %/set" tip="How much the estimated max drops each set. Each planned set targets the last set's actual less this %." value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
-        <Num label="Max sets (blank = all)" tip="Cap on heavy sets today, whatever the stop line says. Blank: the ladder runs to the stop line." value={plan.max_sets} onSave={v => setPlan({ max_sets: v })} />
+        <Num label="Max sets" placeholder="all" tip="Cap on heavy sets today, whatever the stop line says. Blank: the ladder runs to the stop line." value={plan.max_sets} onSave={v => setPlan({ max_sets: v })} />
         <Num label="Rest (s)" tip="Target rest between heavy sets. The Rest timer above the table turns green when it's reached." value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
-        {plan.bar && <Num label="Set 1 lb (blank = calc)" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
+        {plan.bar && <Num label="Set 1 lb" placeholder="calc" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
         {plan.bar && (
-          <label><T tip="Clamps used on sets without chains. Chain sets always use the chain clamps.">Clamps (straight sets)</T>
+          <label><T tip="Clamps used on sets without chains. Chain sets always use the chain clamps.">Clamps</T>
             <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </label>
         )}
@@ -175,8 +175,8 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
             </select>
           </label>
         )}
-        <label className="toggle"><T tip="Rep goals round down normally; with a spotter on hand they round up, since the last rep can be helped.">Spotter</T>
-          <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On · goals round up' : 'Off · goals round down'}</button>
+        <label className="toggle"><T tip="Off: rep goals round down. On: they round up, since a spotter can help the last rep.">Spotter</T>
+          <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On' : 'Off'}</button>
         </label>
         {chainsShown && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chain counts set for this day on the Plan page. Any single set can be changed in its chain columns.">Chains</T>
           <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
