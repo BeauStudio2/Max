@@ -138,7 +138,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         <table className="sheet">
           <thead>
             <tr>
-              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : 'A · F'}</th><th className="c-side">Per side</th><th className="c-setup">Setup</th>
+              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th><th className="c-side">Per side</th><th className="c-setup">Setup</th>
               <th className="c-exp">Exp ±</th><th>e1RM</th><th className="c-rest">Rest</th>
             </tr>
           </thead>
@@ -227,8 +227,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
         <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept) : loadNote(L.plan)}</div></td>
       <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
-        <button className={'flag' + (a ? ' on' : '')} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
-        <button className={'flag' + (f ? ' on' : '')} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
+        <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
+        <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
       </td>
       <td className="c-side">{sideCell}</td>
       <td className="c-setup">{setupCell}</td>
