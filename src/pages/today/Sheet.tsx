@@ -646,24 +646,24 @@ function SupportTr({ slot, S, api, inline }: { slot: SupportSlot; S: SupportCtl;
   const scheme = <SchemePicker value={v.scheme} options={schemeOptions} onChange={scheme => { const nv = { ...v, scheme }; setV(nv); save(nv) }} />
   const note = <CellText value={v.notes} placeholder={d.note ? 'see plan note' : 'note'} wide onSave={x => { const nv = { ...v, notes: x }; setV(nv); save(nv) }} />
   if (inline) return (
-    <tr className={(e ? 'done' : 'plan') + ' supinline'}>
-      <td className="stick"><span className="tagdot u" />
-        <select className="exsel" value={v.ex} onChange={ev => { const nv = { ...v, ex: ev.target.value }; setV(nv); save(nv) }}>
-            <option value="">choose…</option>
-            {exercises.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-          </select>
-        {slot.setIndex > 1 && <span className="small muted"> set {slot.setIndex}</span>}
-      </td>
+    <tr className={(e ? 'done' : 'plan') + ' supinline' + (more ? ' open' : '')}>
+      <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot u" />{exercises.find(x => x.id === v.ex)?.name ?? 'Support'}{slot.setIndex > 1 ? ` · set ${slot.setIndex}` : ''}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td colSpan={C.span}>
         <div className="supfields">
+          <label className="exfield opt">Exercise
+            <select className="mini" value={v.ex} onChange={ev => { const nv = { ...v, ex: ev.target.value }; setV(nv); save(nv) }}>
+              <option value="">choose…</option>
+              {exercises.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </label>
           <label data-tip="Starting weight (the first, heaviest load).">Start{field('start')}</label>
           <label data-tip="Reps at the start weight.">Reps{field('reps')}</label>
-          <label data-tip="Reps at each drop, e.g. 3 or 3,3,4.">Each drop{field('each', true, false)}</label>
-          <label data-tip="Reps at the last drop.">Final{field('final')}</label>
-          <div className="field"><span className="flabel">Scheme</span>{scheme}</div>
-          <label data-tip="Weight removed at each drop.">Step{field('step')}</label>
-          <label data-tip="Number of drops after the start weight.">Drops{field('drops')}</label>
-          <label className="grow">Note{note}</label>
+          <label className="opt" data-tip="Reps at each drop, e.g. 3 or 3,3,4.">Each drop{field('each', true, false)}</label>
+          <label className="opt" data-tip="Reps at the last drop.">Final{field('final')}</label>
+          <div className="field opt"><span className="flabel">Scheme</span>{scheme}</div>
+          <label className="opt" data-tip="Weight removed at each drop.">Step{field('step')}</label>
+          <label className="opt" data-tip="Number of drops after the start weight.">Drops{field('drops')}</label>
+          <label className="grow opt">Note{note}</label>
           <span className="nowrap"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} data-tip="Add another set of this exercise" data-pos="right" aria-label="Another set">+</button>
             <DelBtn label="Remove" tip="Remove this exercise or set" onConfirm={() => S.remove(slot)} /></span>
         </div>

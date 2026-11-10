@@ -151,9 +151,10 @@ export default function Today({ lifterId }: { lifterId: string }) {
     clamp: pick(sp.clamp, f.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
     rom_in: pick(sp.rom_in, f.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
     hang_in: pick(sp.hang_in, f.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? null,
-    bar: 'bar' in exEquip ? exEquip.bar ?? null : 'Ohio Power Bar',
-    chains_ok: exEquip.chains ?? true,
-    load: exEquip.load ?? 'bar',
+    // No equipment set on the exercise: only the main barbell lifts get a bar; anything else is a plain load.
+    bar: 'bar' in exEquip ? exEquip.bar ?? null : (exercises.find(e => e.name === heavyEx)?.category === 'primary' || isMainEx ? 'Ohio Power Bar' : null),
+    chains_ok: exEquip.chains ?? isMainEx,
+    load: exEquip.load ?? (isMainEx ? 'bar' : 'added'),
     implement: exEquip.bar ? null : exEquip.implement ?? null,
     plates_on: pick(sp.plates_on, f.plates_on, H.plates_on, st.plates_on) ?? ALL_PLATES,
     chains_on: pick(sp.chains_on, f.chains_on, H.chains_on) ?? true,

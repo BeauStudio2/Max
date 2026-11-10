@@ -572,3 +572,7 @@ button.x.armed, button.del.armed { color: #fff; background: var(--err); border-c
 tr.noplan td { background: color-mix(in srgb, var(--warn) 10%, var(--card)); }
 .noplanbox { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: var(--text); font-size: 13px; }
 .noplanbox label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+tr.supinline td.stick { white-space: normal; }
+.supfields label.exfield { flex: 0 1 200px; }
+.supfields label.exfield select { width: 100%; min-width: 0; }
+@media (max-width: 760px) { tr.supinline:not(.open) .supfields .opt { display: none; } }
