@@ -111,8 +111,12 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     const working = [...logged.map(r => r.weight_lb ?? 0), ...ideal.map(p => p.weight)].filter(w => w > 0)
     const on = plan.plates_on?.length ? plan.plates_on : ALL_PLATES
     const auto = keptFor(working.length ? Math.min(...working) : 0, on)
-    const kept: Kept = { n45: plan.kept_45 ?? auto.n45, n25: plan.kept_25 ?? auto.n25, on }
-    let prev: number[] | null = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
+    // Once a set is logged the kept plates are fixed for the session (what's physically on the bar), so later edits
+    // to reps or plan don't re-describe sets already lifted.
+    const locked = logged.find(r => r.setup?.kept)?.setup?.kept as { n45: number; n25: number } | undefined
+    const kept: Kept = { n45: plan.kept_45 ?? locked?.n45 ?? auto.n45, n25: plan.kept_25 ?? locked?.n25 ?? auto.n25, on }
+    const lastLogged = logged.at(-1)
+    let prev: number[] | null = Array.isArray(lastLogged?.setup?.stack) ? lastLogged!.setup.stack : lastLogged?.weight_lb != null ? loadSide(lastLogged.weight_lb / 2, kept) : null
     if (!plan.bar) return { projected: ideal.map(p => ({ ...p, stack: null as number[] | null, change: '' })), kept, autoKept: auto }
     const out = ideal.map(p => {
       // An overridden set 1 stays exactly as entered.

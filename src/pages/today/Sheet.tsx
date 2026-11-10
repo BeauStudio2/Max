@@ -18,10 +18,11 @@ const LIGHT_BAR = 'Light speed bar'
 const fixedWeight = (s: LoadSetup, eq: Equipment[]) =>
   n0(eq.find(e => e.name === s.bar)?.weight_lb) + n0(eq.find(e => e.name === s.clamp)?.weight_lb)
 /** Plates per side for a total plate weight (both sides): the session's kept-on plates when given, else largest first. */
-const sideText = (plates: number | null, kept?: Kept, on?: number[]) => {
+const sideText = (plates: number | null, kept?: Kept, on?: number[], stored?: number[] | null) => {
   if (plates === null || plates < 0) return ''
   if (plates === 0) return '—'
-  const stack = kept ? loadSide(plates / 2, kept) : null
+  const sum = (st: number[]) => st.reduce((t, p) => t + p, 0)
+  const stack = stored && Math.abs(sum(stored) * 2 - plates) < 0.01 ? stored : kept ? loadSide(plates / 2, kept) : null
   if (stack) {
     // List plates the way you'd say them (25+10+10+10); three or more of one size collapse to 4×10.
     const out: string[] = []
@@ -37,6 +38,17 @@ const sideText = (plates: number | null, kept?: Kept, on?: number[]) => {
     return out.join('+')
   }
   return platesPerSide(plates, on ?? kept?.on).replace(/(\d+)×([\d.]+)/g, (_, k, p) => Array(Number(k)).fill(p).join('+')).replace(/ \+ /g, '+')
+}
+/** "45+25+2x10" → [45, 25, 10, 10] (heaviest first), or null if it doesn't parse. */
+const parseStack = (t: string): number[] | null => {
+  const out: number[] = []
+  for (const part of t.split('+').map(x => x.trim()).filter(Boolean)) {
+    const m = /^(\d+)\s*[x×]\s*([\d.]+)$/.exec(part)
+    if (m) out.push(...Array(Number(m[1])).fill(Number(m[2])))
+    else if (!Number.isNaN(Number(part))) out.push(Number(part))
+    else return null
+  }
+  return out.sort((a, b) => b - a)
 }
 /** "25+10+10+10" or "45+2x10+2.5" → pounds per side. */
 const parseSide = (t: string) => {
@@ -190,12 +202,18 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
   const below = L.floor !== null && est !== null && est < L.floor
 
-  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean }) {
+  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null }) {
     const s = patch.setup ?? setup, pl = patch.plates !== undefined ? patch.plates : plates
+    // The plates actually loaded: as typed, else the planned stack when the weight still matches, else the kept plates plus change.
+    const sumSt = (st: number[]) => st.reduce((t, p) => t + p, 0) * 2
+    const prevStack: number[] | null = Array.isArray(r?.setup?.stack) ? r!.setup.stack : p?.stack ?? null
+    const stack = !L.plan.bar || pl === null ? null : patch.stack && Math.abs(sumSt(patch.stack) - pl) < 0.01 ? patch.stack
+      : prevStack && Math.abs(sumSt(prevStack) - pl) < 0.01 ? prevStack : loadSide(pl / 2, L.kept)
     const rp = patch.reps !== undefined ? patch.reps : reps, aa = patch.a ?? a, ff = patch.f ?? f
     const tt = totals(pl, s, eq)
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
-      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null } }
+      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null,
+        stack, kept: r?.setup?.kept ?? (L.plan.bar ? { n45: L.kept.n45, n25: L.kept.n25 } : null) } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
@@ -212,7 +230,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
-  const sideCell = !hasBar ? <span className="small muted">{loadNote(L.plan)}</span> : <CellText value={sideText(plates, L.kept)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2 }) }} />
+  const stored: number[] | null = Array.isArray(r?.setup?.stack) ? r!.setup.stack : null
+  const sideCell = !hasBar ? <span className="small muted">{loadNote(L.plan)}</span> : <CellText value={sideText(plates, L.kept, undefined, stored)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2, stack: parseStack(v) }) }} />
   const setupCell = !hasBar ? <span className="small muted">—</span> : (
     <select className="mini setupsel" value={setupValue(setup)} onChange={e => setSet(parseSetupValue(e.target.value, setup))} aria-label="Clamps and chains">
       {setupOptions(setup).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -224,7 +243,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     <tr className={(logged ? 'done' : 'plan') + (next ? ' next' : '') + (below ? ' below' : '')}>
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
-        <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept) : loadNote(L.plan)}</div></td>
+        <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stored) : loadNote(L.plan)}</div></td>
       <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
