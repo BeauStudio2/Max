@@ -145,8 +145,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
     stop_pct: pick(sp.stop_pct, f.stop_pct, H.stop_pct, st.stop_pct?.[lift]) ?? 70,
     fatigue_rate_used_pct: pick(sp.fatigue_rate_used_pct, f.fatigue_rate_used_pct, prevPlan.fatigue_rate_used_pct, st.fatigue_pct?.[lift]) ?? 3,
     rest_s: pick(sp.rest_s, f.rest_s, H.rest_s, st.rest_s) ?? 100,
-    chain_half: pick(sp.chain_half, f.chain_half, H.chain_half, st.chain_setup?.[lift]?.chain_half) ?? 0,
-    chain_5_8: pick(sp.chain_5_8, f.chain_5_8, H.chain_5_8, st.chain_setup?.[lift]?.chain_5_8) ?? 1,
+    // Chains are the lifter's (Profile → chain setup): the shared day plan only fills in for a lifter who has none.
+    chain_half: pick(sp.chain_half, f.chain_half, st.chain_setup?.[lift]?.chain_half, H.chain_half) ?? 0,
+    chain_5_8: pick(sp.chain_5_8, f.chain_5_8, st.chain_setup?.[lift]?.chain_5_8, H.chain_5_8) ?? 0,
     clamp: pick(sp.clamp, f.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
     // Chain geometry is the lifter's (Profile): range of motion, and the hang at the bottom only when chains run from a leader line.
     rom_in: pick(f.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
@@ -163,7 +164,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     change_plate: pick(sp.change_plate, f.change_plate, H.change_plate) ?? 10,
     max_sets: pick(sp.max_sets) ?? null,
     set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
-    spotter: pick(sp.spotter, f.spotter, H.spotter) ?? false,
+    // S on every set from set 2 by default on bench; set 1 is always a normal set.
+    spotter: pick(sp.spotter, f.spotter, H.spotter) ?? lift === 'bench',
     assist_min_lb: pick(sp.assist_min_lb, f.assist_min_lb, H.assist_min_lb) ?? 3,
     assist_min_s: pick(sp.assist_min_s, f.assist_min_s, H.assist_min_s) ?? 0.25,
     cr: st.creatine?.[lift],

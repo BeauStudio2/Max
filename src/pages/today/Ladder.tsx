@@ -105,7 +105,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   // The target max comes from the last measured set, which was taken at that set's own starting level.
   // This lifter's fitted numbers for this lift (Profile settings) override the Config defaults.
   const basis = logged.length ? startLevel(logged.at(-1)!.set_index, cr) : 1
-  const weightFor = (target: number, s: LoadSetup, idx = 2, spot = plan.spotter) => {
+  const weightFor = (target: number, s: LoadSetup, idx = 2, spot = plan.spotter && idx > 1) => {
     const needed = spot
       ? cr.start * target * (strengthAt(startLevel(idx, cr), cr) / strengthAt(idx <= 1 ? 1 : basis, cr))
       : target / (1 + plan.target_reps / cfg.rep_divisor)

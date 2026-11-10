@@ -270,7 +270,8 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const lastEnd = lastMain?.setup?.spot?.tempo?.ended_at ?? lastMain?.created_at
   const restFrom = capture?.tempo.ended_at && (!lastEnd || capture.tempo.ended_at > lastEnd) ? capture.tempo.ended_at : lastEnd
   const rest = useClock(running ? restFrom : null)
-  const spotMode = !!L?.plan.spotter
+  // The Tindeq panel shows whenever any heavy set today is a spotter set (S from the plan, or switched on for one set).
+  const spotMode = !!L && (L.plan.spotter || Object.values(spotRows).some(Boolean) || L.logged.some(r => r.setup?.spot?.on))
   const lastSpot = lastMain?.setup?.spot?.on ? lastMain : null
   const crRest = (() => {
     if (!L || !lastSpot) return null
@@ -428,7 +429,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   const [f, setF] = useState(!!r?.failed)
   // S = this set is run with the spotter: Reps holds the unaided reps; spotted reps and their average assist are entered beside it.
   const spotCtx = useContext(SpotCtx), rowIdx = r ? r.set_index : p!.idx
-  const planSp = spotCtx.rows[rowIdx] ?? L.plan.spotter
+  const planSp = spotCtx.rows[rowIdx] ?? (L.plan.spotter && rowIdx > 1)
   const [sp, setSp] = useState<boolean>(r ? !!r.setup?.spot?.on : planSp)
   const [spotted, setSpotted] = useState<string>(r?.setup?.spot?.spotted?.toString() ?? '')
   const [assist, setAssist] = useState<string>(r?.setup?.spot?.assist_lb?.toString() ?? '')
