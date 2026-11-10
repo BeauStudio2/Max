@@ -628,11 +628,11 @@ button.flag.s.on { background: var(--accent); border-color: var(--accent); color
 .fitline { margin: 8px 0 0; color: var(--text); }
 .fitline .linkish { font-size: 12px; }
 
-/* Colour code for where a value came from: the plan (grey), worked out by Max (blue), set by you (white). */
-:root { --o-dyn: #6cb6ff; }
+/* Colour code for where a value came from: the plan (grey), worked out by Max (blue), set by you (green). */
+:root { --o-dyn: #6cb6ff; --o-user: #5fd38d; }
 .o-def, .o-def input, .o-def select, input.o-def, select.o-def, table.sheet tr .o-def .cellin { color: var(--muted); }
 .o-dyn, .o-dyn input, .o-dyn select, input.o-dyn, select.o-dyn, table.sheet tr .o-dyn .cellin { color: var(--o-dyn); }
-.o-user, .o-user input, .o-user select, input.o-user, select.o-user, table.sheet tr .o-user .cellin { color: var(--text); }
+.o-user, .o-user input, .o-user select, input.o-user, select.o-user, table.sheet tr .o-user .cellin { color: var(--o-user); }
 .ph-dyn input::placeholder { color: color-mix(in srgb, var(--o-dyn) 75%, transparent); opacity: 1; }
 .ph-def input::placeholder { color: var(--muted); opacity: 1; }
 label.o-def, label.o-dyn, label.o-user { color: var(--muted); }
