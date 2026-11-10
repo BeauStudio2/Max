@@ -617,3 +617,11 @@ button.mover:disabled { opacity: .3; cursor: default; }
 .metrorow .switch.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .metrorow input { width: 46px; min-height: 34px; padding: 4px 6px; text-align: center; }
 @media (max-width: 760px) { .sheetbar { grid-template-columns: 1fr 1fr 96px; } .metro { grid-column: 1 / -1; } }
+
+/* auto spotter: S flag, spotted-rep entries, Tindeq panel */
+button.flag.s.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.spotin { display: flex; align-items: center; gap: 2px; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.spotin .cellin.n { width: 40px !important; min-width: 40px !important; padding: 2px 4px; min-height: 26px; font-size: 13px; }
+.tindeq { display: flex; flex-direction: column; grid-column: 1 / -1; }
+.tindeq .tlb { min-width: 74px; font-variant-numeric: tabular-nums; }
+.tindeq .metrorow .switch { min-width: 0; }

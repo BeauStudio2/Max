@@ -3,6 +3,7 @@ import { useStore } from '../../lib/store'
 import { ALL_PLATES, e1rm, expectedReps, fitFatigue, round, roundTo, totals, effectiveLoad, keptFor, keptFromStored, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
 import { Num, T } from './shared'
+import { crOf, startLevel, strengthAt } from '../../lib/creatine'
 
 export interface LadderPlan {
   planned_e1rm: number | null
@@ -32,7 +33,7 @@ export interface LadderPlan {
   max_sets: number | null
   /** Set 1 weight on the bar (plates); null = calculated. */
   set1_lb: number | null
-  /** Spotter in use: rep goals round up instead of down. */
+  /** Auto spotter mode: weights, reps and rest come from the creatine model. */
   spotter: boolean
 }
 
@@ -85,8 +86,14 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const lastActual = actual.filter((a): a is number => a !== null).at(-1) ?? null
   const stopped = logged.length > 0 && floor !== null && lastActual !== null && lastActual < floor
 
-  const weightFor = (target: number, s: LoadSetup) => {
-    const needed = target / (1 + plan.target_reps / cfg.rep_divisor)
+  // Auto spotter: rep 1 is set at a fraction of strength at the start of the set (creatine at the recovery target after set 1).
+  // The target max comes from the last measured set, which was taken at that set's own starting level.
+  const cr = crOf(cfg)
+  const basis = logged.length ? startLevel(logged.at(-1)!.set_index, cr) : 1
+  const weightFor = (target: number, s: LoadSetup, idx = 2) => {
+    const needed = plan.spotter
+      ? cr.start * target * (strengthAt(startLevel(idx, cr), cr) / strengthAt(idx <= 1 ? 1 : basis, cr))
+      : target / (1 + plan.target_reps / cfg.rep_divisor)
     const zero = totals(0, s, equipment)
     const extras = effectiveLoad(zero.bottom, zero.top, cfg) ?? 0
     return Math.max(0, roundTo(needed - extras, plan.step_lb))
@@ -102,7 +109,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
       while (idx <= 40 && (floor === null || target >= floor) && (plan.max_sets == null || idx <= plan.max_sets)) {
         const setup = idx === 1 ? straightOf(plan) : chained(plan)
         // Set 1 override is what's on the bar (like the lb column); plates = that less the bar and clamps.
-        const weight = idx === 1 && plan.set1_lb != null ? Math.max(0, plan.set1_lb - totals(0, setup, equipment).bottom!) : weightFor(target, setup)
+        const weight = idx === 1 && plan.set1_lb != null ? Math.max(0, plan.set1_lb - totals(0, setup, equipment).bottom!) : weightFor(target, setup, idx)
         if (weight <= 0 && idx > 1) break
         ideal.push({ idx, target, setup, weight })
         target *= 1 - f
@@ -141,7 +148,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   }, 0)
   const fit = fitFatigue(actual)
   const straight = straightOf(plan)
-  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume }
+  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume, cr, spotBasis: basis }
 }
 
 export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGeometry }: {
@@ -175,7 +182,7 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
             </select>
           </label>
         )}
-        <label className="toggle"><T tip="Off: rep goals round down. On: they round up, since a spotter can help the last rep.">Spotter</T>
+        <label className="toggle"><T tip="Auto spotter (S). On: every rep is a maximal effort with the spotter making up the shortfall. Weight is set near your strength at the start of each set, the set ends when creatine is spent, and rest is the time to refill it. Off: the normal rep-target ladder.">Auto spotter</T>
           <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On' : 'Off'}</button>
         </label>
         {chainsShown && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chain counts set for this day on the Plan page. Any single set can be changed in its chain columns.">Chains</T>

@@ -7,6 +7,8 @@ import { type DeadliftCtl, type PullRowDef } from './Deadlift'
 import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
+import TindeqPanel from './TindeqPanel'
+import { endLevel, predictSet, restFor, startLevel, strengthAt, crOf, type Pulse } from '../../lib/creatine'
 import { DelBtn, fmt, useClock, type Api } from './shared'
 
 export type Placement = 'between' | 'first' | 'after'
@@ -128,6 +130,8 @@ export const bandColor = (name: string) => BAND_COLORS.find(([re]) => re.test(na
 const bandShort = (name: string) => BAND_COLORS.find(([re]) => re.test(name))?.[2] ?? name.replace('Rogue band ', '').slice(0, 4)
 
 interface Cols { chains: boolean; span: number; allBands: Equipment[] }
+const CaptureCtx = createContext<{ id: number; pulses: Pulse[] } | null>(null)
+const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v))
 const ColsCtx = createContext<Cols>({ chains: false, span: 12, allBands: [] })
 
 function ChainCells({ half, big, onSet }: { half: number; big: number; onSet?: (which: 'chain_half' | 'chain_5_8', n: number) => void }) {
@@ -250,6 +254,21 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const lastMain = [...done].reverse().find(isMain)
   // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
   const rest = useClock(running ? lastMain?.created_at : null)
+  // Auto spotter: rest is the time for creatine to refill from where the last set ended to the recovery target.
+  const [capture, setCapture] = useState<{ id: number; pulses: Pulse[] } | null>(null)
+  const spotMode = !!L?.plan.spotter
+  const lastSpot = lastMain?.setup?.spot?.on ? lastMain : null
+  const crRest = (() => {
+    if (!L || !lastSpot) return null
+    const t = totals(lastSpot.weight_lb, setupOf(lastSpot), equipment)
+    const load = t.bottom !== null && t.top !== null ? (t.bottom + t.top) / 2 : 0
+    const pulses: Pulse[] | undefined = lastSpot.setup.spot.pulses
+    // Only a measured last rep (Tindeq) is used; a hand-typed average says too little about the final rep, so the rep count is used instead.
+    const lastAssist = pulses?.length ? pulses.at(-1)!.mean : null
+    const Pend = endLevel({ load, totalReps: (lastSpot.reps ?? 0) + (lastSpot.setup.spot.spotted ?? 0), lastAssist, P0: startLevel(lastSpot.set_index, L.cr) }, L.cr)
+    return { seconds: Math.round(restFor(Pend, L.cr)), Pend }
+  })()
+  const restTarget = crRest ? crRest.seconds : restS
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
 
   // Circuit time: what you entered, or first to last set of the circuit.
@@ -266,22 +285,23 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   return (
     <section className="card sheetcard">
       <div className="sheetbar">
-        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restS ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restS)}</span> : lastMain ? `${fmt(rest)} / ${fmt(restS)}` : `0:00 / ${fmt(restS)}`}</b></div>
+        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : lastMain ? `${fmt(rest)} / ${fmt(restTarget)}` : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
         </label>
         <Metronome />
+        {spotMode && <TindeqPanel onCapture={pulses => setCapture({ id: Date.now(), pulses })} />}
       </div>
 
       <div className="tablewrap">
-        <ColsCtx.Provider value={cols}>
+        <CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
         <table className="sheet">
           <thead>
             <tr>
               <th className="stick" data-tip="Grey rows are planned; logging reps saves the set. Tap a set name on narrow screens for plates, chains and bands." data-pos="left">Set</th><th data-tip="Total on the bar: bar + clamps + plates (not chains or bands). Type a total and the plates update." data-pos="left">lb</th><th className="c-exp" data-tip="Reps expected at this weight to hit the set's target max. Under it: logged reps minus expected (green ahead, red behind).">Exp</th><th data-tip="Reps done. The grey number is the rep goal (expected reps rounded down; up with Spotter on).">Reps</th>
-              <th>{D ? <span data-tip="Rate of perceived exertion, 1–10. The top single's RPE sets today's deadlift estimate.">RPE</span> : <span data-tip="A = last rep assisted (counts half). F = last rep failed (counts nothing).">A · F</span>}</th><th data-tip="Estimated 1-rep max from this set (Epley, chains averaged bottom/top). Grey on planned rows = the target. % = vs set 1. Red row = below the stop line.">e1RM</th>
+              <th>{D ? <span data-tip="Rate of perceived exertion, 1–10. The top single's RPE sets today's deadlift estimate.">RPE</span> : <span data-tip="A = last rep assisted (counts half). F = last rep failed (counts nothing). S = spotter set: Reps holds the unaided reps, with spotted reps and average assist beside it.">A · F · S</span>}</th><th data-tip="Estimated 1-rep max from this set (Epley, chains averaged bottom/top). Grey on planned rows = the target. % = vs set 1. Red row = below the stop line.">e1RM</th>
               {PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}
               <th className="c-setup" data-tip="Clamps on this set. Adding chains switches to the chain clamps; removing them switches back.">Clamps</th>
               {chains && <><th className="c-chain" data-tip="½ in chains per side">½ ch</th><th className="c-chain" data-tip="⅝ in chains per side">⅝ ch</th></>}
@@ -306,7 +326,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             })}
           </tbody>
         </table>
-        </ColsCtx.Provider>
+        </ColsCtx.Provider></CaptureCtx.Provider>
       </div>
       <p className="small muted sheetfoot">
         Grey rows are the plan; type reps in one to log it. {L?.floor ? `Stop line ${round(L.floor)}. ` : ''}
@@ -331,6 +351,12 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
   const [a, setA] = useState(!!r?.assisted)
   const [f, setF] = useState(!!r?.failed)
+  // S = this set is run with the spotter: Reps holds the unaided reps; spotted reps and their average assist are entered beside it.
+  const [sp, setSp] = useState<boolean>(r ? !!r.setup?.spot?.on : L.plan.spotter)
+  const [spotted, setSpotted] = useState<string>(r?.setup?.spot?.spotted?.toString() ?? '')
+  const [assist, setAssist] = useState<string>(r?.setup?.spot?.assist_lb?.toString() ?? '')
+  const [trace, setTrace] = useState<Pulse[] | null>(r?.setup?.spot?.pulses ?? null)
+  useEffect(() => { if (!r) setSp(L.plan.spotter) }, [L.plan.spotter])
   // Plates typed into the columns, kept as entered until the set is logged (then they're saved on the set).
   const [manual, setManual] = useState<number[] | null>(null)
   useEffect(() => { if (!r) { setSetup(p!.setup); setPlates(p!.weight); setManual(null) } }, [p?.weight, p?.idx, p && setupKey(p.setup)])
@@ -344,11 +370,16 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const est = e1rm(t.bottom, t.top, repsN, a, f, cfg)
   const exp = target ? expectedReps(target, t.bottom, t.top, cfg) : null
   const diff = exp !== null && repsN !== null ? repsN - lostReps(a, f, cfg) - exp : null
-  const goal = exp !== null ? repGoal(exp, L.plan.spotter) : null
+  const P0 = startLevel(idx, L.cr)
+  const eff = t.bottom !== null && t.top !== null ? (t.bottom + t.top) / 2 : null
+  // Strength on rep 1 of this set: the target max, moved from the level it was measured at to this set's starting level.
+  const measuredAt = idx <= 1 ? 1 : r ? startLevel(idx - 1, L.cr) : L.spotBasis
+  const pred = sp && target && eff ? predictSet(eff, target * strengthAt(P0, L.cr) / strengthAt(measuredAt, L.cr), P0, L.cr) : null
+  const goal = pred ? pred.unaided : exp !== null ? repGoal(exp, false) : null
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
   const below = L.floor !== null && est !== null && est < L.floor
 
-  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null }) {
+  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null }) {
     const s = patch.setup ?? setup, pl = patch.plates !== undefined ? patch.plates : plates
     // The plates actually loaded: as typed, else the planned stack when the weight still matches, else the kept plates plus change.
     const sumSt = (st: number[]) => st.reduce((t, p) => t + p, 0) * 2
@@ -359,7 +390,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const tt = totals(pl, s, eq)
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
       setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [],
-        stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null) } }
+        stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null),
+        spot: (patch.sp ?? sp) ? { on: true, spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined } : null } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
@@ -370,9 +402,17 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   }
   const setSet = (s: LoadSetup) => {
     setSetup(s)
-    if (!r && target) { const w = L.weightFor(target, s); setPlates(w); return commit({ setup: s, plates: w }) }
+    if (!r && target) { const w = L.weightFor(target, s, idx); setPlates(w); return commit({ setup: s, plates: w }) }
     return commit({ setup: s })
   }
+  // A set recorded on the Tindeq fills this row's spotted reps and average assist (the next set to do, with S on).
+  const cap = useContext(CaptureCtx)
+  useEffect(() => {
+    if (!cap || !next || !sp || !cap.pulses.length) return
+    const n = String(cap.pulses.length), avg = String(Math.round((cap.pulses.reduce((t, x) => t + x.mean, 0) / cap.pulses.length) * 10) / 10)
+    setSpotted(n); setAssist(avg); setTrace(cap.pulses)
+    if (r) commit({ spotted: n, assist: avg, trace: cap.pulses })
+  }, [cap?.id])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
@@ -404,11 +444,16 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
         <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}{setup.bands?.length ? ` · ${bandLabel(setup.bands)}` : ''}</div></td>
-      <td className="num c-exp">{exp !== null ? exp.toFixed(1) : ''}{diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
-      <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
+      <td className="num c-exp">{pred ? <span data-tip="Model: unaided reps + spotted reps before creatine is spent." data-pos="center">{pred.unaided}+{pred.spotted}</span> : exp !== null ? exp.toFixed(1) : ''}{!pred && diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
+      <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} />
+        {sp && <div className="spotin" data-tip="Spotted reps after the unaided ones, and their average assist in lb. Filled from the Tindeq when a set is recorded." data-pos="left">
+          <span>+</span><CellText value={spotted} narrow numeric placeholder={pred ? String(pred.spotted) : 'spot'} onSave={v => { setSpotted(v); commit({ spotted: v }) }} />
+          <span>@</span><CellText value={assist} narrow numeric placeholder="lb" onSave={v => { setAssist(v); commit({ assist: v }) }} />
+        </div>}</td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
+        <button className={'flag s' + (sp ? ' on' : '')} data-tip="Spotter set: every rep maximal, the spotter makes up the shortfall. Reps = unaided reps." aria-label="Spotter set" aria-pressed={sp} onClick={() => { setSp(!sp); if (r) commit({ sp: !sp }) }}>S</button>
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
         {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}</td>
