@@ -10,7 +10,8 @@ import { supabase } from '../supabase'
  *  - eleven: ElevenLabs. Each phrase is fetched once and kept in the browser's cache, so a cue like "Rest" is paid for once.
  */
 
-export type CueKey = 'rest' | 'next' | 'ack'
+/** warn: rest nearly up · lift: rest up · over: a minute over · rack: end the set · next: weight and rep goal · plates: plates and chains · ack: repeat a command back. */
+export type CueKey = 'warn' | 'lift' | 'over' | 'rack' | 'next' | 'plates' | 'ack'
 export interface VoiceSettings {
   engine: 'browser' | 'eleven'
   browserVoice: string | null
@@ -22,7 +23,8 @@ export interface VoiceSettings {
 const DEFAULTS: VoiceSettings = {
   engine: 'browser', browserVoice: null, rate: 1, pitch: 1, volume: 1,
   elevenVoice: null, elevenVoiceName: null, elevenModel: 'eleven_multilingual_v2',
-  cues: { rest: { on: true, word: 'Rest' }, next: { on: true, word: '' }, ack: { on: true, word: '' } },
+  cues: { warn: { on: true, word: 'Ten seconds' }, lift: { on: true, word: 'Lift' }, over: { on: true, word: 'Overtime' }, rack: { on: true, word: 'Rack' },
+    next: { on: true, word: '' }, plates: { on: true, word: '' }, ack: { on: true, word: '' } },
   listen: false, wake: 'Max',
 }
 const KEY = 'max.voice'
@@ -112,30 +114,53 @@ function browserSpeak(text: string, s = state.settings): Promise<void> {
   })
 }
 
-/** Speak a phrase. */
-export async function speak(text: string, s = state.settings) {
-  text = text.trim()
-  if (!text) return
-  set({ speaking: true, error: null }); lastSaid = text.toLowerCase()
+// Each new utterance cuts off the one before (a newer cue matters more).
+let gen = 0
+
+/** Speak one or more short phrases in turn. Recorded voices play each phrase as its own clip, so every piece can be recorded ahead of time. */
+export async function speak(text: string | string[], s = state.settings) {
+  const parts = (Array.isArray(text) ? text : [text]).map(x => x.trim()).filter(Boolean)
+  if (!parts.length) return
+  const my = ++gen
+  set({ speaking: true, error: null }); lastSaid = parts.join(' ').toLowerCase()
   try {
     if (s.engine === 'eleven') {
-      const blob = await elevenAudio(text, s)
       audio?.pause()
-      audio = new Audio(URL.createObjectURL(blob)); audio.volume = s.volume
-      await new Promise<void>(res => { audio!.onended = () => res(); audio!.onerror = () => res(); audio!.play().catch(() => res()) })
-    } else await browserSpeak(text, s)
+      for (const p of parts) {
+        const blob = await elevenAudio(p, s)
+        if (my !== gen) return
+        audio = new Audio(URL.createObjectURL(blob)); audio.volume = s.volume
+        await new Promise<void>(res => { audio!.onended = () => res(); audio!.onerror = () => res(); audio!.play().catch(() => res()) })
+        if (my !== gen) return
+      }
+    } else await browserSpeak(parts.join(', '), s)
   } catch (e: any) {
     set({ error: e?.message ?? String(e) })
-    if (s.engine === 'eleven') await browserSpeak(text, s)   // a cue still gets said if ElevenLabs is unreachable
-  } finally { set({ speaking: false }) }
+    if (s.engine === 'eleven' && my === gen) await browserSpeak(parts.join(', '), s)   // a cue still gets said if ElevenLabs is unreachable
+  } finally { if (my === gen) set({ speaking: false }) }
 }
 
-/** A cue from the session (rest is up, next set...). `text` replaces the cue word when the cue speaks a value. */
-export function cue(k: CueKey, text?: string) {
+/** A cue from the session. `text` replaces the cue word when the cue speaks values (the next weight, the plates). */
+export function cue(k: CueKey, text?: string | string[]) {
   const c = state.settings.cues[k]
   if (!c?.on) return
   const say = text ?? c.word
-  if (say) speak(say)
+  if (say && say.length) speak(say)
+}
+export const cueWord = (k: CueKey) => state.settings.cues[k]?.word ?? ''
+
+/* Words for numbers, so every spoken value is one of a fixed set of recorded phrases. */
+export const sayLb = (lb: number) => { const w = Math.round(lb * 4) / 4, f = w - Math.floor(w); return String(Math.floor(w)) + (f === 0.5 ? ' and a half' : f === 0.25 ? ' and a quarter' : f === 0.75 ? ' and three quarters' : '') }
+export const saySeconds = (sec: number) => { const s = Math.max(0, Math.round(sec)); return String(s <= 30 ? s : Math.round(s / 5) * 5) }
+/** Everything Max can say, for recording ahead of time. */
+export function allPhrases() {
+  const c = state.settings.cues
+  const words = [c.warn.word, c.lift.word, c.over.word, c.rack.word, 'Go', 'Record', 'Stop', 'Tare', 'Done', 'Each side', 'Chains', 'No chains', 'half', 'five eighths', 'seconds']
+  const nums = Array.from({ length: 31 }, (_, i) => String(i))
+  for (let n = 35; n <= 600; n += 5) nums.push(String(n))
+  const halves: string[] = []
+  for (let w = 45; w < 600; w += 2.5) if (w % 1) halves.push(sayLb(w))
+  return [...new Set([...words, ...nums, '1 and a quarter', '2 and a half', ...halves].filter(Boolean))]
 }
 
 /** Fetch phrases ahead of time so they play instantly (and are paid for once, on ElevenLabs). */
@@ -189,13 +214,13 @@ export async function addLibraryVoice(v: LibVoice): Promise<string> {
 
 /* ---------- listening ---------- */
 
-export type Command = { kind: 'record' | 'stop' | 'tare' | 'click' | 'next' } | { kind: 'reps'; n: number }
+export type Command = { kind: 'go' | 'stop' | 'pain' | 'tare' | 'click' | 'next' | 'plates' | 'time' } | { kind: 'reps'; n: number }
 const handlers = new Set<(c: Command) => void>()
 /** Pages register for spoken commands; returns the unsubscribe. */
 export const onCommand = (f: (c: Command) => void) => { handlers.add(f); return () => { handlers.delete(f) } }
 
 const NUM: Record<string, number> = { zero: 0, oh: 0, one: 1, won: 1, two: 2, to: 2, too: 2, three: 3, four: 4, for: 4, five: 5, six: 6, seven: 7, eight: 8, ate: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 }
-const WORDS: Record<string, Command['kind']> = { record: 'record', go: 'record', start: 'record', stop: 'stop', done: 'stop', tare: 'tare', tear: 'tare', zero: 'tare', click: 'click', metronome: 'click', next: 'next' }
+const WORDS: Record<string, Command['kind']> = { go: 'go', record: 'go', start: 'go', stop: 'stop', done: 'stop', pain: 'pain', tare: 'tare', tear: 'tare', zero: 'tare', click: 'click', metronome: 'click', next: 'next', plates: 'plates', plate: 'plates', time: 'time' }
 
 /** "max record" → record; "max 5" / "max five" → 5 reps. Only words after the wake word count. Exported for testing. */
 export function parseCommand(transcript: string, wake = state.settings.wake): Command | null {

@@ -54,6 +54,7 @@ let dev: Tindeq | null = null
 let buf: Sample[] = []
 let lastPaint = 0
 const subs = new Set<() => void>()
+const streams = new Set<(s: Sample[]) => void>()
 const set = (patch: Partial<SensorState>) => { state = { ...state, ...patch }; subs.forEach(f => f()) }
 
 export const sensor = {
@@ -66,6 +67,7 @@ export const sensor = {
       dev = await connectTindeq(samples => {
         const s = state.settings.invert ? samples.map(x => ({ ...x, lb: -x.lb })) : samples
         if (state.recording) buf.push(...s)
+        streams.forEach(f => f(s))
         // The sensor sends ~80 readings a second; repaint the live number about 10 times a second.
         const now = Date.now()
         if (now - lastPaint > 100) { lastPaint = now; set({ lb: s.at(-1)!.lb }) }
@@ -77,6 +79,8 @@ export const sensor = {
     }
   },
   disconnect() { dev?.disconnect() },
+  /** Every reading as it arrives (direction already applied); returns the unsubscribe. */
+  onSamples: (f: (s: Sample[]) => void) => { streams.add(f); return () => { streams.delete(f) } },
   async tare() { await dev?.tare() },
   record() { buf = []; set({ recording: true }) },
   /** Ends the recording and returns its samples (seconds, lb of assist). */

@@ -684,3 +684,4 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .voicecfg .vkind { margin-left: 8px; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--line); color: var(--muted); white-space: nowrap; }
 .voicecfg tr.vhead td { font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 10px; background: transparent; }
 .voicecfg .vfields select { min-width: 170px; }
+.sheetbar .over { color: var(--warn); }

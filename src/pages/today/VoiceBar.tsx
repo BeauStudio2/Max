@@ -11,7 +11,7 @@ export default function VoiceBar() {
   if (!recognitionAvailable()) return null
   return (
     <div className="voicebar">
-      <span className="small muted hastip" data-pos="right" data-tip={`Spoken commands. Say "${wake}" then one word: record, stop, tare, click (metronome), next (say the next weight), or a number for the reps of the next heavy set. Voice, cues and the wake word are set in Config → Voice.`}>Voice</span>
+      <span className="small muted hastip" data-pos="right" data-tip={`Spoken commands. Say "${wake}" then one word: go, stop, pain, tare, click (metronome), next (next weight and reps), plates (plates and chains), time (rest left), or a number for the reps of the next heavy set. Voice, cues and the wake word are set in Config → Voice.`}>Voice</span>
       <div className="metrorow">
         <button type="button" className={'switch' + (v.settings.listen ? ' on' : '')} aria-pressed={v.settings.listen} onClick={() => voice.setSettings({ listen: !v.settings.listen })}
           data-tip={v.settings.listen ? 'Stop listening' : 'Listen for commands'} data-pos="center">{v.listening ? '● Mic' : 'Mic'}</button>

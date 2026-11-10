@@ -8,9 +8,13 @@ import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
 import VoiceBar from './VoiceBar'
-import { cue, onCommand } from '../../lib/voice'
+import { cue, cueWord, onCommand, sayLb, saySeconds, speak, voice } from '../../lib/voice'
+import { live, nextPhrases, platePhrases } from './live'
+const cueOn = (k: 'next' | 'plates') => voice.get().settings.cues[k]?.on !== false
+/** Rest taken so far and how full creatine is getting, for the next spotter set's prediction. */
+const RestCtx = createContext<number | null>(null)
 import TindeqPanel, { type Tempo } from './TindeqPanel'
-import { endLevel, fitSession, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
+import { endLevel, fitSession, levelAfter, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
 import { DelBtn, fmt, useClock, type Api } from './shared'
 
 export type Placement = 'between' | 'first' | 'after'
@@ -288,21 +292,41 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   })()
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
 
-  // Spoken cues. The next heavy set's weight on the bar, as a number to say.
-  const nextLb = nextMain?.kind === 'main' && nextMain.p && nextMain.p.weight !== null ? Math.round((nextMain.p.weight + fixedWeight(nextMain.p.setup, equipment)) * 10) / 10 : null
-  const sayLb = (lb: number) => String(lb).replace('.5', ' and a half')
-  // "Rest" once the rest target is reached (once per rest).
-  const restCued = useRef<string | null>(null)
+  // Spoken cues: "Ten seconds" before rest is up, "Lift" when it is, "Overtime" a minute later. Each once per rest.
+  const said = useRef<{ from: string | null; warn?: boolean; lift?: boolean; over?: boolean }>({ from: null })
   useEffect(() => {
-    if (running && restFrom && restTarget > 0 && rest >= restTarget && restCued.current !== restFrom) { restCued.current = restFrom; cue('rest') }
-  }, [rest >= restTarget, restFrom, running])
-  // The next weight, said when a heavy set is logged.
+    if (!running || !restFrom || restTarget <= 0) return
+    if (said.current.from !== restFrom) said.current = { from: restFrom }
+    const S = said.current
+    if (restTarget > 15 && rest >= restTarget - 10 && rest < restTarget && !S.warn) { S.warn = true; cue('warn') }
+    if (rest >= restTarget && !S.lift) { S.warn = true; S.lift = true; cue('lift') }
+    if (rest >= restTarget + 60 && !S.over) { S.over = true; cue('over') }
+  }, [rest, restFrom, running, restTarget])
+  // After each heavy set is logged: the next weight and rep goal, then the plates and chains. The next set's row publishes these (live.next).
+  const announce = (plates: boolean) => {
+    const n = live.next
+    if (!n || !nextMain) { cue('next', 'Done'); return }
+    const say = [...(cueOn('next') ? nextPhrases(n, sayLb) : []), ...(plates && cueOn('plates') ? platePhrases(n) : [])]
+    if (say.length) speak(say)
+  }
   const loggedHeavy = useRef(mainSets.length)
   useEffect(() => {
-    if (mainSets.length > loggedHeavy.current && running && nextLb !== null) cue('next', sayLb(nextLb))
+    if (mainSets.length > loggedHeavy.current && running) setTimeout(() => announce(true), 400)
     loggedHeavy.current = mainSets.length
   }, [mainSets.length])
-  useEffect(() => onCommand(c => { if (c.kind === 'next') nextLb !== null ? cue('next', sayLb(nextLb)) : cue('next', 'Done') }), [nextLb])
+  const restLeft = restTarget - rest
+  const cmd = useRef({ announce, restLeft, restFrom, running }); cmd.current = { announce, restLeft, restFrom, running }
+  useEffect(() => onCommand(c => {
+    const { announce, restLeft, restFrom, running } = cmd.current
+    if (c.kind === 'next') announce(false)
+    else if (c.kind === 'plates') { const n = live.next; if (n) speak(platePhrases(n)) }
+    else if (c.kind === 'time') {
+      if (!running || !restFrom) cue('lift')
+      else speak(restLeft > 0 ? [saySeconds(restLeft), 'seconds'] : [cueWord('over'), saySeconds(-restLeft), 'seconds'])
+    }
+  }), [])
+  // The next spotter set's expected reps follow the rest actually taken: creatine refills along its curve (to full at most) while you rest.
+  const liveP0 = running && crRest && L ? Math.round(levelAfter(crRest.Pend, rest, L.cr) * 200) / 200 : null
 
   // Circuit time: what you entered, or first to last set of the circuit.
   const autoMin = done.length > 1 ? (Date.parse(done.at(-1)!.created_at!) - Date.parse(done[0].created_at!)) / 60000 : null
@@ -318,7 +342,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   return (
     <section className="card sheetcard">
       <div className="sheetbar">
-        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? `${fmt(rest)} / ${fmt(restTarget)}` : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
+        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
@@ -326,11 +350,11 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         </label>
         <Metronome />
         <VoiceBar />
-        {spotMode && <TindeqPanel minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
+        {spotMode && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
       <div className="tablewrap">
-        <CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
+        <RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
         <table className="sheet">
           <thead>
             <tr>
@@ -360,7 +384,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             })}
           </tbody>
         </table>
-        </ColsCtx.Provider></CaptureCtx.Provider>
+        </ColsCtx.Provider></CaptureCtx.Provider></RestCtx.Provider>
       </div>
       {fit && (fit.cost !== null || fit.half_s !== null) && (
         <p className="small fitline">
@@ -419,7 +443,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   const est = e1rm(t.bottom, t.top, repsN, a, f, cfg)
   const exp = target ? expectedReps(target, t.bottom, t.top, cfg) : null
   const diff = exp !== null && repsN !== null ? repsN - lostReps(a, f, cfg) - exp : null
-  const P0 = startLevel(idx, L.cr)
+  // The next set to do starts from the creatine level the rest actually reached.
+  const liveP0 = useContext(RestCtx)
+  // Planned at the recovery target; once the rest runs past it, the extra recovery counts (up to full).
+  const P0 = !r && voiceTarget && liveP0 !== null && idx > 1 ? Math.max(liveP0, startLevel(idx, L.cr)) : startLevel(idx, L.cr)
   const eff = t.bottom !== null && t.top !== null ? (t.bottom + t.top) / 2 : null
   // Strength on rep 1 of this set: the target max, moved from the level it was measured at to this set's starting level.
   const measuredAt = idx <= 1 ? 1 : r ? startLevel(idx - 1, L.cr) : L.spotBasis
@@ -468,12 +495,22 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   }, [cap?.id])
   // Spoken reps ("Max five") log this set when it's the next one to do.
   const commitRef = useRef(commit); commitRef.current = commit
-  useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps') { const v = String(c.n); setReps(v); commitRef.current({ reps: v }); cue('ack', v) } }) : undefined, [voiceTarget])
+  // A short wait first, so a spotter set the Tindeq is closing at the same moment fills this row before it's saved.
+  useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps') { const v = String(c.n); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
   const stored: number[] | null = manual ?? (Array.isArray(r?.setup?.stack) ? r!.setup.stack : p?.stack ?? null)
   const stack = hasBar ? stackFor(plates, L.kept, stored, L.plan.plates_on) : null
+  // The next set to do tells the voice and the Tindeq about itself: weight, rep goal, plates, chains, and for a spotter set
+  // the assist at which creatine is spent (strength there = full strength × its share at the end level), when Max says "Rack".
+  const fullStrength = pred && target ? (target * strengthAt(P0, L.cr) / strengthAt(measuredAt, L.cr)) / strengthAt(P0, L.cr) : null
+  const nextInfo = voiceTarget && plates !== null ? {
+    lb: Math.round((plates + fixed) * 100) / 100, goal, stack: hasBar ? stack : null,
+    chains: hasBar && L.plan.chains_ok ? { half: setup.chain_half ?? 0, big: setup.chain_5_8 ?? 0 } : null,
+    rackLb: pred && eff !== null && fullStrength ? Math.max(1, eff - fullStrength * strengthAt(L.cr.end, L.cr)) : null,
+  } : null
+  useEffect(() => { if (voiceTarget) { live.next = nextInfo; return () => { if (live.next === nextInfo) live.next = null } } })
   const setPlate = (plate: number, n: number) => {
     const next = withCount(stack, plate, n), pl = next.reduce((t, x) => t + x, 0) * 2
     setManual(next); setPlates(pl); commit({ plates: pl, stack: next, touch: 'plates' })

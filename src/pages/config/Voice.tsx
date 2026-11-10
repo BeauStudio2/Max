@@ -1,18 +1,20 @@
-import { useEffect, useState } from 'react'
-import { addLibraryVoice, recordedCounts, clearCache, myVoices, prefetch, recognitionAvailable, searchLibrary, speak, voice, type CueKey, type LibVoice } from '../../lib/voice'
+import { Fragment, useEffect, useState } from 'react'
+import { allPhrases, addLibraryVoice, recordedCounts, clearCache, myVoices, prefetch, recognitionAvailable, searchLibrary, speak, voice, type CueKey, type LibVoice } from '../../lib/voice'
 import { useVoice } from '../../lib/useVoice'
 import { useKeys } from '../../lib/keys'
 import { T } from '../today/shared'
 
 const KIND: Record<string, string> = { cloned: 'clone', professional: 'professional clone', generated: 'designed', famous: 'library', high_quality: 'library' }
-const TEST = 'Rest. Two hundred eighty five. Record.'
+/** Cues that say a word you can change. */
+const WORDED: [CueKey, string][] = [['warn', '10 s before rest is up'], ['lift', 'Rest is up'], ['over', 'A minute over'], ['rack', 'End the spotter set']]
+/** Cues that say values. */
+const SAYS: [CueKey, string, string][] = [
+  ['next', 'Next set', 'after each heavy set: the next weight and rep goal, e.g. "285, 2"'],
+  ['plates', 'Plates', 'then the full stack per side and the chains, e.g. "Each side: 45, 45, 10. Chains: half"'],
+  ['ack', 'Confirm commands', 'repeats a spoken command back ("Go", "Stop", "Tare", the reps)'],
+]
+const TEST = 'Ten seconds. Lift. Two hundred eighty five. Each side: 45, 45, 10. Chains: half.'
 /** Words worth saving ahead of time: the cue words, the acknowledgements, and every weight and rep count Max will say. */
-const phrases = (rest: string) => {
-  const lb: string[] = []
-  for (let w = 45; w <= 600; w += 5) lb.push(String(w))
-  for (let w = 47.5; w <= 600; w += 5) lb.push(String(Math.floor(w)) + ' and a half')
-  return [...new Set([rest, 'Record', 'Stop', 'Tare', 'Done', ...Array.from({ length: 31 }, (_, i) => String(i)), ...lb].filter(Boolean))]
-}
 
 /** Config → Voice: how Max sounds, which cues it says, and the wake word for spoken commands. Kept on this laptop. */
 export default function Voice() {
@@ -128,8 +130,8 @@ export default function Voice() {
               {lib && (lib.length ? <div className="tablewrap"><table className="sheet cfg vtable"><tbody>{lib.map(x => libRow(x, true))}</tbody></table></div> : <p className="small muted">No voices found.</p>)}
               <p className="small muted">
                 <T tip="Each phrase is bought from ElevenLabs once, stored in Max (every browser and laptop plays it from there, no key needed), and kept in this browser so it plays instantly and offline." pos="right">Recorded</T> for this voice: <b>{cached.shared}</b> in Max · <b>{cached.local}</b> on this laptop.{' '}
-                <button className="linkish" disabled={!s.elevenVoice || !!saving} onClick={async () => { const ph = phrases(s.cues.rest.word); setSaving({ done: 0, of: ph.length }); await prefetch(ph, d => setSaving({ done: d, of: ph.length })); setSaving(null) }}
-                  data-tip="Record the cue words, 0–30 and every weight from 45 to 600 (about 250 short phrases). Ones already in Max are copied to this laptop, not bought again." data-pos="right">{saving ? `recording ${saving.done}/${saving.of}…` : 'Record all cue words now'}</button>
+                <button className="linkish" disabled={!s.elevenVoice || !!saving} onClick={async () => { const ph = allPhrases(); setSaving({ done: 0, of: ph.length }); await prefetch(ph, d => setSaving({ done: d, of: ph.length })); setSaving(null) }}
+                  data-tip="Record every cue word, the numbers Max says, and every weight from 45 to 600 in 2½ lb steps (about 370 short phrases). Ones already in Max are copied to this laptop, not bought again." data-pos="right">{saving ? `recording ${saving.done}/${saving.of}…` : 'Record all cue words now'}</button>
                 {' · '}<button className="linkish" onClick={async () => { await clearCache(); setCached(await recordedCounts()) }} data-tip="Clear this laptop's copies. The recordings stored in Max stay." data-pos="right">clear this laptop</button>
               </p>
             </>
@@ -145,15 +147,20 @@ export default function Voice() {
 
       <h3>Cues Max says</h3>
       <div className="capgrid vcues">
-        <span className="capkind">Rest is up</span>
-        <input value={s.cues.rest.word} onChange={e => setCue('rest', { word: e.target.value })} />
-        <button type="button" className={'switch' + (s.cues.rest.on ? ' on' : '')} onClick={() => setCue('rest', { on: !s.cues.rest.on })}>{s.cues.rest.on ? 'On' : 'Off'}</button>
-        <span className="capkind">Next weight</span>
-        <span className="small muted">says the next heavy set's weight after each set is logged</span>
-        <button type="button" className={'switch' + (s.cues.next.on ? ' on' : '')} onClick={() => setCue('next', { on: !s.cues.next.on })}>{s.cues.next.on ? 'On' : 'Off'}</button>
-        <span className="capkind">Confirm commands</span>
-        <span className="small muted">repeats a spoken command back ("Record", "Stop", "Tare", the reps)</span>
-        <button type="button" className={'switch' + (s.cues.ack.on ? ' on' : '')} onClick={() => setCue('ack', { on: !s.cues.ack.on })}>{s.cues.ack.on ? 'On' : 'Off'}</button>
+        {WORDED.map(([k, label]) => (
+          <Fragment key={k}>
+            <span className="capkind">{label}</span>
+            <input value={s.cues[k].word} onChange={e => setCue(k, { word: e.target.value })} />
+            <button type="button" className={'switch' + (s.cues[k].on ? ' on' : '')} onClick={() => setCue(k, { on: !s.cues[k].on })}>{s.cues[k].on ? 'On' : 'Off'}</button>
+          </Fragment>
+        ))}
+        {SAYS.map(([k, label, what]) => (
+          <Fragment key={k}>
+            <span className="capkind">{label}</span>
+            <span className="small muted">{what}</span>
+            <button type="button" className={'switch' + (s.cues[k].on ? ' on' : '')} onClick={() => setCue(k, { on: !s.cues[k].on })}>{s.cues[k].on ? 'On' : 'Off'}</button>
+          </Fragment>
+        ))}
       </div>
 
       <h3>Commands</h3>
@@ -167,7 +174,7 @@ export default function Voice() {
               <button type="button" className={'switch' + (s.listen ? ' on' : '')} aria-pressed={s.listen} onClick={() => voice.setSettings({ listen: !s.listen })}>{s.listen ? 'On' : 'Off'}</button>
             </label>
           </div>
-          <p className="small muted">Say “{s.wake} record”, “{s.wake} stop”, “{s.wake} tare”, “{s.wake} click” (metronome), “{s.wake} next” (says the next weight), or “{s.wake} five” to log 5 reps on the next heavy set. Recognition runs through the browser's online speech service, so it needs internet.</p>
+          <p className="small muted">Say “{s.wake}” then: go (a spotter set starts), stop (it ends), pain (end it now: “Rack”), tare, click (metronome), next (next weight and reps), plates (plates and chains), time (rest left), or a number to log that many reps on the next heavy set. Recognition runs through the browser's online speech service, so it needs internet.</p>
           {v.heard && <p className="small">Last heard: “{v.heard}”</p>}
         </>
       )}
