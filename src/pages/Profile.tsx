@@ -75,12 +75,13 @@ export default function Profile({ lifterId }: { lifterId: string }) {
           <h2 style={{ margin: 0 }}>{lifter?.name ?? 'Profile'}</h2>
           <button className="primary inline" onClick={() => setAdding(a => !a)}>{adding ? 'Close' : '+ Add measurements'}</button>
         </div>
-        <p className="small muted">Every value is kept by date. The newest is the current value; tap any one for its history and projection.</p>
+        <p className="small muted">Every value is kept by date. The newest is the current value; tap any one for its history and projection. Tape measurements and skinfolds appear once you add them.</p>
         {adding && <AddForm lifterId={lifterId} catalog={catalog.filter(m => !m.derived)} onSaved={() => { setAdding(false); load() }} />}
       </section>
       {err && <p className="err">{err}</p>}
       {byGroup.map(({ g, items }) => {
-        const shown = items.filter(m => !m.derived || (series[m.metric]?.length ?? 0) > 0)
+        // Only measures with data show; Body always shows so bodyweight and body fat have a place to start.
+        const shown = items.filter(m => (series[m.metric]?.length ?? 0) > 0 || (g === 'Body' && !m.derived))
         if (!shown.length) return null
         return (
           <section className="card" key={g}>
