@@ -19,16 +19,6 @@ function put(o: any, path: string, value: any) {
 }
 const asNum = (v: string) => (v.trim() === '' ? null : Number(v))
 
-/** Per-person training values on the Profile, one row per lift. Equipment and plan choices (clamps, chains, bands) live in Config and Plan. */
-const LIFT_COLS: { key: string; label: string }[] = [
-  { key: 'planned_e1rm', label: 'Planned max' },
-  { key: 'target_reps', label: 'Target reps' },
-  { key: 'stop_pct', label: 'Stop %' },
-  { key: 'fatigue_pct', label: 'Fatigue %/set' },
-  { key: 'chain_geometry.rom_in', label: 'Range of motion (in)' },
-  { key: 'chain_geometry.hang_in', label: 'Chain hang at bottom (in)' },
-]
-const liftPath = (key: string, lift: string) => key.includes('.') ? `${key.split('.')[0]}.${lift}.${key.split('.')[1]}` : `${key}.${lift}`
 
 export default function Config() {
   const { isCoach, equipment, exercises, templates, reload } = useStore()
@@ -151,42 +141,5 @@ export default function Config() {
         }}>+ Add exercise</button>}
       </section>
     </div>
-  )
-}
-
-/** One lifter's training settings, label by value (shown on their Profile). */
-export function LifterSettings({ lifterId }: { lifterId: string }) {
-  const { isCoach, lifters, reload } = useStore()
-  const [err, setErr] = useState<string | null>(null)
-  const l = lifters.find(x => x.id === lifterId)
-  if (!l) return null
-  const ro = !isCoach
-  const done = async (p: PromiseLike<{ error: any }>) => { const { error } = await p; if (error) setErr(error.message); else await reload() }
-  const save = (path: string, raw: string) => {
-    const v = path.endsWith('default_clamp') ? raw || null : asNum(raw)
-    if (path === 'bodyweight_lb') return done(supabase.from('lifters').update({ bodyweight_lb: v }).eq('id', l.id))
-    return done(supabase.from('lifters').update({ settings: put(l.settings, path.replace('settings.', ''), v) }).eq('id', l.id))
-  }
-  const cell = (path: string) => {
-    const v = get(l.settings, path)
-    return ro ? (v ?? '—') : <CellText value={v == null ? '' : String(v)} narrow numeric onSave={x => save('settings.' + path, x)} />
-  }
-  return (
-    <section className="card">
-      <h2>Training settings</h2>
-      {err && <p className="err">{err}</p>}
-      <div className="tablewrap"><table className="sheet cfg">
-        <thead><tr><th className="stick">Lift</th>{LIFT_COLS.map(c => <th key={c.key}>{c.label}</th>)}</tr></thead>
-        <tbody>{(['bench', 'squat'] as const).map(lift => (
-          <tr key={lift}><td className="stick cap">{lift}</td>{LIFT_COLS.map(c => <td key={c.key}>{cell(liftPath(c.key, lift))}</td>)}</tr>
-        ))}</tbody>
-      </table></div>
-      <div className="planfields" style={{ marginTop: 10 }}>
-        <label>Deadlift best (lb){cell('deadlift_best_conventional_lb')}</label>
-        <label>Deadlift week-1 top (lb){cell('deadlift_planned_top_lb')}</label>
-        <label>Rest between heavy sets (s){cell('rest_s')}</label>
-      </div>
-      <p className="small muted">Starting values. Once {l.name} trains, each session carries its numbers forward to the next.{ro ? ' The coach edits these.' : ''}</p>
-    </section>
   )
 }

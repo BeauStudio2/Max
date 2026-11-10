@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
-import { LifterSettings } from './Config'
+import { CellText } from './today/Sheet'
 import { e1rmFromRpe, fitFatigue, localDate, round } from '../lib/load'
 
 interface Metric { metric: string; label: string; unit: string; grp: string; sort: number; derived: boolean }
 interface Point { d: string; v: number; x?: boolean; id?: string; src?: string }
 
-const GROUPS = ['Strength', 'Body', 'Measurements', 'Skinfolds', 'Recovery', 'Energy system']
 const DAY = 86400000
 
 export default function Profile({ lifterId }: { lifterId: string }) {
@@ -15,7 +14,6 @@ export default function Profile({ lifterId }: { lifterId: string }) {
   const lifter = lifters.find(l => l.id === lifterId)
   const [catalog, setCatalog] = useState<Metric[]>([])
   const [series, setSeries] = useState<Record<string, Point[]>>({})
-  const [open, setOpen] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -66,60 +64,196 @@ export default function Profile({ lifterId }: { lifterId: string }) {
   }
   useEffect(() => { if (lifterId) load() }, [lifterId])
 
-  const byGroup = useMemo(() => GROUPS.map(g => ({ g, items: catalog.filter(m => m.grp === g) })), [catalog])
+  const metric = (k: string) => catalog.find(m => m.metric === k)
+  const listFor = (grp: string) => catalog.filter(m => m.grp === grp && !m.derived && (series[m.metric]?.length ?? 0) > 0)
+  const recovery = catalog.filter(m => m.grp === 'Recovery' && (series[m.metric]?.length ?? 0) > 0)
+  const energy = catalog.filter(m => m.grp === 'Energy system' && (series[m.metric]?.length ?? 0) > 0)
+  const valid = (k: string) => current(series[k] ?? [])
+  const st = lifter?.settings ?? {}
+  const dlEst = valid('e1rm_deadlift')
 
   return (
-    <div className="stack cols profile">
-      <section className="card">
+    <div className="stack profile2">
+      <section className="card phead">
         <div className="row between">
           <h2 style={{ margin: 0 }}>{lifter?.name ?? 'Profile'}</h2>
           <button className="primary inline" onClick={() => setAdding(a => !a)}>{adding ? 'Close' : '+ Add measurements'}</button>
         </div>
-        <p className="small muted">Every value is kept by date. The newest is the current value; tap any one for its history and projection. Tape measurements and skinfolds appear once you add them.</p>
+        <div className="keystats">
+          <Stat label="Bench" value={valid('e1rm_bench')?.v ?? st.planned_e1rm?.bench} note={valid('e1rm_bench') ? 'est. max' : 'planned'} />
+          <Stat label="Squat" value={valid('e1rm_squat')?.v ?? st.planned_e1rm?.squat} note={valid('e1rm_squat') ? 'est. max' : 'planned'} />
+          <Stat label="Deadlift" value={dlEst?.v ?? st.deadlift_best_conventional_lb} note={dlEst ? 'est. max' : 'best'} />
+          <Stat label="Bodyweight" value={valid('bodyweight')?.v ?? lifter?.bodyweight_lb} unit="lb" />
+          <Stat label="Body fat" value={valid('body_fat_pct')?.v} unit="%" dp={1} />
+        </div>
         {adding && <AddForm lifterId={lifterId} catalog={catalog.filter(m => !m.derived)} onSaved={() => { setAdding(false); load() }} />}
       </section>
       {err && <p className="err">{err}</p>}
-      {byGroup.map(({ g, items }) => {
-        // Only measures with data show; Body always shows so bodyweight and body fat have a place to start.
-        const shown = items.filter(m => (series[m.metric]?.length ?? 0) > 0 || (g === 'Body' && !m.derived))
-        if (!shown.length) return null
-        return (
-          <section className="card" key={g}>
-            <h2>{g}</h2>
-            <div className="tiles">
-              {shown.map(m => (
-                <Tile key={m.metric} m={m} pts={series[m.metric] ?? []} open={open === m.metric} onToggle={() => setOpen(open === m.metric ? null : m.metric)} />
-              ))}
-            </div>
-            {open && shown.some(m => m.metric === open) && (
-              <Detail m={shown.find(m => m.metric === open)!} pts={series[open] ?? []} lifterId={lifterId} onChange={load} />
-            )}
-          </section>
-        )
-      })}
-      <LifterSettings lifterId={lifterId} />
+
+      <section className="card">
+        <h2>Strength</h2>
+        <div className="lifts">
+          {(['bench', 'squat', 'deadlift'] as const).map(lift => (
+            <LiftCard key={lift} lift={lift} lifterId={lifterId} series={series} metric={metric} reload={load} />
+          ))}
+        </div>
+        <RestField lifterId={lifterId} />
+      </section>
+
+      <MetricSection title="Body" items={catalog.filter(m => m.grp === 'Body' && !m.derived)} series={series} lifterId={lifterId} reload={load}
+        empty="Tap + Add measurements to log bodyweight and body fat." />
+      {listFor('Measurements').length > 0 && <MetricSection title="Measurements" items={listFor('Measurements')} series={series} lifterId={lifterId} reload={load} />}
+      {listFor('Skinfolds').length > 0 && <MetricSection title="Skinfolds" items={listFor('Skinfolds')} series={series} lifterId={lifterId} reload={load} />}
+      {recovery.length > 0 && <MetricSection title="Recovery" items={recovery} series={series} lifterId={lifterId} reload={load} />}
+      {energy.length > 0 && <MetricSection title="Energy system" items={energy} series={series} lifterId={lifterId} reload={load} />}
     </div>
   )
+}
+
+function Stat({ label, value, unit = 'lb', note, dp = 0 }: { label: string; value?: number | null; unit?: string; note?: string; dp?: number }) {
+  return (
+    <div className="stat">
+      <span className="small muted">{label}</span>
+      <b>{value != null ? round(Number(value), dp) : '—'}<small> {value != null ? unit : ''}</small></b>
+      {note && value != null && <span className="sub2">{note}</span>}
+    </div>
+  )
+}
+
+/** One card per lift: its trend, its fatigue, and its settings, all in one place. */
+function LiftCard({ lift, lifterId, series, metric, reload }: {
+  lift: 'bench' | 'squat' | 'deadlift'; lifterId: string; series: Record<string, Point[]>; metric: (k: string) => Metric | undefined; reload: () => void
+}) {
+  const { lifters, isCoach, reload: reloadStore } = useStore()
+  const l = lifters.find(x => x.id === lifterId)
+  const [view, setView] = useState<'none' | 'history' | 'settings'>('none')
+  const pts = series[`e1rm_${lift}`] ?? []
+  const fat = series[`fatigue_${lift}`] ?? []
+  const cur = current(pts), curF = current(fat)
+  const good = pts.filter(p => !p.x)
+  const best = good.reduce((m, p) => Math.max(m, p.v), 0)
+  const healthyF = fat.filter(p => !p.x)
+  const baseF = healthyF.length ? healthyF.reduce((t, p) => t + p.v, 0) / healthyF.length : null
+  const tr = trend(pts)
+  const st = l?.settings ?? {}
+
+  async function save(path: string, raw: string) {
+    if (!l) return
+    const v = raw.trim() === '' ? null : Number(raw)
+    const keys = path.split('.')
+    const next = structuredClone(st)
+    let c: any = next
+    for (const k of keys.slice(0, -1)) c = c[k] = typeof c[k] === 'object' && c[k] ? c[k] : {}
+    if (v === null) delete c[keys.at(-1)!]; else c[keys.at(-1)!] = v
+    const { error } = await supabase.from('lifters').update({ settings: next }).eq('id', l.id)
+    if (error) alert(error.message); else reloadStore()
+  }
+  const field = (label: string, path: string) => {
+    const v = path.split('.').reduce((o: any, k) => (o == null ? undefined : o[k]), st)
+    return (
+      <label key={path}>{label}
+        {isCoach ? <CellText value={v == null ? '' : String(v)} narrow numeric onSave={x => save(path, x)} /> : <span className="roval">{v ?? '—'}</span>}
+      </label>
+    )
+  }
+  const fields = lift === 'deadlift'
+    ? [field('Best conventional (lb)', 'deadlift_best_conventional_lb'), field('Week-1 top single (lb)', 'deadlift_planned_top_lb')]
+    : [field('Planned max', `planned_e1rm.${lift}`), field('Target reps', `target_reps.${lift}`), field('Stop below %', `stop_pct.${lift}`),
+       field('Fatigue %/set', `fatigue_pct.${lift}`), field('Range of motion (in)', `chain_geometry.${lift}.rom_in`), field('Chain hang at bottom (in)', `chain_geometry.${lift}.hang_in`)]
+
+  return (
+    <div className="liftcard">
+      <div className="lifthead">
+        <h3 className="cap">{lift}</h3>
+        <Spark pts={pts} />
+      </div>
+      <div className="liftnums">
+        <div><span className="small muted">Est. max</span><b>{cur ? round(cur.v) : '—'}</b>{cur && <span className="sub2">{fmtDate(cur.d)}</span>}</div>
+        <div><span className="small muted">Best</span><b>{best ? round(best) : '—'}</b></div>
+        <div><span className="small muted">Trend</span><b className={tr ? (tr.perWeek >= 0 ? 'up' : 'down') : ''}>{tr ? `${tr.perWeek >= 0 ? '+' : ''}${round(tr.perWeek, 1)}` : '—'}</b>{tr && <span className="sub2">lb / week</span>}</div>
+        {lift !== 'deadlift' && <div><span className="small muted">Fatigue</span><b>{curF ? `${curF.v.toFixed(1)}%` : '—'}</b>{baseF !== null && <span className="sub2">healthy avg {baseF.toFixed(1)}%</span>}</div>}
+      </div>
+      <div className="seg small">
+        <button className={view === 'history' ? 'on' : ''} onClick={() => setView(view === 'history' ? 'none' : 'history')}>History</button>
+        <button className={view === 'settings' ? 'on' : ''} onClick={() => setView(view === 'settings' ? 'none' : 'settings')}>Settings</button>
+      </div>
+      {view === 'history' && metric(`e1rm_${lift}`) && <Detail m={metric(`e1rm_${lift}`)!} pts={pts} lifterId={lifterId} onChange={reload} />}
+      {view === 'history' && lift !== 'deadlift' && fat.length > 1 && metric(`fatigue_${lift}`) && <Detail m={metric(`fatigue_${lift}`)!} pts={fat} lifterId={lifterId} onChange={reload} />}
+      {view === 'settings' && (
+        <div className="liftsettings">
+          <div className="planfields">{fields}</div>
+          <p className="small muted">Starting values. After a session, the next one carries its numbers forward.{isCoach ? '' : ' The coach edits these.'}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RestField({ lifterId }: { lifterId: string }) {
+  const { lifters, isCoach, reload } = useStore()
+  const l = lifters.find(x => x.id === lifterId)
+  if (!l) return null
+  return (
+    <p className="small restline">Rest between heavy sets:{' '}
+      {isCoach ? <CellText value={l.settings?.rest_s == null ? '' : String(l.settings.rest_s)} narrow numeric
+        onSave={async v => { await supabase.from('lifters').update({ settings: { ...l.settings, rest_s: v === '' ? undefined : Number(v) } }).eq('id', l.id); reload() }} />
+        : <b>{l.settings?.rest_s ?? 100}</b>} s
+    </p>
+  )
+}
+
+/** A list of measures: current value, change, date and a small trend line per row; tap a row for its chart and history. */
+function MetricSection({ title, items, series, lifterId, reload, empty }: {
+  title: string; items: Metric[]; series: Record<string, Point[]>; lifterId: string; reload: () => void; empty?: string
+}) {
+  const [open, setOpen] = useState<string | null>(null)
+  const any = items.some(m => (series[m.metric]?.length ?? 0) > 0)
+  return (
+    <section className="card">
+      <h2>{title}</h2>
+      {!any && empty && <p className="small muted">{empty}</p>}
+      <ul className="mlist">
+        {items.map(m => {
+          const pts = series[m.metric] ?? []
+          const c = current(pts)
+          const valid = pts.filter(p => !p.x)
+          const prev = valid.length > 1 ? valid[valid.length - 2] : null
+          const delta = c && prev ? c.v - prev.v : null
+          const dp = m.unit === 'lb' || m.unit === 'bpm' || m.unit === 'ms' ? 0 : m.unit === '%/set' ? 2 : 1
+          const isOpen = open === m.metric
+          return (
+            <li key={m.metric}>
+              <button className={'mrow' + (isOpen ? ' on' : '')} onClick={() => setOpen(isOpen ? null : m.metric)}>
+                <span className="mlabel">{m.label}</span>
+                <span className="mval">{c ? <>{round(c.v, dp)} <small className="muted">{m.unit}</small></> : <span className="muted">—</span>}</span>
+                <span className={'mdelta ' + (delta ? (delta > 0 ? 'up' : 'down') : '')}>{delta ? `${delta > 0 ? '+' : ''}${round(delta, dp)}` : ''}</span>
+                <span className="mdate small muted">{c ? fmtDate(c.d) : ''}</span>
+                <Spark pts={pts} />
+                <span className="muted small">{isOpen ? '▴' : '▾'}</span>
+              </button>
+              {isOpen && <Detail m={m} pts={pts} lifterId={lifterId} onChange={reload} />}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+const fmtDate = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`
+
+function Spark({ pts }: { pts: Point[] }) {
+  const v = pts.filter(p => !p.x).slice(-12)
+  if (v.length < 2) return <span className="spark" />
+  const W = 72, H = 22
+  const lo = Math.min(...v.map(p => p.v)), hi = Math.max(...v.map(p => p.v))
+  const path = v.map((p, i) => `${i ? 'L' : 'M'}${((i / (v.length - 1)) * W).toFixed(1)},${(H - 2 - ((p.v - lo) / (hi - lo || 1)) * (H - 4)).toFixed(1)}`).join('')
+  return <svg className="spark" viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true"><path d={path} /></svg>
 }
 
 function current(pts: Point[]) {
   const valid = pts.filter(p => !p.x)
   return valid.at(-1) ?? pts.at(-1) ?? null
-}
-
-function Tile({ m, pts, open, onToggle }: { m: Metric; pts: Point[]; open: boolean; onToggle: () => void }) {
-  const c = current(pts)
-  const valid = pts.filter(p => !p.x)
-  const prev = valid.length > 1 ? valid[valid.length - 2] : null
-  const delta = c && prev ? c.v - prev.v : null
-  const dp = m.unit === 'lb' || m.unit === 'bpm' || m.unit === 'ms' ? 0 : m.unit === '%/set' ? 2 : 1
-  return (
-    <button className={'tile' + (open ? ' on' : '')} onClick={onToggle}>
-      <span className="small muted">{m.label}</span>
-      <b>{c ? round(c.v, dp) : '—'} <small className="muted">{c ? m.unit : ''}</small></b>
-      <span className="sub2">{c ? `${c.d.slice(5).replace('-', '/')}` : 'not logged'}{delta !== null && Math.abs(delta) > 1e-9 ? ` · ${delta > 0 ? '+' : ''}${round(delta, dp)}` : ''}</span>
-    </button>
-  )
 }
 
 /** Straight-line fit over the most recent valid points, for the projection. */
