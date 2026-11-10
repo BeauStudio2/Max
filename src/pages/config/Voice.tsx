@@ -4,6 +4,7 @@ import { useVoice } from '../../lib/useVoice'
 import { useKeys } from '../../lib/keys'
 import { T } from '../today/shared'
 
+const KIND: Record<string, string> = { cloned: 'clone', professional: 'professional clone', generated: 'designed', famous: 'library', high_quality: 'library' }
 const TEST = 'Rest. Two hundred eighty five. Record.'
 /** Words worth saving ahead of time: the cue words, the acknowledgements, and every weight and rep count Max will say. */
 const phrases = (rest: string) => {
@@ -20,6 +21,7 @@ export default function Voice() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [all, setAll] = useState(false)
   const [mine, setMine] = useState<LibVoice[] | null>(null)
+  const [filter, setFilter] = useState('')
   const [lib, setLib] = useState<LibVoice[] | null>(null)
   const [q, setQ] = useState({ search: 'russian', gender: 'female' })
   const [busy, setBusy] = useState<string | null>(null)
@@ -45,7 +47,7 @@ export default function Voice() {
 
   const libRow = (x: LibVoice, add: boolean) => (
     <tr key={x.voice_id} className={s.elevenVoice === x.voice_id ? 'sel' : ''}>
-      <td className="stick">{x.name}</td>
+      <td className="stick">{x.name}{x.category && x.category !== 'premade' && <span className="vkind">{KIND[x.category] ?? x.category}{x.training && x.training !== 'fine_tuned' ? ` · ${x.training.replace(/_/g, ' ')}` : ''}</span>}</td>
       <td className="small muted">{[x.accent, x.gender, x.age].filter(Boolean).join(' · ')}</td>
       <td className="small muted wrapcell">{x.description?.slice(0, 110)}</td>
       <td className="nowrap">
@@ -105,7 +107,24 @@ export default function Voice() {
                 <button className="ghost small" disabled={!!busy} onClick={() => run('lib', async () => setLib(await searchLibrary(q)))}>Search</button>
                 {busy && <span className="small muted">working…</span>}
               </div>
-              {mine && <div className="tablewrap"><table className="sheet cfg vtable"><tbody>{mine.map(x => libRow(x, false))}</tbody></table></div>}
+              {mine && (() => {
+                const f = filter.trim().toLowerCase()
+                const match = (x: LibVoice) => !f || x.name.toLowerCase().includes(f)
+                const own = mine.filter(x => x.category && x.category !== 'premade' && match(x)).sort((a, b) => a.name.localeCompare(b.name))
+                const built = mine.filter(x => (!x.category || x.category === 'premade') && match(x)).sort((a, b) => a.name.localeCompare(b.name))
+                return (
+                  <>
+                    <input className="vsearch" placeholder="filter by name" value={filter} onChange={e => setFilter(e.target.value)} />
+                    <div className="tablewrap"><table className="sheet cfg vtable"><tbody>
+                      <tr className="vhead"><td colSpan={4}>Your voices ({own.length})</td></tr>
+                      {own.map(x => libRow(x, false))}
+                      {!own.length && <tr><td colSpan={4} className="small muted">{f ? `No voice of yours matches “${filter.trim()}”.` : 'No voices of your own on this account.'} A professional clone can take hours to train before it shows up here, and the API key has to come from the same ElevenLabs account (and workspace) the voice was made in.</td></tr>}
+                      {built.length > 0 && <tr className="vhead"><td colSpan={4}>ElevenLabs built-in ({built.length})</td></tr>}
+                      {built.map(x => libRow(x, false))}
+                    </tbody></table></div>
+                  </>
+                )
+              })()}
               {lib && (lib.length ? <div className="tablewrap"><table className="sheet cfg vtable"><tbody>{lib.map(x => libRow(x, true))}</tbody></table></div> : <p className="small muted">No voices found.</p>)}
               <p className="small muted">
                 Each phrase is bought once and saved in this browser: <b>{cached}</b> saved for this voice.{' '}

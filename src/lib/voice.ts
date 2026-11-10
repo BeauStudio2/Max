@@ -115,12 +115,15 @@ export async function clearCache() { if ('caches' in window) await caches.delete
 
 /* ---------- ElevenLabs voice library ---------- */
 
-export interface LibVoice { voice_id: string; name: string; public_owner_id?: string; accent?: string; gender?: string; age?: string; description?: string; preview_url?: string; mine?: boolean }
+export interface LibVoice { voice_id: string; name: string; public_owner_id?: string; accent?: string; gender?: string; age?: string; description?: string; preview_url?: string; mine?: boolean
+  /** ElevenLabs' kind of voice: premade (built in), cloned, generated, professional (a professional clone; may still be training). */
+  category?: string; training?: string }
 const xi = () => ({ 'xi-api-key': apiKeys.get('elevenlabs') })
 export async function myVoices(): Promise<LibVoice[]> {
   const r = await fetch('https://api.elevenlabs.io/v1/voices', { headers: xi() })
   if (!r.ok) throw new Error(`ElevenLabs: ${r.status} ${(await r.text()).slice(0, 160)}`)
-  return ((await r.json()).voices ?? []).map((v: any) => ({ voice_id: v.voice_id, name: v.name, accent: v.labels?.accent, gender: v.labels?.gender, description: v.labels?.description ?? v.description, preview_url: v.preview_url, mine: true }))
+  return ((await r.json()).voices ?? []).map((v: any) => ({ voice_id: v.voice_id, name: v.name, accent: v.labels?.accent, gender: v.labels?.gender, description: v.labels?.description ?? v.description, preview_url: v.preview_url, mine: true,
+    category: v.category, training: v.category === 'professional' ? v.fine_tuning?.state?.[Object.keys(v.fine_tuning?.state ?? {})[0]] ?? v.fine_tuning?.finetuning_state : undefined }))
 }
 export async function searchLibrary(q: { search?: string; accent?: string; gender?: string }): Promise<LibVoice[]> {
   const p = new URLSearchParams({ page_size: '30' })

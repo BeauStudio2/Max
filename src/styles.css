@@ -681,3 +681,6 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .keys .keyval { font-family: ui-monospace, monospace; font-size: 13px; }
 .keys td { vertical-align: middle; }
 .keys > button.ghost { width: auto; margin-top: 8px; }
+.voicecfg .vkind { margin-left: 8px; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--line); color: var(--muted); white-space: nowrap; }
+.voicecfg tr.vhead td { font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 10px; background: transparent; }
+.voicecfg .vfields select { min-width: 170px; }
