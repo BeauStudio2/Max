@@ -154,7 +154,9 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume, cr, spotBasis: basis }
 }
 
-export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGeometry }: {
+export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGeometry, src = () => undefined }: {
+  /** Where each field's value came from (colour code). */
+  src?: (k: string) => 'def' | 'dyn' | 'user' | undefined;
   L: Ladder; setPlan: (p: Partial<LadderPlan>) => void; carriedFrom?: string; currentMax: number | null
   /** Range of motion and leader-line hang for this lift, from Profile. */
   lifterGeometry?: { rom_in?: number | null; hang_in?: number | null }
@@ -165,21 +167,21 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
   return (
     <>
       <div className="planfields">
-        <Num label="Planned max" tip="Estimated 1-rep max set 1 aims at. Carries from the last healthy session of this exercise." value={plan.planned_e1rm} onSave={v => setPlan({ planned_e1rm: v })} />
-        <Num label="Target reps" tip="Reps each set is weighted for. Weights come from target max ÷ (1 + reps/30)." value={plan.target_reps} onSave={v => v && setPlan({ target_reps: v })} />
-        <Num label="Stop below %" tip="The session ends when a set's estimated max falls below this % of set 1's." value={plan.stop_pct} onSave={v => v !== null && setPlan({ stop_pct: v })} />
-        <Num label="Fatigue %/set" tip="How much the estimated max drops each set. Each planned set targets the last set's actual less this %." value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
-        <Num label="Max sets" placeholder="all" tip="Cap on heavy sets today, whatever the stop line says. Blank: the ladder runs to the stop line." value={plan.max_sets} onSave={v => setPlan({ max_sets: v })} />
-        <Num label="Rest (s)" tip="Target rest between heavy sets. The Rest timer above the table turns green when it's reached." value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
-        {plan.bar && <Num label="Set 1 lb" placeholder="calc" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
+        <Num label="Planned max" tip="Estimated 1-rep max set 1 aims at. Carries from the last healthy session of this exercise." origin={src('planned_e1rm')} value={plan.planned_e1rm} onSave={v => setPlan({ planned_e1rm: v })} />
+        <Num label="Target reps" tip="Reps each set is weighted for. Weights come from target max ÷ (1 + reps/30)." origin={src('target_reps')} value={plan.target_reps} onSave={v => v && setPlan({ target_reps: v })} />
+        <Num label="Stop below %" tip="The session ends when a set's estimated max falls below this % of set 1's." origin={src('stop_pct')} value={plan.stop_pct} onSave={v => v !== null && setPlan({ stop_pct: v })} />
+        <Num label="Fatigue %/set" tip="How much the estimated max drops each set. Each planned set targets the last set's actual less this %." origin={src('fatigue_rate_used_pct')} value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
+        <Num label="Max sets" placeholder="all" tip="Cap on heavy sets today, whatever the stop line says. Blank: the ladder runs to the stop line." origin={src('max_sets')} value={plan.max_sets} onSave={v => setPlan({ max_sets: v })} />
+        <Num label="Rest (s)" tip="Target rest between heavy sets. The Rest timer above the table turns green when it's reached." origin={src('rest_s')} value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
+        {plan.bar && <Num label="Set 1 lb" placeholder="calc" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." origin={src('set1_lb')} value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
         {plan.bar && (
           <label><T tip="Clamps used on sets without chains. Chain sets always use the chain clamps.">Clamps</T>
-            <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+            <select className={'o-' + (src('clamp') ?? 'def')} value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </label>
         )}
         {plan.bar && (
           <label><T tip="The plate that covers the span from your lightest set to your heaviest. Everything bigger stays on all session; only plates smaller than this come and go for fine steps.">Change plate</T>
-            <select value={plan.change_plate} onChange={e => setPlan({ change_plate: Number(e.target.value) })}>
+            <select className={'o-' + (src('change_plate') ?? 'def')} value={plan.change_plate} onChange={e => setPlan({ change_plate: Number(e.target.value) })}>
               {on.filter(p => p > Math.min(...on)).map(p => <option key={p} value={p}>{p} lb</option>)}
               {!on.includes(plan.change_plate) && <option value={plan.change_plate}>{plan.change_plate} lb (off)</option>}
             </select>

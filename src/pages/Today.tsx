@@ -20,7 +20,7 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
 }
 const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
   chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', clamp: 'clamps', change_plate: 'change plate', max_sets: 'max heavy sets', speed_max: 'max speed sets', support_max: 'max support sets', set1_lb: 'set 1 lb', bar_lb: 'bar',
-  speed_choice: 'speed', support_choice: 'support', speed_placement: 'interleave 1', speed_offset_s: 'speed start', support_interleave: 'interleave 2', block_order: 'block order' }
+  speed_choice: 'speed', support_choice: 'support', support_ex: 'support exercises', speed_placement: 'interleave 1', speed_offset_s: 'speed start', support_interleave: 'interleave 2', block_order: 'block order' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
 export default function Today({ lifterId }: { lifterId: string }) {
@@ -167,6 +167,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
     cr: st.creatine?.[lift],
   }
 
+  // Colour code: typed for this session → the lifter's settings or the Plan page → otherwise carried from the last session by Max.
+  const planSrc = (k: string): 'def' | 'dyn' | 'user' => {
+    if (sp[k] !== undefined && sp[k] !== null) return 'user'
+    if (k === 'planned_e1rm') return ladderPlan.planned_e1rm !== null && ladderPlan.planned_e1rm === (isMainEx ? st.planned_e1rm?.[lift] : st.planned_e1rm?.[heavyEx]) && prevPlan.planned_e1rm == null ? 'def' : 'dyn'
+    if (k === 'fatigue_rate_used_pct') return prevPlan.fatigue_rate_used_pct != null && f.fatigue_rate_used_pct == null ? 'dyn' : 'def'
+    return 'def'
+  }
+
   const dlWeek = (() => {
     const days = Math.round((Date.parse(date) - Date.parse(DL_CYCLE_START)) / 86400000)
     return days < 0 ? null : (Math.floor(days / 7) % 6) + 1
@@ -204,7 +212,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
+  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
@@ -260,7 +268,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const clean = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== ''))
   const D = useDeadlift({ week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
   const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey,
-    { hidden: (sp.support_hidden as string[] | undefined) ?? [], setHidden: h => { savePlanned({ support_hidden: h }) } }, supportMax)
+    { hidden: (sp.support_hidden as string[] | undefined) ?? [], setHidden: h => { savePlanned({ support_hidden: h }) } }, supportMax, sp.support_ex)
   const supportNames = [...new Set(S.slots.map(x => x.slot ?? '').filter(n => n && !n.startsWith('extra:')))]
   const [planOpen, setPlanOpen] = useState(false)
 
@@ -336,7 +344,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
             <ExercisePicker label="Main exercise" value={heavyEx} onChange={setHeavyEx} className="exrow mainex" />
             {lift === 'deadlift'
               ? <DeadliftPlanFields D={D} setPlan={savePlan(dlPlan)} best={best} />
-              : <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} lifterGeometry={st.chain_geometry?.[lift]} />}
+              : <LadderPlanFields L={L} src={planSrc} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} lifterGeometry={st.chain_geometry?.[lift]} />}
             {edited.length > 0 && (
               <p className="small edited">
                 <T tip="These were changed on this session, so they no longer follow the Plan page. Everything else still does.">Edited for this session</T>: {edited.map(k => KEY_LABEL[k] ?? k).join(', ')}
@@ -346,20 +354,20 @@ export default function Today({ lifterId }: { lifterId: string }) {
             {past && snap && <p className="small muted">Past session: shows the plan as it stood when its first set was logged. Plan page edits don't change it.</p>}
             {(speedFor?.items?.length || S.slots.length) ? (
               <div className="caps">
-                <p className="small"><T tip="Most sets of each exercise today. Speed blank: as planned (one round per heavy set when interleaved). Support starts at the Plan's number, usually 1. 0 skips it today.">Max sets per exercise</T></p>
+                <p className="small"><T tip="Pick the exercise for each slot today; any single set can still be switched in its row. The number is the most sets of it today. Speed blank: as planned (one round per heavy set when interleaved). Support starts at the Plan's number, usually 1. 0 skips it today.">Exercises today · max sets</T></p>
                 <div className="capgrid">
                   {speedFor?.items?.map((it: any, i: number) => (
                     <Fragment key={it.name}>
                       <span className="capkind">Speed {i + 1}</span>
-                      <ExercisePicker label="" value={speedEx(it)} onChange={n => setSpeedEx(it, n)} className="capex" />
-                      <Num placeholder="plan" value={speedMax[it.name] ?? null} onSave={v => savePlanned({ speed_max: clean({ ...speedMax, [it.name]: v }) })} />
+                      <ExercisePicker label="" value={speedEx(it)} onChange={n => setSpeedEx(it, n)} className={'capex ' + (sp.speed_ex?.[it.name] && sp.speed_ex[it.name] !== it.name ? 'o-user' : 'o-def')} />
+                      <Num placeholder="plan" origin="user" value={speedMax[it.name] ?? null} onSave={v => savePlanned({ speed_max: clean({ ...speedMax, [it.name]: v }) })} />
                     </Fragment>
                   ))}
                   {supportNames.map(nm => (
                     <Fragment key={nm}>
                       <span className="capkind">Support</span>
-                      <span className="capname">{nm}</span>
-                      <Num value={supportMax[nm] ?? (support?.items ?? []).find((i: any) => i.name === nm)?.max_sets ?? 1} onSave={v => savePlanned({ support_max: clean({ ...supportMax, [nm]: v }) })} />
+                      <ExercisePicker label="" value={sp.support_ex?.[nm] ?? nm} onChange={n => savePlanned({ support_ex: { ...(sp.support_ex ?? {}), [nm]: n } })} className={'capex ' + (sp.support_ex?.[nm] && sp.support_ex[nm] !== nm ? 'o-user' : 'o-def')} />
+                      <Num origin={supportMax[nm] != null ? 'user' : 'def'} value={supportMax[nm] ?? (support?.items ?? []).find((i: any) => i.name === nm)?.max_sets ?? 1} onSave={v => savePlanned({ support_max: clean({ ...supportMax, [nm]: v }) })} />
                     </Fragment>
                   ))}
                 </div>

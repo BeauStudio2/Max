@@ -12,13 +12,15 @@ export type Api = {
 }
 
 /** Text input that keeps its own draft and reports a number (or null) when you leave it. */
-export function Num({ value, onSave, className, placeholder, label, step, tip }: {
+export function Num({ value, onSave, className, placeholder, label, step, tip, origin }: {
+  /** Where the value came from: 'def' the plan, 'dyn' worked out by Max, 'user' typed for this session. */
+  origin?: 'def' | 'dyn' | 'user';
   value: number | null | undefined; onSave: (v: number | null) => void; className?: string; placeholder?: string; label?: string; step?: string; tip?: string
 }) {
   const [v, setV] = useState(value?.toString() ?? '')
   useEffect(() => setV(value?.toString() ?? ''), [value])
   const input = (
-    <input className={label ? undefined : className} inputMode="decimal" value={v} placeholder={placeholder} step={step}
+    <input className={[label ? '' : className ?? '', origin ? 'o-' + origin : ''].join(' ').trim() || undefined} inputMode="decimal" value={v} placeholder={placeholder} step={step}
       onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
       onBlur={() => { const nv = v.trim() === '' ? null : Number(v); if (nv !== (value ?? null) && !Number.isNaN(nv)) onSave(nv) }} />
   )

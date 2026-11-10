@@ -1,4 +1,4 @@
-import { Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { useRef, Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
 import { e1rm, e1rmFromRpe, expectedReps, lostReps, repGoal, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
 import type { Equipment, SetRow } from '../../lib/types'
@@ -62,12 +62,12 @@ const withCount = (stack: number[] | null, plate: number, n: number) =>
   [...(stack ?? []).filter(x => x !== plate), ...Array(Math.max(0, Math.round(n))).fill(plate)].sort((a, b) => b - a)
 
 /** The plate cells for one row: editable counts, blank for zero, greyed when that plate is switched off. */
-function PlateCells({ stack, on, onSet, keptN, disabled }: { stack: number[] | null; on?: number[]; onSet: (plate: number, n: number) => void; keptN?: Record<number, number>; disabled?: boolean }) {
+function PlateCells({ stack, on, onSet, keptN, disabled, origin = '' }: { origin?: string; stack: number[] | null; on?: number[]; onSet: (plate: number, n: number) => void; keptN?: Record<number, number>; disabled?: boolean }) {
   const c = countsOf(stack)
   return <>{PLATE_COLS.map(p => {
     const off = on ? !on.includes(p) : false
     return (
-      <td key={p} className={'c-plate' + (off ? ' off' : '') + (keptN?.[p] ? ' kept' : '')}>
+      <td key={p} className={'c-plate ' + origin + (off ? ' off' : '') + (keptN?.[p] ? ' kept' : '')}>
         {disabled ? null : <CellText value={c[p] ? String(c[p]) : ''} narrow numeric onSave={v => onSet(p, v === '' ? 0 : Number(v))} />}
       </td>
     )
@@ -134,12 +134,12 @@ const CaptureCtx = createContext<{ id: number; pulses: Pulse[]; tempo: Tempo } |
 const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v))
 const ColsCtx = createContext<Cols>({ chains: false, span: 12, allBands: [] })
 
-function ChainCells({ half, big, onSet }: { half: number; big: number; onSet?: (which: 'chain_half' | 'chain_5_8', n: number) => void }) {
+function ChainCells({ half, big, onSet, origin = '' }: { origin?: string; half: number; big: number; onSet?: (which: 'chain_half' | 'chain_5_8', n: number) => void }) {
   const C = useContext(ColsCtx)
   if (!C.chains) return null
   return <>{(['chain_half', 'chain_5_8'] as const).map(k => {
     const n = k === 'chain_half' ? half : big
-    return <td key={k} className="c-chain">{onSet ? <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(k, v === '' ? 0 : Number(v))} /> : null}</td>
+    return <td key={k} className={'c-chain ' + origin}>{onSet ? <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(k, v === '' ? 0 : Number(v))} /> : null}</td>
   })}</>
 }
 
@@ -350,7 +350,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         </p>
       )}
       <p className="small muted sheetfoot">
-        Grey rows are the plan; type reps in one to log it. {L?.floor ? `Stop line ${round(L.floor)}. ` : ''}
+        <span className="okey"><i className="o-def" />from the plan <i className="o-dyn" />worked out by Max <i className="o-user" />set by you</span>
         {L?.fit ? `Fatigue ${L.fit.ratePct.toFixed(2)}%/set` : ''}{perMin ? ` · ${perMin.toFixed(2)}%/min over ${minutes} min, ${mainCount} sets` : ''}
         {D?.todayMax ? `Deadlift estimate ${round(D.todayMax)}.` : ''}
       </p>
@@ -381,7 +381,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   useEffect(() => { if (!r) setSp(L.plan.spotter) }, [L.plan.spotter])
   // Plates typed into the columns, kept as entered until the set is logged (then they're saved on the set).
   const [manual, setManual] = useState<number[] | null>(null)
-  useEffect(() => { if (!r) { setSetup(p!.setup); setPlates(p!.weight); setManual(null) } }, [p?.weight, p?.idx, p && setupKey(p.setup)])
+  // Which of this set's values were typed by hand (the rest are worked out by Max or come from the plan).
+  const [mine, setMine] = useState<string[]>(r?.setup?.user ?? [])
+  const org = (k: string, other: 'o-dyn' | 'o-def') => (mine.includes(k) ? 'o-user' : other)
+  useEffect(() => { if (!r) { setSetup(p!.setup); setPlates(p!.weight); setManual(null); setMine([]) } }, [p?.weight, p?.idx, p && setupKey(p.setup)])
   useEffect(() => { if (r) { setSetup(setupOf(r)); setPlates(r.weight_lb); setReps(r.reps?.toString() ?? ''); setA(r.assisted); setF(r.failed) } }, [r])
 
   const idx = r ? r.set_index : p!.idx
@@ -401,8 +404,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
   const below = L.floor !== null && est !== null && est < L.floor
 
-  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null }) {
+  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null; touch?: string }) {
     const s = patch.setup ?? setup, pl = patch.plates !== undefined ? patch.plates : plates
+    const user = patch.touch && !mine.includes(patch.touch) ? [...mine, patch.touch] : mine
+    if (user !== mine) setMine(user)
     // The plates actually loaded: as typed, else the planned stack when the weight still matches, else the kept plates plus change.
     const sumSt = (st: number[]) => st.reduce((t, p) => t + p, 0) * 2
     const prevStack: number[] | null = manual ?? (Array.isArray(r?.setup?.stack) ? r!.setup.stack : p?.stack ?? null)
@@ -411,7 +416,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const rp = patch.reps !== undefined ? patch.reps : reps, aa = patch.a ?? a, ff = patch.f ?? f
     const tt = totals(pl, s, eq)
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
-      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [],
+      setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [], user,
         stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null),
         spot: (patch.sp ?? sp) ? { on: true, spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined, tempo: (patch.tempo !== undefined ? patch.tempo : tempo) ?? undefined } : null } }
     if (r) await api.updateSet(r.id!, row)
@@ -422,10 +427,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
         setup: { ...row.setup, target_e1rm: target ?? null } })
     }
   }
-  const setSet = (s: LoadSetup) => {
+  const setSet = (s: LoadSetup, touch?: string) => {
     setSetup(s)
-    if (!r && target) { const w = L.weightFor(target, s, idx); setPlates(w); return commit({ setup: s, plates: w }) }
-    return commit({ setup: s })
+    if (!r && target) { const w = L.weightFor(target, s, idx); setPlates(w); return commit({ setup: s, plates: w, touch }) }
+    return commit({ setup: s, touch })
   }
   // A set recorded on the Tindeq fills this row's spotted reps and average assist (the next set to do, with S on).
   const cap = useContext(CaptureCtx)
@@ -442,12 +447,12 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const stack = hasBar ? stackFor(plates, L.kept, stored, L.plan.plates_on) : null
   const setPlate = (plate: number, n: number) => {
     const next = withCount(stack, plate, n), pl = next.reduce((t, x) => t + x, 0) * 2
-    setManual(next); setPlates(pl); commit({ plates: pl, stack: next })
+    setManual(next); setPlates(pl); commit({ plates: pl, stack: next, touch: 'plates' })
   }
   const keptN = countsOf(L.kept.base)
   const straightClamp = L.plan.clamp || CLAMPS[0][0]
   const setupCell = !hasBar ? <span className="small muted">—</span> : (
-    <select className="mini" value={setup.clamp} aria-label="Clamps" onChange={e => setSet({ ...setup, clamp: e.target.value })}>
+    <select className="mini" value={setup.clamp} aria-label="Clamps" onChange={e => setSet({ ...setup, clamp: e.target.value }, 'clamp')}>
       {CLAMPS.map(([v, l]) => <option key={v} value={v}>{v === CHAIN_CLAMP ? 'Chain' : l}</option>)}
       {!CLAMPS.some(c => c[0] === setup.clamp) && <option value={setup.clamp}>{setup.clamp || 'none'}</option>}
     </select>
@@ -456,7 +461,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const setChain = (k: 'chain_half' | 'chain_5_8', n: number) => {
     const next = { ...setup, [k]: Math.max(0, Math.round(n)) }
     const any = next.chain_half || next.chain_5_8
-    setSet({ ...next, clamp: any ? CHAIN_CLAMP : setup.clamp === CHAIN_CLAMP ? straightClamp : setup.clamp })
+    setSet({ ...next, clamp: any ? CHAIN_CLAMP : setup.clamp === CHAIN_CLAMP ? straightClamp : setup.clamp }, 'chains')
   }
   const C = useContext(ColsCtx)
 
@@ -464,10 +469,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     <>
     <tr className={(logged ? 'done' : 'plan') + (next ? ' next' : '') + (below ? ' below' : '')}>
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
-      <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
+      <td className={mine.includes('lb') || mine.includes('plates') ? 'o-user' : 'o-dyn'}><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl, touch: 'lb' }) }} />
         <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}{setup.bands?.length ? ` · ${bandLabel(setup.bands)}` : ''}</div></td>
-      <td className="num c-exp">{pred ? <span data-tip="Model: unaided reps + spotted reps before creatine is spent." data-pos="center">{pred.unaided}+{pred.spotted}</span> : exp !== null ? exp.toFixed(1) : ''}{!pred && diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
-      <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} />
+      <td className="num c-exp o-dyn">{pred ? <span data-tip="Model: unaided reps + spotted reps before creatine is spent." data-pos="center">{pred.unaided}+{pred.spotted}</span> : exp !== null ? exp.toFixed(1) : ''}{!pred && diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
+      <td className="o-user ph-dyn"><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} />
         {sp && <div className="spotin" data-tip="Spotted reps after the unaided ones, and their average assist in lb. Filled from the Tindeq when a set is recorded." data-pos="left">
           <span>+</span><CellText value={spotted} narrow numeric placeholder={pred ? String(pred.spotted) : 'spot'} onSave={v => { setSpotted(v); commit({ spotted: v }) }} />
           <span>@</span><CellText value={assist} narrow numeric placeholder="lb" onSave={v => { setAssist(v); commit({ assist: v }) }} />
@@ -479,10 +484,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
         {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}</td>
-      {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} />
+      {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} origin={mine.includes('plates') ? 'o-user' : 'o-dyn'} />
         : <td colSpan={PLATE_COLS.length} className="c-plate small muted">{loadNote(L.plan)}</td>}
-      <td className="c-setup">{setupCell}</td>
-      <ChainCells half={setup.chain_half} big={setup.chain_5_8} onSet={hasBar && L.plan.chains_ok ? setChain : undefined} />
+      <td className={'c-setup ' + org('clamp', 'o-def')}>{setupCell}</td>
+      <ChainCells half={setup.chain_half} big={setup.chain_5_8} onSet={hasBar && L.plan.chains_ok ? setChain : undefined} origin={org('chains', 'o-def')} />
       <td className="c-band"><BandEditor bands={setup.bands ?? []} onChange={bb => setSet({ ...setup, bands: bb })} /></td>
       <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}</td>
       <td className="c-del">{logged && <DelBtn tip="Delete this logged set" onConfirm={() => api.deleteSet(r!.id!)} />}</td>
@@ -586,7 +591,8 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
   const isBench = lower.includes('banded bench')
   const src = r?.setup ?? prev?.setup ?? {}
   const defBands: BandPick[] = bandsOf(src).length ? bandsOf(src) : it.band ? [{ name: eq.find(e => e.kind === 'band' && e.name.startsWith('Rogue band ' + String(it.band).split(' ')[0]))?.name ?? 'Rogue band ' + String(it.band).split(' ')[0], per_side: it.bands_per_side ?? 1 }] : []
-  const [load, setLoad] = useState<number | null>(r?.weight_lb ?? prev?.weight_lb ?? it.load_lb ?? (isBench ? n0(eq.find(e => e.name === LIGHT_BAR)?.weight_lb) || 5 : null))
+  const planLoad: number | null = it.load_lb ?? (isBench ? n0(eq.find(e => e.name === LIGHT_BAR)?.weight_lb) || 5 : null)
+  const [load, setLoad] = useState<number | null>(r?.weight_lb ?? prev?.weight_lb ?? planLoad)
   const [bands, setBands] = useState<BandPick[]>(defBands)
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
   const [open, setOpen] = useState(false)
@@ -613,10 +619,10 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
     <>
       <tr className={(r ? 'done' : 'plan') + (next ? ' next' : '') + ' speed'}>
         <td className="stick" onClick={() => setOpen(o => !o)}><span className="tagdot s" />{name} {n}<span className="moretoggle">{open ? '▴' : '▾'}</span></td>
-        <td><CellNum value={load} onSave={v => { setLoad(v); commit({ load: v }) }} />
+        <td className={load !== null && load !== planLoad ? 'o-user' : 'o-def'}><CellNum value={load} onSave={v => { setLoad(v); commit({ load: v }) }} />
           {bands.length > 0 && <div className="sub2 side-inline">{bandLabel(bands)}</div>}</td>
         <td className="c-exp" />
-        <td><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
+        <td className="o-user ph-def"><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td />
         <td />
         <td colSpan={PLATE_COLS.length} className="c-plate" />
@@ -672,8 +678,9 @@ function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: Suppo
       notes: e?.notes ?? '',
     }
   }
+  const adding = useRef<Promise<any> | null>(null), made = useRef<string | null>(null)
   const [v, setV] = useState(init)
-  useEffect(() => setV(init()), [e?.id, e?.exercise_id, e?.reps])
+  useEffect(() => { setV(init()); if (!e) made.current = null }, [e?.id, e?.exercise_id, e?.reps, e ? '' : slot.exerciseId, e ? '' : d.start_lb])
   const num = (s: string) => (s.trim() === '' ? null : Number(s))
   const drops = num(v.drops)
   const loads = (() => {
@@ -695,16 +702,23 @@ function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: Suppo
       exercise_id: nv.ex, scheme: nv.scheme || null, start_weight_lb: num(nv.start), step_lb: num(nv.step), drops: dn, reps: num(nv.reps),
       notes: nv.notes.trim() || null, setup: { ...(e?.setup ?? {}), slot: slot.slot, drop_reps: dropReps, final_reps: num(nv.final) },
     }
-    if (e?.id) await api.updateSet(e.id, patch)
+    // A second field typed while the first is still being saved must update that same set, not log another.
+    if (!e?.id && adding.current) made.current = (await adding.current)?.id ?? made.current
+    const id = e?.id ?? made.current
+    if (id) await api.updateSet(id, patch)
     else if (patch.start_weight_lb !== null || patch.reps !== null || patch.notes) {
-      const row = await api.addSet({ ...patch, block: 'support', set_index: slot.setIndex, weight_lb: null, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
-      if (row) S.saved(slot)
+      adding.current = api.addSet({ ...patch, block: 'support', set_index: slot.setIndex, weight_lb: null, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
+      const row = await adding.current
+      adding.current = null
+      if (row) { made.current = row.id ?? null; S.saved(slot) }
     }
   }
   const field = (k: keyof ReturnType<typeof init>, narrow = true, numeric = true) => (
     <CellText value={v[k]} narrow={narrow} numeric={numeric} onSave={x => { const nv = { ...v, [k]: x }; setV(nv); save(nv) }} />
   )
   const [more, setMore] = useState(false)
+  // Grey while it still matches the plan's value; white once it's been changed.
+  const so = (k: 'start' | 'step' | 'drops', planned: any) => (v[k] !== '' && v[k] === String(planned ?? '') ? 'o-def' : 'o-user')
   const scheme = <SchemePicker value={v.scheme} options={schemeOptions} onChange={scheme => { const nv = { ...v, scheme }; setV(nv); save(nv) }} />
   const note = <CellText value={v.notes} placeholder={d.note ? 'see plan note' : 'note'} wide onSave={x => { const nv = { ...v, notes: x }; setV(nv); save(nv) }} />
   if (inline) return (
@@ -712,19 +726,19 @@ function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: Suppo
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot u" />{exercises.find(x => x.id === v.ex)?.name ?? 'Support'}{slot.setIndex > 1 ? ` · set ${slot.setIndex}` : ''}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td colSpan={C.span}>
         <div className="supfields">
-          <label className="exfield opt">Exercise
+          <label className="exfield" data-tip="The exercise for this set only. Change the day's exercise in the plan panel.">Exercise
             <select className="mini" value={v.ex} onChange={ev => { const nv = { ...v, ex: ev.target.value }; setV(nv); save(nv) }}>
               <option value="">choose…</option>
               {exercises.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
             </select>
           </label>
-          <label data-tip="Starting weight (the first, heaviest load).">Start{field('start')}</label>
-          <label data-tip="Reps at the start weight.">Reps{field('reps')}</label>
+          <label className={so('start', d.start_lb)} data-tip="Starting weight (the first, heaviest load).">Start{field('start')}</label>
+          <label className="o-user" data-tip="Reps at the start weight.">Reps{field('reps')}</label>
           <label className="opt" data-tip="Reps at each drop, e.g. 3 or 3,3,4.">Each drop{field('each', true, false)}</label>
           <label className="opt" data-tip="Reps at the last drop.">Final{field('final')}</label>
           <div className="field opt"><span className="flabel">Scheme</span>{scheme}</div>
-          <label className="opt" data-tip="Weight removed at each drop.">Step{field('step')}</label>
-          <label className="opt" data-tip="Number of drops after the start weight.">Drops{field('drops')}</label>
+          <label className={'opt ' + so('step', d.step_lb)} data-tip="Weight removed at each drop.">Step{field('step')}</label>
+          <label className={'opt ' + so('drops', d.drops)} data-tip="Number of drops after the start weight.">Drops{field('drops')}</label>
           <label className="grow opt">Note{note}</label>
           <span className="nowrap"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} data-tip="Add another set of this exercise" data-pos="right" aria-label="Another set">+</button>
             <DelBtn label="Remove" tip="Remove this exercise or set" onConfirm={() => S.remove(slot)} /></span>

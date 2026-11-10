@@ -13,7 +13,7 @@ export type SupportSlot = Slot
 export type SupportCtl = ReturnType<typeof useSupportSlots>
 
 /** The day's support work as slots: plan exercises, extra sets and added exercises, each logged or not yet. */
-export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '', persist?: { hidden: string[]; setHidden: (h: string[]) => void }, maxSets?: Record<string, number>) {
+export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '', persist?: { hidden: string[]; setHidden: (h: string[]) => void }, maxSets?: Record<string, number>, swap?: Record<string, string>) {
   const { exercises } = useStore()
   const items: any[] = support?.items ?? []
   const [extras, setExtras] = useState<Slot[]>([])
@@ -31,20 +31,26 @@ export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey
       const mine = sets.filter(s => !used.has(s.id!) && (s.setup?.slot === it.name || (!s.setup?.slot && nameOf(s.exercise_id) === it.name)))
         .sort((a, b) => a.set_index - b.set_index)
       mine.forEach(s => used.add(s.id!))
-      mine.forEach(s => out.push({ key: s.id!, slot: it.name, exerciseId: s.exercise_id, setIndex: s.set_index, existing: s, defaults: it }))
+      // Keys go by position, so a row keeps its place (and what's being typed in it) when its set is saved.
+      const keyAt = (k: number) => (k === 1 ? 'tpl:' + it.name : `tpl:${it.name}:${k}`)
+      mine.forEach((s, i) => out.push({ key: keyAt(i + 1), slot: it.name, exerciseId: s.exercise_id, setIndex: s.set_index, existing: s, defaults: it }))
       // Sets still to do, up to today's max sets for this exercise (the day's default, 1 unless the Plan says otherwise).
       const cap = maxSets?.[it.name] ?? it.max_sets ?? 1
       const lastIdx = mine.at(-1)?.set_index ?? 0
+      // Today's exercise for this slot: the day's pick if there is one, else the Plan's. A set logged with something else doesn't change the rest.
+      const todayId = api.exId(swap?.[it.name] ?? it.name) ?? ''
+      const swapped = !!swap?.[it.name] && swap[it.name] !== it.name
+      const lastSame = [...mine].reverse().find(s => s.exercise_id === todayId)
       if (!hidden.includes(it.name)) for (let k = mine.length + 1; k <= cap; k++)
-        out.push({ key: k === 1 ? 'tpl:' + it.name : `tpl:${it.name}:${k}`, slot: it.name, exerciseId: mine[0]?.exercise_id ?? api.exId(it.name) ?? '', setIndex: lastIdx + (k - mine.length),
-          defaults: { ...it, start_lb: mine.at(-1)?.start_weight_lb ?? it.start_lb } })
+        out.push({ key: keyAt(k), slot: it.name, exerciseId: todayId, setIndex: lastIdx + (k - mine.length),
+          defaults: { ...it, note: swapped ? undefined : it.note, start_lb: lastSame?.start_weight_lb ?? (swapped ? undefined : it.start_lb) } })
       out.push(...extras.filter(x => x.slot === it.name))
     }
     for (const s of sets.filter(s => !used.has(s.id!)).sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')))
       out.push({ key: s.id!, slot: s.setup?.slot ?? null, exerciseId: s.exercise_id, setIndex: s.set_index, existing: s, defaults: {} })
     out.push(...extras.filter(x => !items.some(it => it.name === x.slot)))
     return out
-  }, [items, sets, extras, hidden, exercises, maxSets])
+  }, [items, sets, extras, hidden, exercises, maxSets, swap])
 
   function addSetFor(s: Slot) {
     const idxs = [s.setIndex, ...sets.filter(x => x.exercise_id === s.exerciseId).map(x => x.set_index), ...extras.filter(x => x.exerciseId === s.exerciseId).map(x => x.setIndex)]
