@@ -22,7 +22,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
     const [cat, bm, ss, gd] = await Promise.all([
       supabase.from('metric_catalog').select('*').order('sort'),
       supabase.from('body_metrics').select('*').eq('lifter_id', lifterId).order('measured_on'),
-      supabase.from('sessions').select('id, session_date, primary_lift, sick, hurt, bodyweight_lb').eq('lifter_id', lifterId).order('session_date'),
+      supabase.from('sessions').select('id, session_date, primary_lift, sick, hurt, exclude_reason, bodyweight_lb').eq('lifter_id', lifterId).order('session_date'),
       supabase.from('garmin_daily').select('*').eq('lifter_id', lifterId).order('day'),
     ])
     const e = [cat, bm, ss, gd].find(r => r.error)?.error
@@ -38,7 +38,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
     // Entered values (bodyweight, measurements, skinfolds, energy test results). Fatigue and maxes are worked out from sessions below.
     for (const r of bm.data ?? []) if (!/^(fatigue|e1rm)_/.test(r.metric)) push(r.metric, { d: r.measured_on, v: Number(r.value), id: r.id, src: r.source })
     for (const s of sessions) {
-      const x = !!s.sick || !!s.hurt
+      const x = !!s.sick || !!s.hurt?.trim() || !!s.exclude_reason?.trim()
       const mine = est.filter(r => r.session_id === s.id)
       if (s.bodyweight_lb && !(out.bodyweight ?? []).some(p => p.d === s.session_date)) push('bodyweight', { d: s.session_date, v: Number(s.bodyweight_lb), src: 'session' })
       if (s.primary_lift === 'deadlift') {

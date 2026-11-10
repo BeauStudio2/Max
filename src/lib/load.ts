@@ -88,9 +88,12 @@ export function platesPerSide(totalPlates: number | null) {
   return out.join(' + ') + (side > 0.01 ? ` (+${side})` : '')
 }
 
-/** Log-linear fit of estimated max against set number: fatigue rate per set and fresh strength. */
+/**
+ * Log-linear fit of estimated max against set number over every logged set (same as the sheet):
+ * fatigue rate per set and fitted fresh strength at set 1.
+ */
 export function fitFatigue(e1rms: (number | null)[]) {
-  const pts = e1rms.map((v, i) => [i + 1, v] as const).filter(([, v]) => v && v > 0).slice(0, 10) as [number, number][]
+  const pts = e1rms.map((v, i) => [i + 1, v] as const).filter(([, v]) => v && v > 0) as [number, number][]
   if (pts.length < 3) return null
   const n = pts.length
   const xs = pts.map(p => p[0]), ys = pts.map(p => Math.log(p[1]))

@@ -49,13 +49,13 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const [{ data: h }, { data: p }] = await Promise.all([
       supabase.from('session_summary').select('*').eq('lifter_id', lifterId).eq('primary_lift', lift)
         .lt('session_date', date).order('session_date', { ascending: false }).limit(30),
-      supabase.from('sessions').select('id, session_date, planned, sick, hurt').eq('lifter_id', lifterId).eq('primary_lift', lift)
+      supabase.from('sessions').select('id, session_date, planned, sick, hurt, exclude_reason').eq('lifter_id', lifterId).eq('primary_lift', lift)
         .lt('session_date', date).order('session_date', { ascending: false }).limit(1),
     ])
     setHistory((h as SummaryRow[]) ?? [])
     const prev = p?.[0]
     const carried: Record<string, any> = { ...((prev?.planned as Record<string, any>) ?? {}) }
-    if (prev && !prev.sick && !prev.hurt) {
+    if (prev && !prev.sick && !prev.hurt?.trim() && !prev.exclude_reason?.trim()) {
       // Same rule as the sheet: a healthy previous session hands on its actual set-1 max and its fitted fatigue rate.
       const { data: est } = await supabase.from('set_estimates').select('set_index, e1rm_lb')
         .eq('session_id', prev.id).in('block', ['primary', 'deadlift']).order('set_index')
@@ -64,7 +64,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
       const fit = fitFatigue(e)
       if (fit && fit.ratePct > 0) carried.fatigue_rate_used_pct = Math.round(fit.ratePct * 100) / 100
       carried.from = prev.session_date
-    } else if (prev) carried.from = prev.session_date + ' (sick/hurt: its planned values)'
+    } else if (prev) carried.from = prev.session_date + ' (excluded: its planned values)'
     setPrevPlan(carried)
   }
   useEffect(() => { if (lifterId) load() }, [lifterId, date, lift])
@@ -290,7 +290,9 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
   useEffect(() => {
     setHurt(session?.hurt ?? ''); setNotes(session?.notes ?? ''); setBw(session?.bodyweight_lb?.toString() ?? '')
   }, [session?.id])
-  const excluded = !!session?.sick || !!session?.hurt
+  const [excl, setExcl] = useState(session?.exclude_reason ?? '')
+  useEffect(() => setExcl(session?.exclude_reason ?? ''), [session?.id])
+  const excluded = !!session?.sick || !!session?.hurt || !!session?.exclude_reason
   return (
     <div className="status">
       <div className="row wrap">
@@ -304,7 +306,11 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
             onBlur={() => bw !== (session?.bodyweight_lb?.toString() ?? '') && save({ bodyweight_lb: bw ? Number(bw) : null })} />
         </label>
       </div>
-      {excluded && <p className="warn small">Left out of max and projections (sick or injured).</p>}
+      <label>Exclude for another reason (blank = count it)
+        <input value={excl} placeholder="e.g. bad data, equipment problem" onChange={e => setExcl(e.target.value)}
+          onBlur={() => excl !== (session?.exclude_reason ?? '') && save({ exclude_reason: excl.trim() || null })} />
+      </label>
+      {excluded && <p className="warn small">Left out of maxes, fatigue and projections.</p>}
       <label>Notes
         <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
           onBlur={() => notes !== (session?.notes ?? '') && save({ notes: notes.trim() || null })} />

@@ -35,7 +35,7 @@ export default function History({ lifterId }: { lifterId: string }) {
           <div><span className="muted small">Sessions</span><b>{forLift.length}</b></div>
         </div>
         <Trend points={points} />
-        <p className="small muted">Set-1 estimated max per session. Hollow points were sick or injured and are left out.</p>
+        <p className="small muted">Set-1 estimated max per session. Hollow points were sick, injured or excluded and are left out.</p>
       </section>
 
       <section className="card">
@@ -49,7 +49,7 @@ export default function History({ lifterId }: { lifterId: string }) {
                 <span className="cap">{r.primary_lift}</span>
                 <span>{r.set1_e1rm_lb ? <b>{round(r.set1_e1rm_lb)}</b> : <span className="muted">—</span>}</span>
                 <span className="small muted">{r.sets_done} sets</span>
-                <span>{r.sick && <span className="tag sick">sick</span>}{r.hurt && <span className="tag hurt">injury</span>}</span>
+                <span>{r.sick && <span className="tag sick">sick</span>}{r.hurt && <span className="tag hurt">injury</span>}{r.exclude_reason && <span className="tag hurt">excluded</span>}</span>
               </button>
               {open === r.session_id && <Detail row={r} />}
             </li>
@@ -72,6 +72,7 @@ function Detail({ row }: { row: SummaryRow }) {
   return (
     <div className="detail">
       {row.hurt && <p className="small"><b>Injury:</b> {row.hurt}</p>}
+      {row.exclude_reason && <p className="small"><b>Excluded:</b> {row.exclude_reason}</p>}
       {row.notes && <p className="small">{row.notes}</p>}
       {(row.sleep_h || row.hrv_ms || row.resting_hr) && (
         <p className="small muted">Sleep {round(row.sleep_h, 1)} h · HRV {round(row.hrv_ms)} · RHR {round(row.resting_hr)}</p>

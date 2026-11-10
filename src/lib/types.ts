@@ -9,7 +9,7 @@ export interface Template { id: string; weekday: number; name: string; spec: any
 
 export interface Session {
   id: string; lifter_id: string; session_date: string; primary_lift: Lift | null; template_id: string | null
-  sick: boolean; hurt: string | null; bodyweight_lb: number | null; notes: string | null
+  sick: boolean; hurt: string | null; exclude_reason?: string | null; bodyweight_lb: number | null; notes: string | null
   planned: Record<string, any>; extra?: Record<string, any>; source: string; started_at: string | null; ended_at: string | null
 }
 
@@ -25,7 +25,7 @@ export interface Config { rep_divisor: number; chain_bottom_ratio: number; chain
 
 export interface SummaryRow {
   session_id: string; lifter_id: string; lifter: string; session_date: string; primary_lift: Lift | null
-  sick: boolean; hurt: string | null; excluded: boolean; notes: string | null
+  sick: boolean; hurt: string | null; excluded: boolean; exclude_reason?: string | null; notes: string | null
   set1_weight_lb: number | null; set1_reps: number | null; set1_e1rm_lb: number | null
   sets_done: number; volume_lb: number | null; resting_hr: number | null; hrv_ms: number | null; sleep_h: number | null
 }
