@@ -7,7 +7,7 @@ import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
 import SessionSheet, { type Placement } from './today/Sheet'
 import { useSupportSlots } from './today/Support'
 import { DeadliftPlanFields, useDeadlift, type DeadliftPlan } from './today/Deadlift'
-import { ExercisePicker, Num, fmt, useClock, type Api } from './today/shared'
+import { ExercisePicker, Num, T, fmt, useClock, type Api } from './today/shared'
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 const DL_CYCLE_START = '2026-11-07'
@@ -220,20 +220,20 @@ export default function Today({ lifterId }: { lifterId: string }) {
           <label className="grow">Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
         </div>
         <div className="choices">
-          <label>Heavy
+          <label><T tip="The main lift today. Its sets ladder down from the planned max; change the exercise itself in Plan.">Heavy</T>
             <select value={lift} onChange={e => setLift(e.target.value as Lift)}>
               <option value="squat">Squat</option>
               <option value="bench">Bench</option>
               <option value="deadlift">Deadlift</option>
             </select>
           </label>
-          <label>Speed
+          <label><T tip="Speed work done between heavy sets (the opposite lift). None hides it.">Speed</T>
             <select value={speedKey} onChange={e => choose('speed_choice', e.target.value)}>
               <option value="none">None</option>
               {[...speedOptions.keys()].map(k => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
             </select>
           </label>
-          <label>Support
+          <label><T tip="Accessory group for after the heavy work. Exercises can be swapped or added in the Support table.">Support</T>
             <select value={supportKey} onChange={e => choose('support_choice', e.target.value)}>
               <option value="none">None</option>
               {[...supportOptions.keys()].map(k => <option key={k} value={k}>{k}</option>)}
@@ -244,18 +244,18 @@ export default function Today({ lifterId }: { lifterId: string }) {
         <Status session={session} save={ensureSession} />
         <div className="timer">
           {!session?.started_at ? (
-            <button className="primary" onClick={() => ensureSession({ started_at: new Date().toISOString(), ended_at: null })}>▶ Start workout</button>
+            <button className="primary" data-tip="Starts the session clock. Duration, calories and the earliest next session come from it." data-pos="center" onClick={() => ensureSession({ started_at: new Date().toISOString(), ended_at: null })}>▶ Start workout</button>
           ) : !session.ended_at ? (
             <>
               <div><span className="small muted">Started {clock(session.started_at)}</span><b className="elapsed">{fmt(elapsed)}</b></div>
-              <button className="ghost" onClick={() => ensureSession({ ended_at: new Date().toISOString() })}>■ Finish</button>
+              <button className="ghost" data-tip="Stops the clock and records the end time." data-pos="right" onClick={() => ensureSession({ ended_at: new Date().toISOString() })}>■ Finish</button>
             </>
           ) : (
             <>
               <div><span className="small muted">{clock(session.started_at)} – {clock(session.ended_at)}</span>
                 <b className="elapsed">{fmt(Math.round((Date.parse(session.ended_at) - Date.parse(session.started_at)) / 1000))}</b></div>
-              <button className="ghost small" onClick={() => ensureSession({ ended_at: null })}>Resume</button>
-              <button className="ghost small" onClick={() => confirm('Clear the start and finish times?') && ensureSession({ started_at: null, ended_at: null })}>Reset</button>
+              <button className="ghost small" data-tip="Keeps the original start time and clears the finish." data-pos="right" onClick={() => ensureSession({ ended_at: null })}>Resume</button>
+              <button className="ghost small" data-tip="Clears start and finish times. Logged sets are kept." data-pos="right" onClick={() => confirm('Clear the start and finish times?') && ensureSession({ started_at: null, ended_at: null })}>Reset</button>
             </>
           )}
         </div>
@@ -265,7 +265,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
       {err && <p className="err">{err}</p>}
 
       <section className="card">
-        <button className="planhead" onClick={() => setPlanOpen(o => !o)} aria-expanded={planOpen}>
+        <button className="planhead" onClick={() => setPlanOpen(o => !o)} aria-expanded={planOpen} data-tip="Tap to open: planned max, reps, stop line, fatigue, plates, chains and the exercises for today." data-pos="left">
           <h2 style={{ margin: 0 }}>Plan · {lift}{lift === 'deadlift' && dlWeek ? ` week ${dlWeek}` : ''}</h2>
           <span className="small muted">{lift === 'deadlift'
             ? `top ${dlPlan.planned_top_lb ?? '—'} · bar ${dlPlan.bar_lb} · rest ${dlPlan.rest_s}s`
@@ -282,14 +282,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
             ))}
             {speedFor?.items?.length ? (
               <div className="planfields">
-                <label>Speed sets
+                <label><T tip="Between: one round of speed after each heavy set. All first / all after: every speed set in a block.">Speed sets</T>
                   <select value={placement} onChange={e => savePlanned({ speed_placement: e.target.value })}>
                     <option value="between">Between main sets</option>
                     <option value="first">All first</option>
                     <option value="after">All after</option>
                   </select>
                 </label>
-                <Num label="Speed starts (s into rest)" value={offsetS} onSave={v => v !== null && savePlanned({ speed_offset_s: v })} />
+                <Num label="Speed starts (s into rest)" tip="How many seconds after a heavy set the speed round begins." value={offsetS} onSave={v => v !== null && savePlanned({ speed_offset_s: v })} />
               </div>
             ) : null}
           </div>
@@ -319,13 +319,13 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
   return (
     <div className="status">
       <div className="row wrap">
-        <label className="check"><input type="checkbox" checked={!!session?.sick} onChange={e => save({ sick: e.target.checked })} /> Sick</label>
-        <label className="grow">Injury (describe)
+        <label className="check"><input type="checkbox" checked={!!session?.sick} onChange={e => save({ sick: e.target.checked })} /> <T tip="Sick sessions are left out of maxes, fatigue fits and the next session's plan.">Sick</T></label>
+        <label className="grow"><T tip="Anything written here marks the session injured: it's left out of maxes, fatigue fits and planning.">Injury (describe)</T>
           <input value={hurt} placeholder="blank = no injury" onChange={e => setHurt(e.target.value)}
             onBlur={() => hurt !== (session?.hurt ?? '') && save({ hurt: hurt.trim() || null })} />
         </label>
       </div>
-      <label>Exclude for another reason (blank = count it)
+      <label><T tip="For bad data or equipment problems. Any text here leaves the session out of maxes and fatigue, like sick or injured.">Exclude for another reason (blank = count it)</T>
         <input value={excl} placeholder="e.g. bad data, equipment problem" onChange={e => setExcl(e.target.value)}
           onBlur={() => excl !== (session?.exclude_reason ?? '') && save({ exclude_reason: excl.trim() || null })} />
       </label>
@@ -364,11 +364,11 @@ function SessionStats({ session, sets, volume, bwDefault, lifterId, date }: { se
   if (!minutes && !volume && since === null) return null
   return (
     <div className="stats small">
-      {minutes ? <span><b>{Math.round(minutes)}</b> min{timed === null ? ' (est from reps)' : ''}</span> : null}
-      {kcal ? <span><b>{Math.round(kcal)}</b> kcal</span> : null}
-      {volume ? <span><b>{Math.round(volume).toLocaleString()}</b> lb volume</span> : null}
-      {since !== null && since > 0 ? <span className={since < rec ? 'warn' : ''}><b>{Math.round(since)}</b> h since {prev!.date.slice(5).replace('-', '/')}{since < rec ? ` (under ${rec} h)` : ''}</span> : null}
-      {session?.started_at ? <span>next ≥ <b>{next.toLocaleDateString(undefined, { weekday: 'short' })} {next.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</b></span> : null}
+      {minutes ? <span data-tip={timed === null ? `No timer run: estimated at ${cfg.seconds_per_rep ?? 4} s per rep logged.` : 'From the workout clock (start to finish, or to now).'}><b>{Math.round(minutes)}</b> min{timed === null ? ' (est from reps)' : ''}</span> : null}
+      {kcal ? <span data-tip={`Estimate: ${cfg.met ?? 6} MET × body weight (${bw} lb, from Profile) × hours.`}><b>{Math.round(kcal)}</b> kcal</span> : null}
+      {volume ? <span data-tip={`Heavy sets: load × reps. An assisted rep counts at the load less ${cfg.assist_lb} lb; a failed rep counts nothing.`}><b>{Math.round(volume).toLocaleString()}</b> lb volume</span> : null}
+      {since !== null && since > 0 ? <span className={since < rec ? 'warn' : ''} data-tip={`Hours from the end of the previous session to the start of this one. Under ${rec} h is flagged.`}><b>{Math.round(since)}</b> h since {prev!.date.slice(5).replace('-', '/')}{since < rec ? ` (under ${rec} h)` : ''}</span> : null}
+      {session?.started_at ? <span data-tip={`Earliest next session: ${rec} h recommended recovery after this one.`} data-pos="right">next ≥ <b>{next.toLocaleDateString(undefined, { weekday: 'short' })} {next.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</b></span> : null}
     </div>
   )
 }

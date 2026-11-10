@@ -1,3 +1,4 @@
+import type React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import type { SetRow } from '../../lib/types'
 import { useStore } from '../../lib/store'
@@ -11,8 +12,8 @@ export type Api = {
 }
 
 /** Text input that keeps its own draft and reports a number (or null) when you leave it. */
-export function Num({ value, onSave, className, placeholder, label, step }: {
-  value: number | null | undefined; onSave: (v: number | null) => void; className?: string; placeholder?: string; label?: string; step?: string
+export function Num({ value, onSave, className, placeholder, label, step, tip }: {
+  value: number | null | undefined; onSave: (v: number | null) => void; className?: string; placeholder?: string; label?: string; step?: string; tip?: string
 }) {
   const [v, setV] = useState(value?.toString() ?? '')
   useEffect(() => setV(value?.toString() ?? ''), [value])
@@ -21,7 +22,12 @@ export function Num({ value, onSave, className, placeholder, label, step }: {
       onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
       onBlur={() => { const nv = v.trim() === '' ? null : Number(v); if (nv !== (value ?? null) && !Number.isNaN(nv)) onSave(nv) }} />
   )
-  return label ? <label className={className}>{label}{input}</label> : input
+  return label ? <label className={className}>{tip ? <T tip={tip}>{label}</T> : label}{input}</label> : input
+}
+
+/** Hover help: dotted underline, explanation on hover or keyboard focus. */
+export function T({ tip, children, pos }: { tip: string; children: React.ReactNode; pos?: 'left' | 'right' | 'center' | 'below' }) {
+  return <span className="hastip" data-tip={tip} data-pos={pos ?? 'left'} tabIndex={0}>{children}</span>
 }
 
 export function Text({ value, onSave, className, placeholder, label }: {

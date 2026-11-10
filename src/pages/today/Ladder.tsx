@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
 import { ALL_PLATES, e1rm, expectedReps, fitFatigue, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
-import { Num } from './shared'
+import { Num, T } from './shared'
 
 export interface LadderPlan {
   planned_e1rm: number | null
@@ -151,43 +151,43 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
   return (
     <>
       <div className="planfields">
-        <Num label="Planned max" value={plan.planned_e1rm} onSave={v => setPlan({ planned_e1rm: v })} />
-        <Num label="Target reps" value={plan.target_reps} onSave={v => v && setPlan({ target_reps: v })} />
-        <Num label="Stop below %" value={plan.stop_pct} onSave={v => v !== null && setPlan({ stop_pct: v })} />
-        <Num label="Fatigue %/set" value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
-        <Num label="Weight step" value={plan.step_lb} onSave={v => v && setPlan({ step_lb: v })} />
-        <Num label="Rest (s)" value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
+        <Num label="Planned max" tip="Estimated 1-rep max set 1 aims at. Carries from the last healthy session of this exercise." value={plan.planned_e1rm} onSave={v => setPlan({ planned_e1rm: v })} />
+        <Num label="Target reps" tip="Reps each set is weighted for. Weights come from target max ÷ (1 + reps/30)." value={plan.target_reps} onSave={v => v && setPlan({ target_reps: v })} />
+        <Num label="Stop below %" tip="The session ends when a set's estimated max falls below this % of set 1's." value={plan.stop_pct} onSave={v => v !== null && setPlan({ stop_pct: v })} />
+        <Num label="Fatigue %/set" tip="How much the estimated max drops each set. Each planned set targets the last set's actual less this %." value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
+        <Num label="Weight step" tip="Smallest jump in bar weight. Planned weights round to this." value={plan.step_lb} onSave={v => v && setPlan({ step_lb: v })} />
+        <Num label="Rest (s)" tip="Target rest between heavy sets. The Rest timer above the table turns green when it's reached." value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
         {plan.bar && (
-          <label>Clamps (straight sets)
+          <label><T tip="Clamps used on sets without chains. Chain sets always use the chain clamps.">Clamps (straight sets)</T>
             <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </label>
         )}
-        {plan.bar && <Num label="Set 1 lb (blank = calc)" value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
+        {plan.bar && <Num label="Set 1 lb (blank = calc)" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
         {plan.bar && <>
-          <label>45s kept/side
+          <label><T tip="45s left on the bar all session (fewer plate changes). Auto picks as many as the lightest set allows; locked once set 1 is logged.">45s kept/side</T>
             <select value={plan.kept_45 ?? ''} onChange={e => setPlan({ kept_45: e.target.value === '' ? null : Number(e.target.value) })}>
               <option value="">auto ({L.autoKept.n45})</option>{[0, 1, 2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}</select>
           </label>
-          <label>25s kept/side
+          <label><T tip="25s left on the bar all session, inside the change plates. Auto fits them to the lightest set.">25s kept/side</T>
             <select value={plan.kept_25 ?? ''} onChange={e => setPlan({ kept_25: e.target.value === '' ? null : Number(e.target.value) })}>
               <option value="">auto ({L.autoKept.n25})</option>{[0, 1, 2, 3, 4].map(v => <option key={v} value={v}>{v}</option>)}</select>
           </label>
         </>}
-        <label className="toggle">Spotter
+        <label className="toggle"><T tip="Rep goals round down normally; with a spotter on hand they round up, since the last rep can be helped.">Spotter</T>
           <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On · goals round up' : 'Off · goals round down'}</button>
         </label>
-        {plan.bar && plan.chains_ok && <label className="toggle">Chains
+        {plan.bar && plan.chains_ok && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chains below.">Chains</T>
           <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
         </label>}
         {plan.bar && plan.chains_ok && plan.chains_on && <>
-          <label>½ chains/side, sets 2+
+          <label><T tip="Number of ½ in chains per side on sets 2 and up.">½ chains/side, sets 2+</T>
             <select value={plan.chain_half} onChange={e => setPlan({ chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
           </label>
-          <label>⅝ chains/side, sets 2+
+          <label><T tip="Number of ⅝ in chains per side on sets 2 and up.">⅝ chains/side, sets 2+</T>
             <select value={plan.chain_5_8} onChange={e => setPlan({ chain_5_8: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
           </label>
-          <Num label="Range of motion (in)" value={plan.rom_in} onSave={v => setPlan({ rom_in: v })} />
-          <Num label="Chain hang at bottom (in)" value={plan.hang_in} onSave={v => setPlan({ hang_in: v })} />
+          <Num label="Range of motion (in)" tip="Bar travel, bottom to lockout. More chain lifts off the floor as the bar rises; this sets how much." value={plan.rom_in} onSave={v => setPlan({ rom_in: v })} />
+          <Num label="Chain hang at bottom (in)" tip="Length of chain off the floor at the bottom of the rep." value={plan.hang_in} onSave={v => setPlan({ hang_in: v })} />
         </>}
       </div>
       {plan.bar && <PlatesOn value={plan.plates_on} onChange={v => setPlan({ plates_on: v })} />}
@@ -211,8 +211,8 @@ export function PlatesOn({ value, onChange }: { value: number[] | undefined; onC
     if (next.length) onChange(next)
   }
   return (
-    <div className="plates-on"><span className="small muted">Plates on</span>
-      {ALL_PLATES.map(p => <button key={p} type="button" className={'plate' + (on.includes(p) ? ' on' : '')} aria-pressed={on.includes(p)} onClick={() => flip(p)}>{p}</button>)}
+    <div className="plates-on"><span className="small muted"><T tip="Tap a plate to allow or block it. Planned weights only use plates that are on.">Plates on</T></span>
+      {ALL_PLATES.map(p => <button key={p} type="button" className={'plate' + (on.includes(p) ? ' on' : '')} aria-pressed={on.includes(p)} data-tip={on.includes(p) ? `${p} lb plates allowed. Tap to block.` : `${p} lb plates blocked. Tap to allow.`} data-pos="center" onClick={() => flip(p)}>{p}</button>)}
     </div>
   )
 }

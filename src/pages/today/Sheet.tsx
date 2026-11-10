@@ -64,7 +64,7 @@ function PlateCells({ stack, on, onSet, keptN, disabled }: { stack: number[] | n
   return <>{PLATE_COLS.map(p => {
     const off = on ? !on.includes(p) : false
     return (
-      <td key={p} className={'c-plate' + (off ? ' off' : '') + (keptN?.[p] ? ' kept' : '')}>
+      <td key={p} className={'c-plate' + (off ? ' off' : '') + (keptN?.[p] ? ' kept' : '')} data-tip={off ? `${p}s are switched off in Plan` : keptN?.[p] ? `${keptN[p]}×${p} stay on the bar all session (underlined)` : undefined} data-pos="center">
         {disabled ? null : <CellText value={c[p] ? String(c[p]) : ''} narrow numeric onSave={v => onSet(p, v === '' ? 0 : Number(v))} />}
       </td>
     )
@@ -136,7 +136,8 @@ function BandCells({ bands, onSet }: { bands: BandPick[] | null; onSet?: (name: 
   const C = useContext(ColsCtx)
   return <>{C.bands.map(name => {
     const n = bands?.find(b => b.name === name)?.per_side ?? 0
-    return <td key={name} className={'c-band' + (n ? ' has' : '')} style={{ ['--band' as any]: bandColor(name) }}>
+    const lock = C.allBands.find(b => b.name === name)?.props?.one_band_lockout_lb
+    return <td key={name} className={'c-band' + (n ? ' has' : '')} style={{ ['--band' as any]: bandColor(name) }} data-tip={onSet ? `${name.replace('Rogue band ', '')} bands per side · ${lock ?? '?'} lb each at lockout, 0 at the bottom` : undefined} data-pos="center">
       {onSet && bands ? <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(name, v === '' ? 0 : Number(v))} /> : null}
     </td>
   })}<td className="c-band c-addband" /></>
@@ -146,7 +147,7 @@ function ChainCells({ half, big, onSet }: { half: number; big: number; onSet?: (
   if (!C.chains) return null
   return <>{(['chain_half', 'chain_5_8'] as const).map(k => {
     const n = k === 'chain_half' ? half : big
-    return <td key={k} className="c-chain">{onSet ? <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(k, v === '' ? 0 : Number(v))} /> : null}</td>
+    return <td key={k} className="c-chain" data-tip={onSet ? `${k === 'chain_half' ? '½' : '⅝'} in chains per side. Adding one switches to the chain clamps.` : undefined} data-pos="center">{onSet ? <CellText value={n ? String(n) : ''} narrow numeric onSave={v => onSet(k, v === '' ? 0 : Number(v))} /> : null}</td>
   })}</>
 }
 /** Phone: the same chain and band counts as a grid in the row's drop-down. */
@@ -168,10 +169,12 @@ function AddBand({ compact }: { compact?: boolean }) {
   const left = C.allBands.filter(b => !C.bands.includes(b.name))
   if (!left.length) return null
   return (
+    <span className="tipwrap" data-tip="Add a column for another band colour (lockout tension shown in the list)." data-pos="right">
     <select className={'mini addband' + (compact ? ' compact' : '')} value="" aria-label="Add a band column" onChange={e => e.target.value && C.addBand(e.target.value)}>
       <option value="">{compact ? '+' : '+ band'}</option>
       {left.map(b => <option key={b.id} value={b.name}>{b.name.replace('Rogue band ', '')} · {b.props?.one_band_lockout_lb} lb</option>)}
     </select>
+    </span>
   )
 }
 
@@ -250,9 +253,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   return (
     <section className="card sheetcard">
       <div className="sheetbar">
-        <div><span className="small muted">Rest</span><b className={lastMain && rest >= restS ? 'ready' : ''}>{lastMain ? `${fmt(rest)} / ${fmt(restS)}` : '—'}</b></div>
-        <div><span className="small muted">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p.idx}` : nextMain.row.step : 'done'}</b></div>
-        <label className="circuit"><span className="small muted">Circuit min</span>
+        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={lastMain && rest >= restS ? 'ready' : ''}>{lastMain ? `${fmt(rest)} / ${fmt(restS)}` : '—'}</b></div>
+        <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p.idx}` : nextMain.row.step : 'done'}</b></div>
+        <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
         </label>
@@ -263,14 +266,14 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         <table className="sheet">
           <thead>
             <tr>
-              <th className="stick">Set</th><th>lb</th><th className="c-exp" data-tip="Expected reps, and how far off the set came">Exp</th><th>Reps</th>
-              <th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th><th>e1RM</th>
+              <th className="stick" data-tip="Grey rows are planned; logging reps saves the set. Tap a set name on narrow screens for plates, chains and bands." data-pos="left">Set</th><th data-tip="Total on the bar: bar + clamps + plates (not chains or bands). Type a total and the plates update." data-pos="left">lb</th><th className="c-exp" data-tip="Reps expected at this weight to hit the set's target max. Under it: logged reps minus expected (green ahead, red behind).">Exp</th><th data-tip="Reps done. The grey number is the rep goal (expected reps rounded down; up with Spotter on).">Reps</th>
+              <th>{D ? <span data-tip="Rate of perceived exertion, 1–10. The top single's RPE sets today's deadlift estimate.">RPE</span> : <span data-tip="A = last rep assisted (counts half). F = last rep failed (counts nothing).">A · F</span>}</th><th data-tip="Estimated 1-rep max from this set (Epley, chains averaged bottom/top). Grey on planned rows = the target. % = vs set 1. Red row = below the stop line.">e1RM</th>
               {PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}
-              <th className="c-setup">Clamps</th>
+              <th className="c-setup" data-tip="Clamps on this set. Adding chains switches to the chain clamps; removing them switches back.">Clamps</th>
               {chains && <><th className="c-chain" data-tip="½ in chains per side">½ ch</th><th className="c-chain" data-tip="⅝ in chains per side">⅝ ch</th></>}
               {bandCols.map(nm => { const b = allBands.find(x => x.name === nm); return <th key={nm} className="c-band" style={{ ['--band' as any]: bandColor(nm) }} data-tip={`${nm.replace('Rogue band ', '')} band per side · ${b?.props?.one_band_lockout_lb ?? '?'} lb at lockout`}><span className="bandchip">{bandShort(nm)}</span></th> })}
               <th className="c-band c-addband"><AddBand compact /></th>
-              <th className="c-rest">Rest</th>
+              <th className="c-rest" data-tip="Rest taken before this set (heavy rows), or which heavy set a speed round followed. × deletes a logged set." data-pos="right">Rest</th>
             </tr>
           </thead>
           <tbody>
@@ -381,20 +384,20 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
         <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}{setup.bands?.length ? ` · ${bandLabel(setup.bands)}` : ''}</div></td>
-      <td className="num c-exp">{exp !== null ? exp.toFixed(1) : ''}{diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
+      <td className="num c-exp">{exp !== null ? exp.toFixed(1) : ''}{diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
       <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
-        {pct !== null && (logged || repsN !== null) && <div className="sub2">{round(pct)}%</div>}</td>
+        {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}</td>
       {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} />
         : <td colSpan={PLATE_COLS.length} className="c-plate small muted">{loadNote(L.plan)}</td>}
       <td className="c-setup">{setupCell}</td>
       <ChainCells half={setup.chain_half} big={setup.chain_5_8} onSet={hasBar && L.plan.chains_ok ? setChain : undefined} />
       <BandCells bands={setup.bands ?? []} onSet={setBand} />
-      <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}{logged && <button className="x" onClick={() => api.deleteSet(r!.id!)} aria-label="Delete set">×</button>}</td>
+      <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}{logged && <button className="x" onClick={() => api.deleteSet(r!.id!)} aria-label="Delete set" data-tip="Delete this logged set" data-pos="right">×</button>}</td>
     </tr>
     {more && (
       <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
@@ -467,7 +470,7 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
         : <>{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}{def.setup ? ` · ${def.setup}` : ''}</>}</td>
       <ChainCells half={0} big={0} />
       <BandCells bands={bands} onSet={setBand} />
-      <td className="num c-rest">{r && <button className="x" onClick={() => D.api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
+      <td className="num c-rest">{r && <button className="x" onClick={() => D.api.deleteSet(r.id!)} aria-label="Delete set" data-tip="Delete this logged set" data-pos="right">×</button>}</td>
     </tr>
     {more && (
       <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
@@ -533,7 +536,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
         <td className="c-setup" />
         <ChainCells half={0} big={0} />
         <BandCells bands={bands} onSet={setBand} />
-        <td className="num muted c-rest">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}{r && <button className="x" onClick={() => api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
+        <td className="num muted c-rest">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}{r && <button className="x" onClick={() => api.deleteSet(r.id!)} aria-label="Delete set" data-tip="Delete this logged set" data-pos="right">×</button>}</td>
       </tr>
       {open && (
         <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
@@ -551,14 +554,14 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
 function SupportTable({ S, api }: { S: SupportCtl; api: Api }) {
   return (
     <div className="supsheet">
-      <h3>Support</h3>
+      <h3><span className="hastip" data-tip="Accessory work. Log the start weight and reps at that weight; drops follow the scheme." data-pos="left">Support</span></h3>
       <div className="tablewrap">
         <table className="sheet">
-          <thead><tr><th className="stick">Exercise</th><th>Start</th><th>Reps</th><th>Each drop</th><th>Final</th><th className="c-setup">Scheme</th><th className="c-exp">Step</th><th className="c-exp">Drops</th><th className="c-side">Note</th><th className="c-rest"></th></tr></thead>
+          <thead><tr><th className="stick" data-tip="Pick from the library; the plan's default is preselected." data-pos="left">Exercise</th><th data-tip="Starting weight (the first, heaviest load).">Start</th><th data-tip="Reps at the start weight.">Reps</th><th data-tip="Reps at each drop, e.g. 3+3+3 for a run-the-rack.">Each drop</th><th data-tip="Reps at the last drop.">Final</th><th className="c-setup" data-tip="F = to failure · TF = technical failure · DS×n = n drops · ST = strip set · RP = rest-pause · RTR = run the rack. Tap the scheme for details.">Scheme</th><th className="c-exp" data-tip="Weight removed at each drop.">Step</th><th className="c-exp" data-tip="Number of drops after the start weight.">Drops</th><th className="c-side">Note</th><th className="c-rest"></th></tr></thead>
           <tbody>{S.slots.map(slot => <SupportTr key={slot.key} slot={slot} S={S} api={api} />)}</tbody>
         </table>
       </div>
-      <button className="ghost small" onClick={() => S.addExercise()}>+ Add exercise</button>
+      <button className="ghost small" onClick={() => S.addExercise()} data-tip="Add a support exercise not in today's plan" data-pos="left">+ Add exercise</button>
     </div>
   )
 }
@@ -631,8 +634,8 @@ function SupportTr({ slot, S, api }: { slot: SupportSlot; S: SupportCtl; api: Ap
         <td className="c-setup">{scheme}</td>
         <td className="c-exp">{field('step')}</td><td className="c-exp">{field('drops')}</td>
         <td className="c-side">{note}</td>
-        <td className="nowrap c-rest"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} title="Another set">+</button>
-          <button className="x" onClick={() => S.remove(slot)} aria-label="Remove">×</button></td>
+        <td className="nowrap c-rest"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} data-tip="Add another set of this exercise" data-pos="right" aria-label="Another set">+</button>
+          <button className="x" onClick={() => S.remove(slot)} aria-label="Remove" data-tip="Remove this exercise or set" data-pos="right">×</button></td>
       </tr>
       {loads && <tr className="loadrow"><td className="stick" /><td colSpan={9} className="small muted">{loads}</td></tr>}
       {more && (

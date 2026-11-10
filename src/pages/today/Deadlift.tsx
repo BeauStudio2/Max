@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { e1rmFromRpe, platesPerSide, round, roundTo } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
-import { Num, type Api } from './shared'
+import { Num, T, type Api } from './shared'
 import { PlatesOn } from './Ladder'
 
 export interface DeadliftPlan { planned_top_lb: number | null; bar_lb: number; rest_s?: number; plates_on?: number[] }
@@ -48,13 +48,13 @@ export function DeadliftPlanFields({ D, setPlan, best }: { D: DeadliftCtl; setPl
     <>
       {D.wk && <p className="small"><b>Week {D.week} of 6: {D.wk.pull}</b>{D.wk.setup ? ` · ${D.wk.setup}` : ''} · top: {D.wk.top}{D.wk.backoff ? ` · back-off ${D.wk.backoff}` : ''}</p>}
       <div className="planfields">
-        <Num label="Planned top lb" value={D.top} onSave={v => setPlan({ planned_top_lb: v })} />
-        <label>Bar
+        <Num label="Planned top lb" tip="Expected best single today. Warm-ups are percentages of it; back-offs use the best single once logged." value={D.top} onSave={v => setPlan({ planned_top_lb: v })} />
+        <label><T tip="Bar weight. Plates per side are worked out from the total less the bar.">Bar</T>
           <select value={D.plan.bar_lb} onChange={e => setPlan({ bar_lb: Number(e.target.value) })}>
             <option value={85}>Trap bar, balanced (85)</option><option value={65}>Trap bar, bare (65)</option><option value={45}>Ohio Power Bar (45)</option>
           </select>
         </label>
-        <Num label="Rest (s)" value={D.plan.rest_s ?? 180} onSave={v => v && setPlan({ rest_s: v })} />
+        <Num label="Rest (s)" tip="Target rest between pulls." value={D.plan.rest_s ?? 180} onSave={v => v && setPlan({ rest_s: v })} />
       </div>
       <PlatesOn value={D.plan.plates_on} onChange={v => setPlan({ plates_on: v })} />
       <p className="small muted">
