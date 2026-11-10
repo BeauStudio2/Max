@@ -39,6 +39,50 @@ const sideText = (plates: number | null, kept?: Kept, on?: number[], stored?: nu
   }
   return platesPerSide(plates, on ?? kept?.on).replace(/(\d+)×([\d.]+)/g, (_, k, p) => Array(Number(k)).fill(p).join('+')).replace(/ \+ /g, '+')
 }
+/* ---------- plate columns: one per plate size, count per side, like the sheet ---------- */
+const PLATE_COLS = [45, 25, 10, 5, 2.5, 1.25]
+const countsOf = (stack: number[] | null) => Object.fromEntries(PLATE_COLS.map(p => [p, stack ? stack.filter(x => x === p).length : 0])) as Record<number, number>
+/** Plates per side as a stack: stored when it still matches the weight, else the kept plates plus change, else largest first. */
+function stackFor(plates: number | null, kept?: Kept, stored?: number[] | null, on?: number[]): number[] | null {
+  if (plates === null || plates < 0) return null
+  const sum = (st: number[]) => st.reduce((t, p) => t + p, 0)
+  if (stored && Math.abs(sum(stored) * 2 - plates) < 0.01) return stored
+  const k = kept ? loadSide(plates / 2, kept) : null
+  if (k) return k
+  let side = Math.round((plates / 2) * 100) / 100
+  const out: number[] = []
+  for (const p of PLATE_COLS.filter(x => !on || on.includes(x))) while (side >= p - 1e-9) { out.push(p); side = Math.round((side - p) * 100) / 100 }
+  return side > 0.01 ? null : out
+}
+/** A count typed into one plate column → the new stack (heaviest first). */
+const withCount = (stack: number[] | null, plate: number, n: number) =>
+  [...(stack ?? []).filter(x => x !== plate), ...Array(Math.max(0, Math.round(n))).fill(plate)].sort((a, b) => b - a)
+
+/** The plate cells for one row: editable counts, blank for zero, greyed when that plate is switched off. */
+function PlateCells({ stack, on, onSet, keptN, disabled }: { stack: number[] | null; on?: number[]; onSet: (plate: number, n: number) => void; keptN?: Record<number, number>; disabled?: boolean }) {
+  const c = countsOf(stack)
+  return <>{PLATE_COLS.map(p => {
+    const off = on ? !on.includes(p) : false
+    return (
+      <td key={p} className={'c-plate' + (off ? ' off' : '') + (keptN?.[p] ? ' kept' : '')}>
+        {disabled ? null : <CellText value={c[p] ? String(c[p]) : ''} narrow numeric onSave={v => onSet(p, v === '' ? 0 : Number(v))} />}
+      </td>
+    )
+  })}</>
+}
+function PlateGrid({ stack, on, onSet }: { stack: number[] | null; on?: number[]; onSet: (plate: number, n: number) => void }) {
+  const c = countsOf(stack)
+  return (
+    <div className="plategrid">
+      {PLATE_COLS.map(p => (
+        <label key={p} className={on && !on.includes(p) ? 'off' : ''}>{p}
+          <CellText value={c[p] ? String(c[p]) : ''} narrow numeric onSave={v => onSet(p, v === '' ? 0 : Number(v))} />
+        </label>
+      ))}
+    </div>
+  )
+}
+
 /** "45+25+2x10" → [45, 25, 10, 10] (heaviest first), or null if it doesn't parse. */
 const parseStack = (t: string): number[] | null => {
   const out: number[] = []
@@ -116,6 +160,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
+  const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
@@ -150,7 +195,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         <table className="sheet">
           <thead>
             <tr>
-              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th><th className="c-side">Per side</th><th className="c-setup">Clamps · chains</th>
+              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th>{PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}<th className="c-setup">Clamps · chains</th>
               <th className="c-exp">Exp ±</th><th>e1RM</th><th className="c-rest">Rest</th>
             </tr>
           </thead>
@@ -187,7 +232,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
   const [a, setA] = useState(!!r?.assisted)
   const [f, setF] = useState(!!r?.failed)
-  useEffect(() => { if (!r) { setSetup(p!.setup); setPlates(p!.weight) } }, [p?.weight, p?.idx, p && setupKey(p.setup)])
+  // Plates typed into the columns, kept as entered until the set is logged (then they're saved on the set).
+  const [manual, setManual] = useState<number[] | null>(null)
+  useEffect(() => { if (!r) { setSetup(p!.setup); setPlates(p!.weight); setManual(null) } }, [p?.weight, p?.idx, p && setupKey(p.setup)])
   useEffect(() => { if (r) { setSetup(setupOf(r)); setPlates(r.weight_lb); setReps(r.reps?.toString() ?? ''); setA(r.assisted); setF(r.failed) } }, [r])
 
   const idx = r ? r.set_index : p!.idx
@@ -206,7 +253,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const s = patch.setup ?? setup, pl = patch.plates !== undefined ? patch.plates : plates
     // The plates actually loaded: as typed, else the planned stack when the weight still matches, else the kept plates plus change.
     const sumSt = (st: number[]) => st.reduce((t, p) => t + p, 0) * 2
-    const prevStack: number[] | null = Array.isArray(r?.setup?.stack) ? r!.setup.stack : p?.stack ?? null
+    const prevStack: number[] | null = manual ?? (Array.isArray(r?.setup?.stack) ? r!.setup.stack : p?.stack ?? null)
     const stack = !L.plan.bar || pl === null ? null : patch.stack && Math.abs(sumSt(patch.stack) - pl) < 0.01 ? patch.stack
       : prevStack && Math.abs(sumSt(prevStack) - pl) < 0.01 ? prevStack : loadSide(pl / 2, L.kept)
     const rp = patch.reps !== undefined ? patch.reps : reps, aa = patch.a ?? a, ff = patch.f ?? f
@@ -230,8 +277,13 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
-  const stored: number[] | null = Array.isArray(r?.setup?.stack) ? r!.setup.stack : null
-  const sideCell = !hasBar ? <span className="small muted">{loadNote(L.plan)}</span> : <CellText value={sideText(plates, L.kept, undefined, stored)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2, stack: parseStack(v) }) }} />
+  const stored: number[] | null = manual ?? (Array.isArray(r?.setup?.stack) ? r!.setup.stack : p?.stack ?? null)
+  const stack = hasBar ? stackFor(plates, L.kept, stored, L.plan.plates_on) : null
+  const setPlate = (plate: number, n: number) => {
+    const next = withCount(stack, plate, n), pl = next.reduce((t, x) => t + x, 0) * 2
+    setManual(next); setPlates(pl); commit({ plates: pl, stack: next })
+  }
+  const keptN = { 45: L.kept.n45, 25: L.kept.n25 }
   const straightClamp = L.plan.clamp || CLAMPS[0][0]
   const setupCell = !hasBar ? <span className="small muted">—</span> : (
     <div className="setup2">
@@ -262,13 +314,14 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     <tr className={(logged ? 'done' : 'plan') + (next ? ' next' : '') + (below ? ' below' : '')}>
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
-        <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stored) : loadNote(L.plan)}</div></td>
+        <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}</div></td>
       <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
       </td>
-      <td className="c-side">{sideCell}</td>
+      {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} />
+        : <td colSpan={PLATE_COLS.length} className="c-plate small muted">{loadNote(L.plan)}</td>}
       <td className="c-setup">{setupCell}</td>
       <td className="num c-exp">{exp !== null ? exp.toFixed(1) : ''}{diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
@@ -276,9 +329,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
       <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}{logged && <button className="x" onClick={() => api.deleteSet(r!.id!)} aria-label="Delete set">×</button>}</td>
     </tr>
     {more && (
-      <tr className="morerow"><td className="stick" /><td colSpan={8}>
+      <tr className="morerow"><td className="stick" /><td colSpan={12}>
         <div className="morebox">
-          <label>Per side{sideCell}</label>
+          {hasBar && <label className="wide">Plates per side<PlateGrid stack={stack} on={L.plan.plates_on} onSet={setPlate} /></label>}
           <label>Clamps · chains{setupCell}</label>
           {exp !== null && <span className="small muted">Goal {goal} · expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
           {r?.rest_s ? <span className="small muted">Rest {fmt(r.rest_s)}</span> : null}
@@ -326,7 +379,9 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
         {!fly && <div className="sub2 side-inline">{sideText(w === null ? null : w - bar, undefined, D.plan.plates_on)}{def.pct ? ` · ${def.pct}%` : ''}</div>}</td>
       <td><CellText value={reps} narrow numeric placeholder={String(def.reps)} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td>{def.rpe ? <CellText value={rpe} narrow numeric onSave={v => { setRpe(v); commit({ rpe: v }) }} /> : null}</td>
-      <td className="c-side"><CellText value={fly ? '' : sideText(w === null ? null : w - bar, undefined, D.plan.plates_on)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; const nw = sd * 2 + bar; setW(nw); commit({ w: nw }) }} /></td>
+      {fly ? <td colSpan={PLATE_COLS.length} className="c-plate" />
+        : <PlateCells stack={stackFor(w === null ? null : w - bar, undefined, null, D.plan.plates_on)} on={D.plan.plates_on}
+            onSet={(pl, n) => { const next = withCount(stackFor(w === null ? null : w - bar, undefined, null, D.plan.plates_on), pl, n); const nw = next.reduce((t, x) => t + x, 0) * 2 + bar; setW(nw); commit({ w: nw }) }} />}
       <td className="small muted nowrap c-setup">{fly
         ? <CellText value={peak} narrow numeric placeholder="peak" onSave={v => { setPeak(v); commit({ peak: v }) }} />
         : <>{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}{def.setup ? ` · ${def.setup}` : ''}</>}</td>
@@ -382,13 +437,13 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
         <td><CellNum value={load} onSave={v => { setLoad(v); commit({ load: v }) }} /></td>
         <td><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td>{isBench ? <CellText value={hits} narrow numeric placeholder="bell" onSave={v => { setHits(v); commit({ hits: v }) }} /> : null}</td>
-        <td className="small muted c-side">{banded ? `${round(ten.perSide, 1)}/side` : ''}</td>
+        <td colSpan={PLATE_COLS.length} className="small muted c-plate">{banded ? `bands ${round(ten.perSide, 1)} lb/side` : ''}</td>
         <td className="c-setup">{banded ? <button className="linkish" onClick={() => setOpen(o => !o)}>{bandLabel(bands)} ✎</button> : <span className="small muted">{lower.includes('throw') ? 'reps = bell hits /7' : ''}</span>}</td>
         <td className="c-exp" /><td />
         <td className="num muted c-rest">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}{r && <button className="x" onClick={() => api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
       </tr>
       {open && banded && (
-        <tr className="bandrow"><td className="stick" /><td colSpan={8}>
+        <tr className="bandrow"><td className="stick" /><td colSpan={12}>
           <p className="small side-inline">{bandLabel(bands)}</p>
           <BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }) }} />
           <p className="small muted">Lockout {round(ten.perSide, 1)} lb per side, {round(ten.total, 1)} lb total · 0 at chest (anchor gap set for zero tension on the safeties).</p>
