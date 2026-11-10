@@ -246,3 +246,7 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
 .config table.sheet.cfg td { color: var(--text); }
 td.wrapcell { white-space: normal; min-width: 220px; }
 .tabs button { font-size: 13px; padding: 10px 2px; }
+/* Keep the top bar and the bottom tabs above the table's sticky columns and headers. */
+.top { z-index: 40; }
+.tabs { z-index: 50; }
+.sheetbar { top: 69px; padding-top: 8px; }
