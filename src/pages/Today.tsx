@@ -196,6 +196,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
   // The exercise's own equipment (bar, chains, load) is looked up each time, not frozen into the session plan.
   const strip = ({ bar, chains_ok, load, implement, cr, ...rest }: Record<string, any>) => rest
   // Fitted creatine numbers are the lifter's, per lift: saved on their settings so every later session uses them.
+  // Bands used on each speed exercise are kept on the lifter, so the next session starts with them.
+  async function saveSpeedBands(exercise: string, bands: { name: string; per_side: number }[]) {
+    if (!lifter) return
+    const cur = st.speed_bands ?? {}
+    if (JSON.stringify(cur[exercise] ?? null) === JSON.stringify(bands)) return
+    const { error } = await supabase.from('lifters').update({ settings: { ...st, speed_bands: { ...cur, [exercise]: bands } } }).eq('id', lifter.id)
+    if (error) setErr(error.message); else await reload()
+  }
   async function applyFit(patch: Record<string, number>) {
     if (!lifter) return
     const creatine = { ...(st.creatine ?? {}), [lift]: { ...(st.creatine?.[lift] ?? {}), ...patch } }
@@ -381,7 +389,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} speedMax={speedMax} supportMax={supportMax}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 

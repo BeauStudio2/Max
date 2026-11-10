@@ -688,3 +688,4 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .restoverlay.lift { color: var(--accent); }
 .restoverlay.lift .ro-big { font-size: min(30vw, 60vh); }
 .restoverlay.over { color: var(--hurt); }
+.sbands { grid-template-columns: minmax(0, 1fr) auto 40px; max-width: 640px; }

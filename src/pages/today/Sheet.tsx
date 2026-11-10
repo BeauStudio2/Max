@@ -154,8 +154,8 @@ function ChainCells({ half, big, onSet, origin = '' }: { origin?: string; half: 
  * One row's bands: each chip is one band per side, picked by colour. + adds another (the same colour is fine);
  * "remove" in a chip's list takes it off. Stored as one entry per band, so two of a colour are two chips.
  */
-function BandEditor({ bands, onChange }: { bands: BandPick[]; onChange: (b: BandPick[]) => void }) {
-  const C = useContext(ColsCtx)
+export function BandEditor({ bands, onChange, options }: { bands: BandPick[]; onChange: (b: BandPick[]) => void; options?: { id?: string; name: string }[] }) {
+  const ctx = useContext(ColsCtx), C = { allBands: options ?? ctx.allBands }
   const chips = bands.flatMap(b => Array.from({ length: Math.max(1, b.per_side) }, () => b.name))
   const save = (names: string[]) => onChange(names.map(name => ({ name, per_side: 1 })))
   return (
@@ -207,7 +207,8 @@ function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: bo
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, speedMax = {}, supportMax = {}, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, S, circuit, onCircuit }: {
+  speedBands?: Record<string, BandPick[]>; onSpeedBands?: (exercise: string, bands: BandPick[]) => void
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; order: Block[]; joins: boolean[]; running?: boolean; onPlannedMax?: (v: number | null) => void
   speedMax?: Record<string, number>; supportMax?: Record<string, number>; onApplyFit?: (patch: Record<string, number>) => void
@@ -374,7 +375,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
               const next = x === nextItem
               if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} voiceTarget={x === nextMain} />
               if (x.kind === 'pull' && D) return <PullTr key={x.key} D={D} def={x.row} r={x.r} next={next} />
-              if (x.kind === 'speed') return <SpeedTr key={x.key} api={api} r={x.r} it={x.it} name={speedEx(x.it)} n={x.n} sets={speedSets(x.it)} next={next} lastMain={lastMain} />
+              if (x.kind === 'speed') return <SpeedTr key={x.key} api={api} r={x.r} it={x.it} name={speedEx(x.it)} n={x.n} sets={speedSets(x.it)} next={next} lastMain={lastMain} saved={speedBands[speedEx(x.it)]} onBands={onSpeedBands} />
               if (x.kind === 'sup') return <SupportTr key={x.key} slot={x.slot} S={S} api={api} inline next={next} />
               if (x.kind === 'noplan') return (
                 <tr key={x.key} className="noplan"><td className="stick"><span className="tagdot h" />{liftLabel}</td>
@@ -649,8 +650,10 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
 
 /* ---------- speed row ---------- */
 
-function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
+function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands }: {
   api: Api; r?: SetRow; it: any; name: string; n: number; sets: SetRow[]; next?: boolean; lastMain?: SetRow
+  /** The bands this lifter last used on this exercise (Profile), and where to save a change. */
+  saved?: BandPick[]; onBands?: (exercise: string, bands: BandPick[]) => void
 }) {
   const { equipment: eq } = useStore()
   const C = useContext(ColsCtx)
@@ -658,7 +661,8 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
   const lower = name.toLowerCase()
   const isBench = lower.includes('banded bench')
   const src = r?.setup ?? prev?.setup ?? {}
-  const defBands: BandPick[] = bandsOf(src).length ? bandsOf(src) : it.band ? [{ name: eq.find(e => e.kind === 'band' && e.name.startsWith('Rogue band ' + String(it.band).split(' ')[0]))?.name ?? 'Rogue band ' + String(it.band).split(' ')[0], per_side: it.bands_per_side ?? 1 }] : []
+  // Bands: this set's, else the last set today, else what this lifter last used on this exercise, else the Plan's.
+  const defBands: BandPick[] = bandsOf(src).length ? bandsOf(src) : saved?.length ? saved : it.band ? [{ name: eq.find(e => e.kind === 'band' && e.name.startsWith('Rogue band ' + String(it.band).split(' ')[0]))?.name ?? 'Rogue band ' + String(it.band).split(' ')[0], per_side: it.bands_per_side ?? 1 }] : []
   const planLoad: number | null = it.load_lb ?? (isBench ? n0(eq.find(e => e.name === LIGHT_BAR)?.weight_lb) || 5 : null)
   const [load, setLoad] = useState<number | null>(r?.weight_lb ?? prev?.weight_lb ?? planLoad)
   const [bands, setBands] = useState<BandPick[]>(defBands)
@@ -680,6 +684,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
       if (lastMain) Object.assign(setup, { after_heavy: lastMain.block === 'primary' ? lastMain.set_index : null, after_main: `${lastMain.block}:${lastMain.set_index}`,
         after_heavy_s: lastMain.created_at ? Math.round((Date.now() - Date.parse(lastMain.created_at)) / 1000) : null })
       await api.addSet({ ...row, exercise_id: id, block: 'speed', set_index: n, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
+      onBands?.(name, bb)
     }
   }
 
@@ -696,14 +701,14 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
         <td colSpan={PLATE_COLS.length} className="c-plate" />
         <td className="c-setup" />
         <ChainCells half={0} big={0} />
-        <td className="c-band"><BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }) }} /></td>
+        <td className="c-band"><BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }); onBands?.(name, bb) }} /></td>
         <td className="num muted c-rest">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}</td>
         <td className="c-del">{r && <DelBtn tip="Delete this logged set" onConfirm={() => api.deleteSet(r.id!)} />}</td>
       </tr>
       {open && (
         <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
           <div className="morebox">
-            <label className="wide">Bands per side<BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }) }} /></label>
+            <label className="wide">Bands per side<BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }); onBands?.(name, bb) }} /></label>
           </div>
         </td></tr>
       )}

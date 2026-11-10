@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
-import { CellText } from './today/Sheet'
-import { DelBtn } from './today/shared'
+import { BandEditor, CellText, type BandPick } from './today/Sheet'
+import { DelBtn, T } from './today/shared'
 import { e1rmFromRpe, fitFatigue, localDate, round } from '../lib/load'
 import Tracker, { onBar, type TrackRow, type TLift } from './profile/Tracker'
 
@@ -130,6 +130,8 @@ export default function Profile({ lifterId }: { lifterId: string }) {
           ))}
         </div>
       </section>
+
+      <SpeedBands lifterId={lifterId} />
 
       <MetricSection title="Body" items={catalog.filter(m => m.grp === 'Body' && !m.derived)} series={series} lifterId={lifterId} reload={load}
         empty="Tap + Add measurements to log bodyweight and body fat." />
@@ -405,5 +407,32 @@ function AddForm({ lifterId, catalog, onSaved }: { lifterId: string; catalog: Me
       ))}
       <button className="primary" onClick={save} disabled={busy}>Save</button>
     </div>
+  )
+}
+
+/** Bands this lifter last used on each speed exercise. Log starts each new session with them; changing bands on Log updates them here. */
+function SpeedBands({ lifterId }: { lifterId: string }) {
+  const { lifters, reload, equipment } = useStore()
+  const bandOpts = equipment.filter(e => e.kind === 'band').map(e => ({ id: e.id ?? e.name, name: e.name }))
+  const lifter = lifters.find(l => l.id === lifterId)
+  const st = lifter?.settings ?? {}
+  const sb: Record<string, BandPick[]> = st.speed_bands ?? {}
+  const names = Object.keys(sb).sort()
+  const save = async (next: Record<string, BandPick[]>) => { await supabase.from('lifters').update({ settings: { ...st, speed_bands: next } }).eq('id', lifterId); await reload() }
+  return (
+    <section className="card">
+      <h2><T tip="The bands last used on each speed exercise. New sessions start with these; change them here or on Log." pos="right">Speed work bands</T></h2>
+      {!names.length ? <p className="small muted">None yet. Bands used on a speed exercise (band-assisted or resisted jumps, banded bench) are saved here when the set is logged.</p> : (
+        <div className="capgrid sbands">
+          {names.map(nm => (
+            <Fragment key={nm}>
+              <span className="capname">{nm}</span>
+              <BandEditor bands={sb[nm]} options={bandOpts} onChange={bb => save({ ...sb, [nm]: bb })} />
+              <DelBtn tip="Forget the bands for this exercise" onConfirm={() => { const { [nm]: _, ...rest } = sb; save(rest) }} />
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
