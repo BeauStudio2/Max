@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
 import { ALL_PLATES, LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
-import SessionSheet, { type Placement } from './today/Sheet'
+import SessionSheet, { type Block, type Placement } from './today/Sheet'
 import { useSupportSlots } from './today/Support'
 import { DeadliftPlanFields, useDeadlift, type DeadliftPlan } from './today/Deadlift'
 import { DelBtn, ExercisePicker, Num, T, fmt, useClock, type Api } from './today/shared'
@@ -20,7 +20,7 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
 }
 const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
   chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', clamp: 'clamps', change_plate: 'change plate', max_sets: 'max heavy sets', speed_max: 'max speed sets', support_max: 'max support sets', set1_lb: 'set 1 lb', bar_lb: 'bar',
-  speed_choice: 'speed', support_choice: 'support', speed_placement: 'speed order', speed_offset_s: 'speed start', support_interleave: 'support order' }
+  speed_choice: 'speed', support_choice: 'support', speed_placement: 'interleave 1', speed_offset_s: 'speed start', support_interleave: 'interleave 2', block_order: 'block order' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
 export default function Today({ lifterId }: { lifterId: string }) {
@@ -188,7 +188,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const own = () => (session?.planned ?? {}) as Record<string, any>
   const savePlan = (_base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
   async function freeze(s: Session) {
-    const plan = { ...strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), speed_placement: placement, support_interleave: supInter }
+    const plan = { ...strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), speed_placement: placement, support_interleave: supInter, block_order: order }
     const { deadlift_cycle, ...daySpec } = tpl?.spec ?? {}
     const snapSpec = { ...daySpec, speed: speedFor ?? daySpec.speed ?? null, support: support ?? daySpec.support ?? null, deadlift_cycle: deadlift_cycle ? deadlift_cycle : undefined }
     const { data, error } = await supabase.from('sessions').update({ planned: { ...((s.planned as any) ?? {}), snap: { plan, spec: snapSpec, at: new Date().toISOString() } } }).eq('id', s.id).select().single()
@@ -196,7 +196,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s', 'support_interleave']
+  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
@@ -242,6 +242,10 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const L = useLadder(ladderPlan, sets.filter(s => s.block === 'primary'))
   const placement: Placement = pick(sp.speed_placement, frozen.speed_placement, spec.speed_placement) ?? 'between'
   const supInter: boolean = pick(sp.support_interleave, frozen.support_interleave, spec.support_interleave) ?? false
+  // Block order for the workout, and whether each neighbouring pair is interleaved.
+  const order: Block[] = pick(sp.block_order, frozen.block_order, spec.block_order) ?? (placement === 'first' ? ['speed', 'heavy', 'support'] : ['heavy', 'speed', 'support'])
+  const joins = [placement === 'between', supInter]
+  const move = (i: number, d: number) => { const o = [...order];[o[i], o[i + d]] = [o[i + d], o[i]]; savePlanned({ block_order: o }) }
   // Per-exercise caps for today (blank = as planned): speed by plan item, support by exercise slot.
   const speedMax: Record<string, number> = sp.speed_max ?? {}
   const supportMax: Record<string, number> = sp.support_max ?? {}
@@ -259,31 +263,35 @@ export default function Today({ lifterId }: { lifterId: string }) {
           <label className="grow">Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
         </div>
         <div className="choices">
-          <label><T tip="The main lift today. Its sets ladder down from the planned max; change the exercise itself in Plan.">Heavy</T>
-            <select value={lift} onChange={e => setLift(e.target.value as Lift)}>
-              <option value="squat">Squat</option>
-              <option value="bench">Bench</option>
-              <option value="deadlift">Deadlift</option>
-            </select>
-          </label>
-          <Interleave on={placement === 'between'} label="heavy and speed"
-            tip={placement === 'between' ? 'Interleaved: one round of speed after each heavy set. Tap to do all heavy sets first, then all speed.' : 'In order: all heavy sets, then all speed sets. Tap to interleave them.'}
-            onToggle={() => savePlanned({ speed_placement: placement === 'between' ? 'after' : 'between' })} />
-          <label><T tip="Speed work done between heavy sets (the opposite lift). None hides it.">Speed</T>
-            <select value={speedKey} onChange={e => choose('speed_choice', e.target.value)}>
-              <option value="none">None</option>
-              {[...speedOptions.keys()].map(k => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
-            </select>
-          </label>
-          <Interleave on={supInter} label="speed and support"
-            tip={supInter ? 'Interleaved: one support set after each heavy + speed round, all in one list. Tap to do support at the end.' : 'In order: support after all heavy and speed sets, in its own table. Tap to interleave it.'}
-            onToggle={() => savePlanned({ support_interleave: !supInter })} />
-          <label><T tip="Accessory group for after the heavy work. Exercises can be swapped or added in the Support table.">Support</T>
-            <select value={supportKey} onChange={e => choose('support_choice', e.target.value)}>
-              <option value="none">None</option>
-              {[...supportOptions.keys()].map(k => <option key={k} value={k}>{k}</option>)}
-            </select>
-          </label>
+          {order.map((blk, i) => (
+            <Fragment key={blk}>
+              {i > 0 && <Interleave on={joins[i - 1]} a={order[i - 1]} b={blk} onToggle={() => savePlanned(i === 1 ? { speed_placement: joins[0] ? 'after' : 'between' } : { support_interleave: !joins[1] })} />}
+              <label>
+                <span className="blockhead">
+                  <T tip={BLOCK_TIP[blk]}>{blk[0].toUpperCase() + blk.slice(1)}</T>
+                  <span className="movers">
+                    <button type="button" className="mover" disabled={i === 0} onClick={e => { e.preventDefault(); move(i, -1) }} aria-label={`Move ${blk} earlier`} data-tip={`Move ${blk} earlier in the workout`} data-pos="center">◂</button>
+                    <button type="button" className="mover" disabled={i === order.length - 1} onClick={e => { e.preventDefault(); move(i, 1) }} aria-label={`Move ${blk} later`} data-tip={`Move ${blk} later in the workout`} data-pos="right">▸</button>
+                  </span>
+                </span>
+                {blk === 'heavy' ? (
+                  <select value={lift} onChange={e => setLift(e.target.value as Lift)}>
+                    <option value="squat">Squat</option><option value="bench">Bench</option><option value="deadlift">Deadlift</option>
+                  </select>
+                ) : blk === 'speed' ? (
+                  <select value={speedKey} onChange={e => choose('speed_choice', e.target.value)}>
+                    <option value="none">None</option>
+                    {[...speedOptions.keys()].map(k => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
+                  </select>
+                ) : (
+                  <select value={supportKey} onChange={e => choose('support_choice', e.target.value)}>
+                    <option value="none">None</option>
+                    {[...supportOptions.keys()].map(k => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                )}
+              </label>
+            </Fragment>
+          ))}
         </div>
         <Status session={session} save={ensureSession} />
         <div className="timer">
@@ -351,11 +359,10 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} supInterleave={supInter} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} speedMax={speedMax} supportMax={supportMax}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 
-      {currentMax && <p className="small muted center-text">Current {lift} max {round(currentMax)} (latest session not sick or injured).</p>}
     </div>
   )
 }
@@ -427,10 +434,19 @@ function SessionStats({ session, sets, volume, bwDefault, lifterId, date }: { se
 }
 
 /** The toggle between two blocks: interleave their sets, or do one block to the end before the next. */
-function Interleave({ on, onToggle, tip, label }: { on: boolean; onToggle: () => void; tip: string; label: string }) {
+function Interleave({ on, onToggle, a, b }: { on: boolean; onToggle: () => void; a: string; b: string }) {
+  const tip = on
+    ? `Interleaved: ${a} and ${b} alternate, one ${unit(a)} then one ${unit(b)}, round after round. Tap to finish all of ${a} before starting ${b}.`
+    : `In order: all of ${a} is done before ${b} starts. Tap to alternate them, one ${unit(a)} then one ${unit(b)}.`
   return (
-    <button type="button" className={'interleave' + (on ? ' on' : '')} onClick={onToggle} aria-pressed={on} aria-label={`Interleave ${label}`} data-tip={tip} data-pos="center">
-      <span aria-hidden>{on ? '⇄' : '→'}</span><span className="ilabel">{on ? 'interleave' : 'in order'}</span>
+    <button type="button" className={'interleave' + (on ? ' on' : '')} onClick={onToggle} aria-pressed={on} aria-label={`${on ? 'Interleaved' : 'In order'}: ${a} and ${b}`} data-tip={tip} data-pos="center">
+      <span aria-hidden>{on ? '⇄' : '→'}</span>
     </button>
   )
+}
+const unit = (b: string) => (b === 'heavy' ? 'heavy set' : b === 'speed' ? 'speed round' : 'support set')
+const BLOCK_TIP: Record<string, string> = {
+  heavy: 'The main lift today. Its sets ladder down from the planned max; change the exercise itself in Plan.',
+  speed: 'Speed work (the opposite lift). None hides it.',
+  support: 'Accessory group. Exercises can be swapped or added in the list.',
 }

@@ -175,36 +175,29 @@ type Item =
   | { kind: 'sup'; key: string; slot: SupportSlot }
   | { kind: 'noplan'; key: string }
 
-function buildSequence({ heavy, speedRounds, support, placement, supInterleave }: {
-  heavy: Item[]; speedRounds: Item[][]; support: Item[]; placement: Placement; supInterleave: boolean
-}) {
-  const U = supInterleave ? [...support] : []
+export type Block = 'heavy' | 'speed' | 'support'
+/** Blocks joined by an interleave toggle form a group; groups run one after another. */
+export function groupsOf(order: Block[], joins: boolean[]): Block[][] {
+  const groups: Block[][] = [[order[0]]]
+  for (let i = 1; i < order.length; i++) { if (joins[i - 1]) groups.at(-1)!.push(order[i]); else groups.push([order[i]]) }
+  return groups
+}
+
+/** Within a group, round r takes one unit from each block in the group's order (a heavy set, a speed round, a support set). */
+function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: boolean[]) {
   const out: Item[] = []
-  const sup = () => { if (U.length) out.push(U.shift()!) }
-  if (placement === 'between') {
-    // Heavy ⇄ speed on: heavy set r, then speed round r (then support, if that's interleaved too).
-    const R = Math.max(heavy.length, speedRounds.length)
-    for (let r = 0; r < R; r++) {
-      if (heavy[r]) out.push(heavy[r])
-      if (speedRounds[r]) out.push(...speedRounds[r])
-      if (supInterleave) sup()
-    }
-  } else {
-    // Heavy ⇄ speed off: each block to the end, then the next; support can still alternate with the speed rounds.
-    const speedBlock: Item[] = []
-    for (const round of speedRounds) { speedBlock.push(...round); if (supInterleave) { const before = out.length; sup(); speedBlock.push(...out.splice(before)) } }
-    if (placement === 'first') out.push(...speedBlock, ...heavy)
-    else out.push(...heavy, ...speedBlock)
+  for (const g of groupsOf(order, joins)) {
+    const R = Math.max(...g.map(b => units[b].length))
+    for (let r = 0; r < R; r++) for (const b of g) if (units[b][r]) out.push(...units[b][r])
   }
-  out.push(...U)
   return out
 }
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, onPlannedMax, speedMax = {}, supportMax = {}, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, speedMax = {}, supportMax = {}, S, circuit, onCircuit }: {
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
-  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement; supInterleave?: boolean; running?: boolean; onPlannedMax?: (v: number | null) => void
+  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; order: Block[]; joins: boolean[]; running?: boolean; onPlannedMax?: (v: number | null) => void
   speedMax?: Record<string, number>; supportMax?: Record<string, number>
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
@@ -213,6 +206,10 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const allBands = useMemo(() => equipment.filter(e => e.kind === 'band').sort((a, b) => n0(a.props?.one_band_lockout_lb) - n0(b.props?.one_band_lockout_lb)), [equipment])
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
+  const groups = groupsOf(order, joins)
+  const withHeavy = (b: Block) => groups.some(g => g.includes(b) && g.includes('heavy'))
+  // Support interleaved with another block rotates through its exercises one set at a time.
+  const supInterleave = groups.some(g => g.includes('support') && g.length > 1)
   // Support capped per exercise: logged sets always show; unlogged ones only up to that exercise's max sets.
   const supSlots = S.slots
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
@@ -232,7 +229,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     // Interleaved with heavy and no max sets: one speed round per heavy set. A max sets number overrides that
     // (and carries the cycle on past the heavy sets if it's bigger). Not interleaved: the day's own number of sets.
     const cap = speedMax[it.name]
-    const planned = cap != null ? cap : placement === 'between' && heavyCount > 0 ? heavyCount : (it.sets ?? 0)
+    const planned = cap != null ? cap : withHeavy('speed') && heavyCount > 0 ? heavyCount : (it.sets ?? 0)
     const rounds = Math.max(planned, logged.at(-1)?.set_index ?? 0)
     for (let n = 1; n <= rounds; n++) {
       const here = logged.filter(x => x.set_index === n)
@@ -246,7 +243,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   for (const x of supSlots) { const nm = x.slot ?? x.key; seenSup[nm] = (seenSup[nm] ?? 0) + 1; ordinal.set(x.key, seenSup[nm]) }
   const supOrdered = supInterleave ? [...supSlots].sort((a, b) => ordinal.get(a.key)! - ordinal.get(b.key)!) : supSlots
   const support: Item[] = supOrdered.map(slot => ({ kind: 'sup', key: 'sup:' + slot.key, slot }))
-  const seq = [...(heavyUnplanned ? [{ kind: 'noplan' as const, key: 'noplan' }] : []), ...buildSequence({ heavy, speedRounds: speedRounds.filter(Boolean), support, placement, supInterleave })]
+  const seq = [...(heavyUnplanned ? [{ kind: 'noplan' as const, key: 'noplan' }] : []), ...buildSequence({ heavy: heavy.map(h => [h]), speed: speedRounds.filter(Boolean), support: support.map(u => [u]) }, order, joins)]
   const isDoneItem = (x: Item) => (x.kind === 'sup' ? supIsDone(x.slot) : x.kind === 'noplan' ? true : !!x.r)
   const nextItem = seq.find(x => !isDoneItem(x))
   const lastMain = [...done].reverse().find(isMain)
@@ -315,9 +312,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         {D?.todayMax ? `Deadlift estimate ${round(D.todayMax)}.` : ''}
       </p>
 
-      {supInterleave
-        ? <button className="ghost small" onClick={() => S.addExercise()} data-tip="Add a support exercise; it joins the interleaved list." data-pos="left">+ Add support exercise</button>
-        : <SupportTable S={S} api={api} slots={supSlots} />}
+      <button className="ghost small" onClick={() => S.addExercise()} data-tip="Add a support exercise not in today's plan" data-pos="left">+ Add support exercise</button>
     </section>
   )
 }

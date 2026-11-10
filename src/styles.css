@@ -585,3 +585,11 @@ tr.supinline td.stick { white-space: normal; }
 .caps { max-width: 620px; }
 .caprow { display: grid; grid-template-columns: minmax(0, 1fr) 88px; align-items: end; gap: 10px; }
 .caprow .capname { padding-bottom: 12px; }
+
+/* block order + icon-only interleave toggles */
+button.interleave { min-height: 30px; min-width: 30px; padding: 2px 6px; font-size: 16px; margin-bottom: 7px; }
+.blockhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.movers { display: inline-flex; gap: 2px; }
+button.mover { min-height: 0; min-width: 0; width: 22px; height: 20px; padding: 0; line-height: 1; font-size: 12px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; }
+button.mover:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+button.mover:disabled { opacity: .3; cursor: default; }
