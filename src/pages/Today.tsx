@@ -242,7 +242,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const supInter: boolean = pick(sp.support_interleave, frozen.support_interleave, spec.support_interleave) ?? false
   const offsetS: number = sp.speed_offset_s ?? 20
   const D = useDeadlift({ week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
-  const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey)
+  const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey,
+    { hidden: (sp.support_hidden as string[] | undefined) ?? [], setHidden: h => { savePlanned({ support_hidden: h }) } })
   const [planOpen, setPlanOpen] = useState(false)
 
   return (
@@ -278,7 +279,6 @@ export default function Today({ lifterId }: { lifterId: string }) {
             </select>
           </label>
         </div>
-        {tpl && <p className="muted small"><b>{tpl.name}</b>{tpl.spec?.logic ? ` · ${tpl.spec.logic}` : ''}</p>}
         <Status session={session} save={ensureSession} />
         <div className="timer">
           {!session?.started_at ? (
@@ -343,7 +343,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} supInterleave={supInter} S={S} running={!!session?.started_at && !session?.ended_at} bandMap={sp.band_map ?? {}} onBandMap={m => savePlanned({ band_map: m })}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} supInterleave={supInter} S={S} running={!!session?.started_at && !session?.ended_at}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 

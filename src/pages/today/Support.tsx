@@ -13,12 +13,15 @@ export type SupportSlot = Slot
 export type SupportCtl = ReturnType<typeof useSupportSlots>
 
 /** The day's support work as slots: plan exercises, extra sets and added exercises, each logged or not yet. */
-export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '') {
+export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '', persist?: { hidden: string[]; setHidden: (h: string[]) => void }) {
   const { exercises } = useStore()
   const items: any[] = support?.items ?? []
   const [extras, setExtras] = useState<Slot[]>([])
-  const [hidden, setHidden] = useState<string[]>([])
-  useEffect(() => { setExtras([]); setHidden([]) }, [resetKey])
+  // Exercises removed from today's support are saved on the session, so they stay gone after a refresh.
+  const [localHidden, setLocalHidden] = useState<string[]>([])
+  const hidden = persist?.hidden ?? localHidden
+  const hide = (name: string) => { const h = [...new Set([...hidden, name])]; if (persist) persist.setHidden(h); else setLocalHidden(h) }
+  useEffect(() => { setExtras([]); setLocalHidden([]) }, [resetKey])
   const nameOf = (id: string) => exercises.find(e => e.id === id)?.name
 
   const slots = useMemo(() => {
@@ -49,10 +52,16 @@ export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey
     return key
   }
   async function remove(s: Slot) {
-    if (s.existing) await api.deleteSet(s.existing.id!)
-    else if (s.key.startsWith('tpl:')) setHidden(h => [...h, s.slot!])
+    if (s.existing) {
+      await api.deleteSet(s.existing.id!)
+      // Deleting the last logged set of a planned exercise removes the exercise too (otherwise its plan row comes back).
+      const others = sets.filter(x => x.id !== s.existing!.id && (x.setup?.slot === s.slot))
+      if (s.slot && !others.length && items.some(it => it.name === s.slot)) hide(s.slot)
+    }
+    else if (s.key.startsWith('tpl:')) hide(s.slot!)
     else setExtras(prev => prev.filter(x => x.key !== s.key))
   }
+
   const saved = (s: Slot) => setExtras(prev => prev.filter(x => x.key !== s.key))
   return { slots, addSetFor, addExercise, remove, saved }
 }

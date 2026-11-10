@@ -306,7 +306,7 @@ tr.morerow td, tr.morerow .morebox { background: var(--bg); }
 
 /* Narrow screens: plates per side under the weight; setup, expected reps and rest open from the set name. */
 @media (max-width: 760px) {
-  table.sheet .c-side, table.sheet .c-plate, table.sheet .c-chain, table.sheet .c-band, table.sheet .c-setup, table.sheet .c-exp, table.sheet .c-rest { display: none; }
+  table.sheet .c-side, table.sheet .c-plate, table.sheet .c-chain, table.sheet .c-band, table.sheet .c-setup, table.sheet .c-exp, table.sheet .c-rest, table.sheet .c-del { display: none; }
   .side-inline { display: block; }
   p.side-inline { display: block; }
   tr.morerow { display: table-row; }
@@ -484,7 +484,7 @@ select.addband.compact { width: 34px; padding: 2px; text-align: center; appearan
 .tablewrap { container-type: inline-size; }
 @media (min-width: 761px) {
   @container (max-width: 960px) {
-    table.sheet .c-chain, table.sheet .c-band, table.sheet .c-exp, table.sheet .c-rest { display: none; }
+    table.sheet .c-chain, table.sheet .c-band, table.sheet .c-exp, table.sheet .c-rest, table.sheet .c-del { display: none; }
     tr.morerow { display: table-row; }
     .moretoggle { display: inline; }
     table.sheet td.stick { cursor: pointer; }
@@ -547,3 +547,17 @@ tr.supinline td { background: color-mix(in srgb, var(--card) 85%, var(--line)); 
 .dayorder { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; color: var(--muted); }
 .bandchip.bandsel { appearance: none; -webkit-appearance: none; border: 0; cursor: pointer; text-align: center; text-align-last: center; min-height: 0; width: auto; padding: 3px 8px; line-height: 1.2; }
 .bandchip.bandsel option { color: var(--text); background: var(--card); text-shadow: none; font-weight: 400; }
+
+/* bands: one cell per row, each band its own colour dropdown + per-side count */
+table.sheet td.c-band { text-align: left; }
+.bandlist { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.bandpick { display: inline-flex; align-items: center; border-radius: 7px; background: var(--band); padding: 2px; gap: 2px; }
+.bandpick select { appearance: none; -webkit-appearance: none; border: 0; background: transparent; color: #fff; font-weight: 700; font-size: 12px; text-shadow: 0 1px 1px rgba(0,0,0,.45);
+  padding: 4px 6px; min-height: 0; width: auto; max-width: 92px; cursor: pointer; }
+.bandpick select option { color: var(--text); background: var(--card); text-shadow: none; font-weight: 400; }
+.bandpick .cellin.n { width: 30px !important; min-width: 30px !important; max-width: 30px; padding: 3px 2px; text-align: center; background: rgba(0,0,0,.28); border-color: transparent; color: #fff; font-weight: 700; }
+button.bandadd { min-width: 30px; min-height: 30px; padding: 0 8px; border-radius: 7px; border: 1px dashed var(--line); background: transparent; color: var(--muted); font-size: 16px; cursor: pointer; }
+button.bandadd:hover { color: var(--text); border-color: var(--muted); }
+/* rest is its own right-aligned column; delete sits in a narrow column after it */
+table.sheet th.c-rest, table.sheet td.c-rest { text-align: right; white-space: nowrap; }
+table.sheet th.c-del, table.sheet td.c-del { width: 1%; padding-left: 2px; text-align: center; }
