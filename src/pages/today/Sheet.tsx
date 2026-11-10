@@ -14,6 +14,7 @@ import { live, nextPhrases, platePhrases } from './live'
 const cueOn = (k: 'next' | 'plates') => voice.get().settings.cues[k]?.on !== false
 /** Rest taken so far and how full creatine is getting, for the next spotter set's prediction. */
 const RestCtx = createContext<number | null>(null)
+const SpotCtx = createContext<{ rows: Record<string, boolean>; set?: (idx: number, on: boolean) => void }>({ rows: {} })
 import TindeqPanel, { type Tempo } from './TindeqPanel'
 import { endLevel, fitSession, levelAfter, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
 import { DelBtn, fmt, useClock, type Api } from './shared'
@@ -207,7 +208,9 @@ function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: bo
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, S, circuit, onCircuit }: {
+  /** S switched on or off on sets not yet done, kept on the session so it survives leaving Log. */
+  spotRows?: Record<string, boolean>; onSpotRow?: (idx: number, on: boolean) => void
   speedBands?: Record<string, BandPick[]>; onSpeedBands?: (exercise: string, bands: BandPick[]) => void
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; order: Block[]; joins: boolean[]; running?: boolean; onPlannedMax?: (v: number | null) => void
@@ -357,7 +360,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       </div>
 
       <div className="tablewrap">
-        <RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
+        <SpotCtx.Provider value={{ rows: spotRows, set: onSpotRow }}><RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
         <table className="sheet">
           <thead>
             <tr>
@@ -387,7 +390,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             })}
           </tbody>
         </table>
-        </ColsCtx.Provider></CaptureCtx.Provider></RestCtx.Provider>
+        </ColsCtx.Provider></CaptureCtx.Provider></RestCtx.Provider></SpotCtx.Provider>
       </div>
       {fit && (fit.cost !== null || fit.half_s !== null) && (
         <p className="small fitline">
@@ -424,12 +427,14 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   const [a, setA] = useState(!!r?.assisted)
   const [f, setF] = useState(!!r?.failed)
   // S = this set is run with the spotter: Reps holds the unaided reps; spotted reps and their average assist are entered beside it.
-  const [sp, setSp] = useState<boolean>(r ? !!r.setup?.spot?.on : L.plan.spotter)
+  const spotCtx = useContext(SpotCtx), rowIdx = r ? r.set_index : p!.idx
+  const planSp = spotCtx.rows[rowIdx] ?? L.plan.spotter
+  const [sp, setSp] = useState<boolean>(r ? !!r.setup?.spot?.on : planSp)
   const [spotted, setSpotted] = useState<string>(r?.setup?.spot?.spotted?.toString() ?? '')
   const [assist, setAssist] = useState<string>(r?.setup?.spot?.assist_lb?.toString() ?? '')
   const [trace, setTrace] = useState<Pulse[] | null>(r?.setup?.spot?.pulses ?? null)
   const [tempo, setTempo] = useState<Tempo | null>(r?.setup?.spot?.tempo ?? null)
-  useEffect(() => { if (!r) setSp(L.plan.spotter) }, [L.plan.spotter])
+  useEffect(() => { if (!r) setSp(planSp) }, [planSp])
   // Plates typed into the columns, kept as entered until the set is logged (then they're saved on the set).
   const [manual, setManual] = useState<number[] | null>(null)
   // Which of this set's values were typed by hand (the rest are worked out by Max or come from the plan).
@@ -549,7 +554,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
-        <button className={'flag s' + (sp ? ' on' : '')} data-tip="Spotter set: every rep maximal, the spotter makes up the shortfall. Reps = unaided reps." aria-label="Spotter set" aria-pressed={sp} onClick={() => { setSp(!sp); if (r) commit({ sp: !sp }) }}>S</button>
+        <button className={'flag s' + (sp ? ' on' : '')} data-tip="Spotter set: every rep maximal, the spotter makes up the shortfall. Reps = unaided reps." aria-label="Spotter set" aria-pressed={sp} onClick={() => { setSp(!sp); if (r) commit({ sp: !sp }); else spotCtx.set?.(idx, !sp) }}>S</button>
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
         {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}</td>
