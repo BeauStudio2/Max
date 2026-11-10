@@ -155,7 +155,7 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
       <div className="tablewrap"><table className="sheet cfg plantable">
         <thead><tr>
           <th className="stick">Exercise</th><th data-tip="F = to failure · TF = technical failure · DS×n = n drops · ST = strip · RP = rest-pause · RTR = run the rack.">Scheme</th>
-          <th data-tip="Default start weight (blank = choose on the day).">Start</th><th data-tip="Weight removed each drop.">Step</th><th data-tip="Number of drops.">Drops</th><th>Note</th><th />
+          <th data-tip="Default start weight (blank = choose on the day).">Start</th><th data-tip="Weight removed each drop.">Step</th><th data-tip="Number of drops.">Drops</th><th data-tip="Sets of this exercise per session by default. The Log can raise or lower it for one session.">Max sets</th><th>Note</th><th />
         </tr></thead>
         <tbody>{supItems.map((it, i) => {
           const set = (patch: any) => setSupport(supItems.map((x, j) => j === i ? clean({ ...x, ...patch }) : x))
@@ -166,6 +166,7 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
               <td data-l="Start">{cell(it.start_lb, v => set({ start_lb: num(v) }), { numeric: true })}</td>
               <td data-l="Step">{cell(it.step_lb, v => set({ step_lb: num(v) }), { numeric: true })}</td>
               <td data-l="Drops">{cell(it.drops, v => set({ drops: num(v) }), { numeric: true })}</td>
+              <td data-l="Max sets">{cell(it.max_sets, v => set({ max_sets: num(v) }), { numeric: true, placeholder: '1' })}</td>
               <td className="wrapcell" data-l="Note">{cell(it.note, v => set({ note: v || undefined }), { wide: true })}</td>
               <td className="nowrap">{!ro && <>
                 <button className="ghost small" disabled={i === 0} onClick={() => { const a = [...supItems];[a[i - 1], a[i]] = [a[i], a[i - 1]]; setSupport(a) }} aria-label="Move up" data-tip="Move up" data-pos="right">↑</button>

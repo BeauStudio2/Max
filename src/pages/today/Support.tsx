@@ -13,7 +13,7 @@ export type SupportSlot = Slot
 export type SupportCtl = ReturnType<typeof useSupportSlots>
 
 /** The day's support work as slots: plan exercises, extra sets and added exercises, each logged or not yet. */
-export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '', persist?: { hidden: string[]; setHidden: (h: string[]) => void }) {
+export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '', persist?: { hidden: string[]; setHidden: (h: string[]) => void }, maxSets?: Record<string, number>) {
   const { exercises } = useStore()
   const items: any[] = support?.items ?? []
   const [extras, setExtras] = useState<Slot[]>([])
@@ -31,15 +31,20 @@ export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey
       const mine = sets.filter(s => !used.has(s.id!) && (s.setup?.slot === it.name || (!s.setup?.slot && nameOf(s.exercise_id) === it.name)))
         .sort((a, b) => a.set_index - b.set_index)
       mine.forEach(s => used.add(s.id!))
-      if (mine.length) mine.forEach(s => out.push({ key: s.id!, slot: it.name, exerciseId: s.exercise_id, setIndex: s.set_index, existing: s, defaults: it }))
-      else if (!hidden.includes(it.name)) out.push({ key: 'tpl:' + it.name, slot: it.name, exerciseId: api.exId(it.name) ?? '', setIndex: 1, defaults: it })
+      mine.forEach(s => out.push({ key: s.id!, slot: it.name, exerciseId: s.exercise_id, setIndex: s.set_index, existing: s, defaults: it }))
+      // Sets still to do, up to today's max sets for this exercise (the day's default, 1 unless the Plan says otherwise).
+      const cap = maxSets?.[it.name] ?? it.max_sets ?? 1
+      const lastIdx = mine.at(-1)?.set_index ?? 0
+      if (!hidden.includes(it.name)) for (let k = mine.length + 1; k <= cap; k++)
+        out.push({ key: k === 1 ? 'tpl:' + it.name : `tpl:${it.name}:${k}`, slot: it.name, exerciseId: mine[0]?.exercise_id ?? api.exId(it.name) ?? '', setIndex: lastIdx + (k - mine.length),
+          defaults: { ...it, start_lb: mine.at(-1)?.start_weight_lb ?? it.start_lb } })
       out.push(...extras.filter(x => x.slot === it.name))
     }
     for (const s of sets.filter(s => !used.has(s.id!)).sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')))
       out.push({ key: s.id!, slot: s.setup?.slot ?? null, exerciseId: s.exercise_id, setIndex: s.set_index, existing: s, defaults: {} })
     out.push(...extras.filter(x => !items.some(it => it.name === x.slot)))
     return out
-  }, [items, sets, extras, hidden, exercises])
+  }, [items, sets, extras, hidden, exercises, maxSets])
 
   function addSetFor(s: Slot) {
     const idxs = [s.setIndex, ...sets.filter(x => x.exercise_id === s.exerciseId).map(x => x.set_index), ...extras.filter(x => x.exerciseId === s.exerciseId).map(x => x.setIndex)]

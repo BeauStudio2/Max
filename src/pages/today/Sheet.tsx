@@ -214,15 +214,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
   // Support capped per exercise: logged sets always show; unlogged ones only up to that exercise's max sets.
-  const supSlots = (() => {
-    const seen: Record<string, number> = {}
-    return S.slots.filter(x => {
-      const nm = x.slot ?? ''
-      const cap = supportMax[nm]
-      seen[nm] = (seen[nm] ?? 0) + 1
-      return x.existing || cap == null || seen[nm] <= cap
-    })
-  })()
+  const supSlots = S.slots
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
   // A support set only counts as done once it has reps; one with just a start weight typed is still to do.
   const supIsDone = (x: SupportSlot) => !!x.existing && x.existing.reps != null
@@ -233,11 +225,11 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const heavy: Item[] = L
     ? [...L.logged.map(r => ({ kind: 'main' as const, key: r.id!, r })), ...L.projected.map(p => ({ kind: 'main' as const, key: 'h' + p.idx, p }))]
     : (D?.rows ?? []).map(x => ({ kind: 'pull' as const, key: 'd:' + x.row.step, row: x.row, r: x.existing }))
-  const heavyCount = heavy.filter(h => h.kind !== 'noplan').length
   const speedRounds: Item[][] = []
   for (const it of items) {
     const logged = [...speedSets(it)].sort((a, b) => a.set_index - b.set_index)
-    const planned = placement === 'between' && heavyCount > 0 && !heavyUnplanned ? heavyCount : (it.sets ?? 0)
+    // Speed runs to its own number of sets: if heavy ends first, the cycle carries on without it.
+    const planned = it.sets ?? 0
     // A max-sets cap trims the planned rounds; sets already logged always stay.
     const cap = speedMax[it.name]
     const rounds = Math.max(cap != null ? Math.min(planned, cap) : planned, logged.at(-1)?.set_index ?? 0)
@@ -248,7 +240,11 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       here.forEach((r, j) => round.push({ kind: 'speed', key: r.id ?? `s:${it.name}:${n}:${j}`, it, n, r }))
     }
   }
-  const support: Item[] = supSlots.map(slot => ({ kind: 'sup', key: 'sup:' + slot.key, slot }))
+  // Interleaved, support rotates: one set of each exercise in turn, then round again for any with more sets.
+  const ordinal = new Map<string, number>(); const seenSup: Record<string, number> = {}
+  for (const x of supSlots) { const nm = x.slot ?? x.key; seenSup[nm] = (seenSup[nm] ?? 0) + 1; ordinal.set(x.key, seenSup[nm]) }
+  const supOrdered = supInterleave ? [...supSlots].sort((a, b) => ordinal.get(a.key)! - ordinal.get(b.key)!) : supSlots
+  const support: Item[] = supOrdered.map(slot => ({ kind: 'sup', key: 'sup:' + slot.key, slot }))
   const seq = [...(heavyUnplanned ? [{ kind: 'noplan' as const, key: 'noplan' }] : []), ...buildSequence({ heavy, speedRounds: speedRounds.filter(Boolean), support, placement, supInterleave })]
   const isDoneItem = (x: Item) => (x.kind === 'sup' ? supIsDone(x.slot) : x.kind === 'noplan' ? true : !!x.r)
   const nextItem = seq.find(x => !isDoneItem(x))

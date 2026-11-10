@@ -248,7 +248,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const clean = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== ''))
   const D = useDeadlift({ week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
   const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey,
-    { hidden: (sp.support_hidden as string[] | undefined) ?? [], setHidden: h => { savePlanned({ support_hidden: h }) } })
+    { hidden: (sp.support_hidden as string[] | undefined) ?? [], setHidden: h => { savePlanned({ support_hidden: h }) } }, supportMax)
   const supportNames = [...new Set(S.slots.map(x => x.slot ?? '').filter(n => n && !n.startsWith('extra:')))]
   const [planOpen, setPlanOpen] = useState(false)
 
@@ -330,7 +330,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
             {past && snap && <p className="small muted">Past session: shows the plan as it stood when its first set was logged. Plan page edits don't change it.</p>}
             {(speedFor?.items?.length || S.slots.length) ? (
               <div className="caps">
-                <p className="small"><T tip="Most sets of each exercise today. Blank: as planned. 0: skip it today. Capped rows just aren't listed; clear the box and they come back.">Max sets</T> <span className="muted">(blank = as planned, 0 = skip)</span></p>
+                <p className="small"><T tip="Most sets of each exercise today. Blank: as planned. 0: skip it today. Capped rows just aren't listed; clear the box and they come back.">Max sets</T> <span className="muted">(speed blank = as planned; support starts at the Plan's number, usually 1; 0 = skip)</span></p>
                 {speedFor?.items?.map((it: any, i: number) => (
                   <div key={it.name} className="caprow">
                     <ExercisePicker label={`Speed ${i + 1}`} value={speedEx(it)} onChange={n => setSpeedEx(it, n)} className="exrow" />
@@ -340,7 +340,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
                 {supportNames.map(nm => (
                   <div key={nm} className="caprow">
                     <span className="capname">{nm}</span>
-                    <Num label="Max sets" value={supportMax[nm] ?? null} onSave={v => savePlanned({ support_max: clean({ ...supportMax, [nm]: v }) })} />
+                    <Num label="Max sets" value={supportMax[nm] ?? (support?.items ?? []).find((i: any) => i.name === nm)?.max_sets ?? 1} onSave={v => savePlanned({ support_max: clean({ ...supportMax, [nm]: v }) })} />
                   </div>
                 ))}
               </div>
