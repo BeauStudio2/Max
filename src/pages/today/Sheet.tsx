@@ -164,66 +164,39 @@ function BandEditor({ bands, onChange }: { bands: BandPick[]; onChange: (b: Band
 
 /* ---------- the order of rows: main set, then one round of speed, then main... ---------- */
 
-type Planned =
-  | { kind: 'main'; key: string; p: Ladder['projected'][number] }
-  | { kind: 'pull'; key: string; row: PullRowDef }
-  | { kind: 'speed'; key: string; it: any; n: number }
-  | { kind: 'sup'; key: string; slot: SupportSlot }
-
 /**
- * Support interleaved: one support set after each round. A round is a heavy set and the speed round that follows it,
- * or a speed round on its own (when heavy is finished or done separately). Leftover support goes at the end.
- * It picks up from what was logged last: a finished round gets its support set before the next round starts.
+ * The session as one fixed sequence, built only from the plan and the two toggles — never from when things were typed.
+ * Each set has a permanent place; logging a set fills its row in place.
  */
-function withSupport(planned: Planned[], slots: SupportSlot[], placement: Placement, lastDone?: SetRow): Planned[] {
-  type K = { kind: 'heavy' | 'speed' | 'sup' | 'other'; n?: number }
-  const kindOf = (p: Planned): K => (p.kind === 'main' || p.kind === 'pull' ? { kind: 'heavy' } : p.kind === 'speed' ? { kind: 'speed', n: p.n } : { kind: 'other' })
-  const startsRound = (p: K, prev: K) => p.kind === 'heavy'
-    || (p.kind === 'speed' && prev.kind === 'speed' && prev.n !== p.n)
-    || (p.kind === 'speed' && prev.kind === 'heavy' && placement !== 'between')
-  const left = [...slots]
-  const out: Planned[] = []
-  const support = () => { if (left.length) { const sl = left.shift()!; out.push({ kind: 'sup', key: 'sup:' + sl.key, slot: sl }) } }
-  let prev: K | null = !lastDone ? null : lastDone.block === 'support' ? { kind: 'sup' } : lastDone.block === 'speed' ? { kind: 'speed', n: lastDone.set_index } : { kind: 'heavy' }
-  for (const p of planned) {
-    const k = kindOf(p)
-    if (prev && prev.kind !== 'sup' && startsRound(k, prev)) support()
-    out.push(p)
-    prev = k
-  }
-  if (prev && prev.kind !== 'sup') support()
-  for (const sl of left) out.push({ kind: 'sup', key: 'sup:' + sl.key, slot: sl })
-  return out
-}
+type Item =
+  | { kind: 'main'; key: string; r?: SetRow; p?: Ladder['projected'][number] }
+  | { kind: 'pull'; key: string; row: PullRowDef; r?: SetRow }
+  | { kind: 'speed'; key: string; it: any; n: number; r?: SetRow }
+  | { kind: 'sup'; key: string; slot: SupportSlot }
+  | { kind: 'noplan'; key: string }
 
-function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: (it: any) => SetRow[], placement: Placement, heavyUnplanned = false) {
-  const since = new Set<string>()
-  for (let i = done.length - 1; i >= 0 && !isMain(done[i]); i--) if (done[i].setup?.slot) since.add(done[i].setup.slot)
-  // Between main sets, every main set gets one round of speed, so speed runs as long as the main lift does.
-  const mainTotal = done.filter(isMain).length + main.length
-  // With no heavy sets at all (e.g. a substitute with no planned max yet), speed keeps the day's own set count.
-  const target = (it: any) => placement === 'between' && mainTotal > 0 && !heavyUnplanned ? mainTotal : (it.sets ?? 0)
-  const left = items.map(it => ({ it, done: speedSets(it).length, left: Math.max(0, target(it) - speedSets(it).length) }))
-  const rounds: Planned[][] = []
-  let first = since.size > 0, partial = false
-  while (left.some(x => x.left > 0)) {
-    const round: Planned[] = []
-    for (const x of left) if (x.left > 0 && !(first && since.has(x.it.name))) { x.done++; x.left--; round.push({ kind: 'speed', key: `s:${x.it.name}:${x.done}`, it: x.it, n: x.done }) }
-    if (round.length) { rounds.push(round); if (first) partial = true }
-    first = false
+function buildSequence({ heavy, speedRounds, support, placement, supInterleave }: {
+  heavy: Item[]; speedRounds: Item[][]; support: Item[]; placement: Placement; supInterleave: boolean
+}) {
+  const U = supInterleave ? [...support] : []
+  const out: Item[] = []
+  const sup = () => { if (U.length) out.push(U.shift()!) }
+  if (placement === 'between') {
+    // Heavy ⇄ speed on: heavy set r, then speed round r (then support, if that's interleaved too).
+    const R = Math.max(heavy.length, speedRounds.length)
+    for (let r = 0; r < R; r++) {
+      if (heavy[r]) out.push(heavy[r])
+      if (speedRounds[r]) out.push(...speedRounds[r])
+      if (supInterleave) sup()
+    }
+  } else {
+    // Heavy ⇄ speed off: each block to the end, then the next; support can still alternate with the speed rounds.
+    const speedBlock: Item[] = []
+    for (const round of speedRounds) { speedBlock.push(...round); if (supInterleave) { const before = out.length; sup(); speedBlock.push(...out.splice(before)) } }
+    if (placement === 'first') out.push(...speedBlock, ...heavy)
+    else out.push(...heavy, ...speedBlock)
   }
-  const m = [...main]
-  if (placement === 'first') return [...rounds.flat(), ...m]
-  if (placement === 'after') return [...m, ...rounds.flat()]
-  const out: Planned[] = []
-  let turn: 'main' | 'speed' = isMain(done.at(-1)) || partial ? 'speed' : 'main'
-  while (m.length || rounds.length) {
-    if (turn === 'main' && m.length) out.push(m.shift()!)
-    else if (turn === 'speed' && rounds.length) out.push(...rounds.shift()!)
-    else if (m.length) out.push(m.shift()!)
-    else out.push(...rounds.shift()!)
-    turn = turn === 'main' ? 'speed' : 'main'
-  }
+  out.push(...U)
   return out
 }
 
@@ -240,22 +213,36 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
-  // With support interleaved, its logged sets sit in the same list, in the order they were done.
-  // A support set only counts as done once it has reps; one with just a start weight typed stays in its planned place.
+  // A support set only counts as done once it has reps; one with just a start weight typed is still to do.
   const supIsDone = (x: SupportSlot) => !!x.existing && x.existing.reps != null
-  const supDone = supInterleave ? (S.slots.filter(supIsDone).map(x => x.existing!) as SetRow[]) : []
-  const done = useMemo(() => [...mainSets, ...allSpeed, ...supDone].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')), [mainSets, allSpeed, supDone])
-  const mainPlanned: Planned[] = L
-    ? L.projected.map(p => ({ kind: 'main', key: 'h' + p.idx, p }))
-    : (D?.rows ?? []).filter(r => !r.existing).map(r => ({ kind: 'pull', key: 'd:' + r.row.step, row: r.row }))
+  // Everything logged, in the order it was done: for the rest timer and circuit time only (never for the row order).
+  const done = useMemo(() => [...mainSets, ...allSpeed, ...S.slots.filter(supIsDone).map(x => x.existing!)].sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '')), [mainSets, allSpeed, S.slots])
   // Heavy with no planned max can't plan its sets; speed then runs on its own count so the rounds still exist.
   const heavyUnplanned = !!L && !L.plan.planned_e1rm
-  const planned0 = plannedOrder(done.filter(r => r.block !== 'support'), mainPlanned, items, speedSets, placement, heavyUnplanned)
-  const planned = supInterleave ? withSupport(planned0, S.slots.filter(x => !supIsDone(x)), placement, done.at(-1)) : planned0
+  const heavy: Item[] = L
+    ? [...L.logged.map(r => ({ kind: 'main' as const, key: r.id!, r })), ...L.projected.map(p => ({ kind: 'main' as const, key: 'h' + p.idx, p }))]
+    : (D?.rows ?? []).map(x => ({ kind: 'pull' as const, key: 'd:' + x.row.step, row: x.row, r: x.existing }))
+  const heavyCount = heavy.filter(h => h.kind !== 'noplan').length
+  const speedRounds: Item[][] = []
+  for (const it of items) {
+    const logged = [...speedSets(it)].sort((a, b) => a.set_index - b.set_index)
+    const planned = placement === 'between' && heavyCount > 0 && !heavyUnplanned ? heavyCount : (it.sets ?? 0)
+    const rounds = Math.max(planned, logged.at(-1)?.set_index ?? 0)
+    for (let n = 1; n <= rounds; n++) {
+      const here = logged.filter(x => x.set_index === n)
+      const round = (speedRounds[n - 1] ??= [])
+      if (!here.length) round.push({ kind: 'speed', key: `s:${it.name}:${n}`, it, n })
+      here.forEach((r, j) => round.push({ kind: 'speed', key: r.id ?? `s:${it.name}:${n}:${j}`, it, n, r }))
+    }
+  }
+  const support: Item[] = S.slots.map(slot => ({ kind: 'sup', key: 'sup:' + slot.key, slot }))
+  const seq = [...(heavyUnplanned ? [{ kind: 'noplan' as const, key: 'noplan' }] : []), ...buildSequence({ heavy, speedRounds: speedRounds.filter(Boolean), support, placement, supInterleave })]
+  const isDoneItem = (x: Item) => (x.kind === 'sup' ? supIsDone(x.slot) : x.kind === 'noplan' ? true : !!x.r)
+  const nextItem = seq.find(x => !isDoneItem(x))
   const lastMain = [...done].reverse().find(isMain)
   // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
   const rest = useClock(running ? lastMain?.created_at : null)
-  const nextMain = planned.find(p => p.kind === 'main' || p.kind === 'pull')
+  const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
 
   // Circuit time: what you entered, or first to last set of the circuit.
   const autoMin = done.length > 1 ? (Date.parse(done.at(-1)!.created_at!) - Date.parse(done[0].created_at!)) / 60000 : null
@@ -272,7 +259,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     <section className="card sheetcard">
       <div className="sheetbar">
         <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restS ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restS)}</span> : lastMain ? `${fmt(rest)} / ${fmt(restS)}` : `0:00 / ${fmt(restS)}`}</b></div>
-        <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p.idx}` : nextMain.kind === 'pull' ? nextMain.row.step : '' : 'done'}</b></div>
+        <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
@@ -294,21 +281,20 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             </tr>
           </thead>
           <tbody>
-            {done.map(r => r.block === 'support' ? (() => { const sl = S.slots.find(x => x.existing?.id === r.id); return sl ? <SupportTr key={r.id} slot={sl} S={S} api={api} inline /> : null })()
-              : r.block === 'primary' && L ? <MainTr key={r.id} L={L} api={api} r={r} exerciseId={heavyExerciseId} label={liftLabel} />
-              : r.block === 'deadlift' && D ? <PullTr key={r.id} D={D} def={D.rows.find(x => x.existing?.id === r.id)!.row} r={r} />
-                : <SpeedTr key={r.id} api={api} r={r} it={items.find(i => i.name === r.setup?.slot) ?? { name: r.setup?.slot }} name={slotName(r)} n={r.set_index} sets={[]} />)}
-            {heavyUnplanned && (
-              <tr className="noplan"><td className="stick"><span className="tagdot h" />{liftLabel}</td>
-                <td colSpan={cols.span}><div className="noplanbox">
-                  <span>No planned max for <b>{liftLabel}</b> yet, so its sets can't be planned.</span>
-                  <label>Planned max (est. 1-rep max) <CellNum value={null} onSave={v => v && onPlannedMax?.(v)} /></label>
-                </div></td></tr>
-            )}
-            {planned.map((p, i) => p.kind === 'main' && L ? <MainTr key={p.key} L={L} api={api} p={p.p} exerciseId={heavyExerciseId} label={liftLabel} next={i === 0} />
-              : p.kind === 'pull' && D ? <PullTr key={p.key} D={D} def={p.row} next={i === 0} />
-                : p.kind === 'speed' ? <SpeedTr key={p.key} api={api} it={p.it} name={speedEx(p.it)} n={p.n} sets={speedSets(p.it)} next={i === 0} lastMain={lastMain} />
-                  : p.kind === 'sup' ? <SupportTr key={p.key} slot={p.slot} S={S} api={api} inline /> : null)}
+            {seq.map(x => {
+              const next = x === nextItem
+              if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} />
+              if (x.kind === 'pull' && D) return <PullTr key={x.key} D={D} def={x.row} r={x.r} next={next} />
+              if (x.kind === 'speed') return <SpeedTr key={x.key} api={api} r={x.r} it={x.it} name={speedEx(x.it)} n={x.n} sets={speedSets(x.it)} next={next} lastMain={lastMain} />
+              if (x.kind === 'sup') return <SupportTr key={x.key} slot={x.slot} S={S} api={api} inline next={next} />
+              if (x.kind === 'noplan') return (
+                <tr key={x.key} className="noplan"><td className="stick"><span className="tagdot h" />{liftLabel}</td>
+                  <td colSpan={cols.span}><div className="noplanbox">
+                    <span>No planned max for <b>{liftLabel}</b> yet, so its sets can't be planned.</span>
+                    <label>Planned max (est. 1-rep max) <CellNum value={null} onSave={v => v && onPlannedMax?.(v)} /></label>
+                  </div></td></tr>)
+              return null
+            })}
           </tbody>
         </table>
         </ColsCtx.Provider>
@@ -596,7 +582,7 @@ function SupportTable({ S, api }: { S: SupportCtl; api: Api }) {
 
 const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF']
 
-function SupportTr({ slot, S, api, inline }: { slot: SupportSlot; S: SupportCtl; api: Api; inline?: boolean }) {
+function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: SupportCtl; api: Api; inline?: boolean; next?: boolean }) {
   const C = useContext(ColsCtx)
   const { exercises, templates } = useStore()
   const schemeOptions = Array.from(new Set([...SCHEMES, ...templates.flatMap(t => (t.spec?.support?.items ?? []).map((i: any) => i.scheme).filter(Boolean))]))
@@ -648,7 +634,7 @@ function SupportTr({ slot, S, api, inline }: { slot: SupportSlot; S: SupportCtl;
   const scheme = <SchemePicker value={v.scheme} options={schemeOptions} onChange={scheme => { const nv = { ...v, scheme }; setV(nv); save(nv) }} />
   const note = <CellText value={v.notes} placeholder={d.note ? 'see plan note' : 'note'} wide onSave={x => { const nv = { ...v, notes: x }; setV(nv); save(nv) }} />
   if (inline) return (
-    <tr className={(e ? 'done' : 'plan') + ' supinline' + (more ? ' open' : '')}>
+    <tr className={(e && e.reps != null ? 'done' : 'plan') + ' supinline' + (more ? ' open' : '') + (next ? ' next' : '')}>
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot u" />{exercises.find(x => x.id === v.ex)?.name ?? 'Support'}{slot.setIndex > 1 ? ` · set ${slot.setIndex}` : ''}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td colSpan={C.span}>
         <div className="supfields">
