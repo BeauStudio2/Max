@@ -126,7 +126,7 @@ export default function Config() {
         <h2>Exercises</h2>
         <p className="small muted">Each exercise's equipment. Pick any exercise as the main lift on the Log page and the table uses its bar (or none), chains and what its weight means.</p>
         <div className="tablewrap"><table className="sheet cfg">
-          <thead><tr><th className="stick">Exercise</th><th>Category</th><th>Bar</th><th>Chains</th><th>lb means</th><th>Muscle group</th></tr></thead>
+          <thead><tr><th className="stick">Exercise</th><th>Category</th><th>Bar</th><th>Implement</th><th>Chains</th><th>lb means</th><th>Muscle group</th></tr></thead>
           <tbody>{exercises.map(x => (
             <tr key={x.id}>
               <td className="stick">{x.name}</td>
@@ -138,6 +138,11 @@ export default function Config() {
                 <select className="mini" value={x.equipment?.bar ?? ''} onChange={e => setEquip(x, { bar: e.target.value || null })}>
                   <option value="">no bar</option>
                   {equipment.filter(b => b.kind === 'bar' || b.kind === 'trap_bar').map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                </select>)}</td>
+              <td>{x.equipment?.bar ? <span className="muted">—</span> : ro ? (x.equipment?.implement ?? '') : (
+                <select className="mini" value={x.equipment?.implement ?? ''} onChange={e => setEquip(x, { implement: e.target.value || null })} aria-label="Implement">
+                  <option value="">none</option>
+                  {equipment.filter(b => b.kind === 'other' && b.weight_lb).map(b => <option key={b.id} value={b.name}>{b.name} ({b.weight_lb})</option>)}
                 </select>)}</td>
               <td>{ro ? (x.equipment?.chains ? 'yes' : 'no') : <input type="checkbox" checked={!!x.equipment?.chains} onChange={e => setEquip(x, { chains: e.target.checked })} />}</td>
               <td>{ro ? (x.equipment?.load ?? 'bar') : (

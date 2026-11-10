@@ -39,12 +39,18 @@ export function effectiveLoad(bottom: number | null, top: number | null, cfg: Co
   return bottom * cfg.chain_bottom_ratio + (top ?? bottom) * cfg.chain_top_ratio
 }
 
-/** Same formula as the set_estimates view: Epley with an assisted or failed rep not counted. */
-export function e1rm(bottom: number | null, top: number | null, reps: number | null, assistedOrFailed: boolean, cfg: Config) {
+/** Reps not counted: a failed rep is lost, an assisted rep keeps its credit (0.5 on the sheet). */
+export const lostReps = (assisted: boolean, failed: boolean, cfg: Config) => (failed ? 1 : assisted ? 1 - (cfg.assisted_rep_credit ?? 0.5) : 0)
+
+/** Same formula as the set_estimates view: Epley, less a failed rep and the uncredited part of an assisted one. */
+export function e1rm(bottom: number | null, top: number | null, reps: number | null, assisted: boolean, failed: boolean, cfg: Config) {
   const load = effectiveLoad(bottom, top, cfg)
   if (load === null || reps === null) return null
-  return load * (1 + (reps - (assistedOrFailed ? 1 : 0)) / cfg.rep_divisor)
+  return load * (1 + (reps - lostReps(assisted, failed, cfg)) / cfg.rep_divisor)
 }
+
+/** The rep goal shown for a set: expected reps rounded down, or up when the spotter is there to finish the last one. */
+export const repGoal = (exp: number, spotter = false) => (spotter ? Math.ceil(exp - 1e-9) : Math.floor(exp + 1e-9))
 
 /** Plate weight that makes `targetReps` land on `targetE1rm`, given the bar, clamps and chains. */
 export function weightFor(targetE1rm: number, targetReps: number, s: LoadSetup, eq: Equipment[], cfg: Config, step = 2.5) {

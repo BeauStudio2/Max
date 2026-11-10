@@ -20,6 +20,8 @@ export interface LadderPlan {
   bar: string | null
   chains_ok: boolean
   load?: string
+  /** A fixed-weight implement for no-bar lifts (e.g. dip horn); its weight counts in the load. */
+  implement?: string | null
   /** Plates allowed this session (sheet's "plates on" row). */
   plates_on: number[]
   /** Chains switched on for sets 2+ this session. */
@@ -29,6 +31,8 @@ export interface LadderPlan {
   kept_25: number | null
   /** Set 1 weight on the bar (plates); null = calculated. */
   set1_lb: number | null
+  /** Spotter in use: rep goals round up instead of down. */
+  spotter: boolean
 }
 
 export const BAR = 'Ohio Power Bar'
@@ -39,7 +43,7 @@ export const CLAMPS: [string, string][] = [[ROGUE, 'Rogue'], [ELEIKO, 'Eleiko'],
 
 const geo = (p: LadderPlan) => ({ rom_in: p.rom_in, hang_in: p.hang_in })
 const straightOf = (p: LadderPlan): LoadSetup =>
-  p.bar ? { bar: p.bar, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0, ...geo(p) } : { bar: '', clamp: '', chain_half: 0, chain_5_8: 0 }
+  p.bar ? { bar: p.bar, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0, ...geo(p) } : { bar: p.implement ?? '', clamp: '', chain_half: 0, chain_5_8: 0 }
 const chained = (p: LadderPlan): LoadSetup =>
   p.bar && p.chains_ok && p.chains_on && (p.chain_half || p.chain_5_8)
     ? { bar: p.bar, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8, ...geo(p) } : straightOf(p)
@@ -68,7 +72,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const { equipment, cfg } = useStore()
   const f = plan.fatigue_rate_used_pct / 100
   const logged = useMemo(() => [...sets].sort((a, b) => a.set_index - b.set_index), [sets])
-  const actual = logged.map(r => e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted || r.failed, cfg))
+  const actual = logged.map(r => e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted, r.failed, cfg))
   // Target estimated max for each logged set: set 1 = planned max; after that, the previous set's actual less one set of fatigue.
   const targets: (number | null)[] = logged.map((r, i) => {
     if (r.set_index === 1 || i === 0) return plan.planned_e1rm
@@ -128,7 +132,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   // Volume, as on the sheet: bar total × reps, an assisted rep counting the bar less the assist, a failed rep nothing.
   const volume = logged.reduce((t, r) => {
     const load = effectiveLoad(r.total_bottom_lb, r.total_top_lb, cfg) ?? 0, reps = r.reps ?? 0
-    const lost = r.failed ? 1 : 0, helped = r.assisted ? 1 : 0
+    const lost = r.failed ? 1 : 0, helped = r.assisted && !r.failed ? 1 : 0
     return t + load * Math.max(0, reps - lost - helped) + (load - cfg.assist_lb) * helped
   }, 0)
   const fit = fitFatigue(actual)
@@ -165,6 +169,9 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
               <option value="">auto ({L.autoKept.n25})</option>{[0, 1, 2, 3, 4].map(v => <option key={v} value={v}>{v}</option>)}</select>
           </label>
         </>}
+        <label className="toggle">Spotter
+          <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On · goals round up' : 'Off · goals round down'}</button>
+        </label>
         {plan.bar && plan.chains_ok && <label className="toggle">Chains
           <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
         </label>}

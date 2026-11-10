@@ -382,3 +382,41 @@ ul.mlist li:first-child .mrow { border-top: 0; }
 .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--muted, #888); }
 .stats b { color: var(--text, inherit); }
 .stats .warn b, .stats .warn { color: var(--warn, #c60); }
+
+/* ---------- Tracker (profile) ---------- */
+:root { --s-bench: #3987e5; --s-squat: #d95926; --s-deadlift: #199e70; --s-neutral: #8b9099; }
+.tracker .seg { display: inline-flex; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.tracker .seg button { background: transparent; border: 0; color: var(--muted); padding: 5px 9px; white-space: nowrap; border-radius: 6px; font-size: 13px; cursor: pointer; }
+.tracker .seg button.on { background: var(--line); color: var(--text); }
+.tsum { width: 100%; border-collapse: collapse; margin: 12px 0 4px; font-variant-numeric: tabular-nums; }
+.tsum th, .tsum td { padding: 6px 4px; text-align: right; border-bottom: 1px solid var(--line); font-size: 14px; }
+.tsum th { color: var(--muted); font-weight: 500; }
+.tsum td:first-child { text-align: left; color: var(--muted); }
+.tsum b { font-size: 17px; }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.key.bench { background: var(--s-bench); } .key.squat { background: var(--s-squat); } .key.deadlift { background: var(--s-deadlift); }
+.treadout { min-height: 40px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 8px 0; color: var(--text); font-variant-numeric: tabular-nums; }
+.tcharts { touch-action: pan-y; user-select: none; cursor: crosshair; }
+.tpanel { margin-top: 6px; }
+.tlabel { font-size: 12px; font-weight: 600; color: var(--text); padding-left: 44px; }
+.tlabel .muted { font-weight: 400; }
+.tcharts svg { display: block; overflow: visible; }
+.tgrid { stroke: var(--line); stroke-width: 1; }
+.taxis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tcross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.tbad { fill: var(--hurt); opacity: .10; } .tbad.sick { fill: var(--sick); }
+.tline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.tplan { fill: none; stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .75; }
+.tline.bench, .tplan.bench { stroke: var(--s-bench); } .tline.squat, .tplan.squat { stroke: var(--s-squat); } .tline.deadlift, .tplan.deadlift { stroke: var(--s-deadlift); }
+.tline.neutral { stroke: var(--s-neutral); }
+.tplan.legend { stroke: var(--muted); }
+.tdot { stroke: var(--card); stroke-width: 2; }
+.tdot.bench { fill: var(--s-bench); } .tdot.squat { fill: var(--s-squat); } .tdot.deadlift { fill: var(--s-deadlift); } .tdot.neutral { fill: var(--s-neutral); stroke-width: 1; }
+.tdot.hollow { fill: var(--card); stroke-width: 2; }
+.tdot.hollow.bench { stroke: var(--s-bench); } .tdot.hollow.squat { stroke: var(--s-squat); } .tdot.hollow.deadlift { stroke: var(--s-deadlift); } .tdot.hollow.legend { stroke: var(--muted); }
+.tdot.ring { fill: none; stroke-width: 2; }
+.tdot.ring.bench { stroke: var(--s-bench); } .tdot.ring.squat { stroke: var(--s-squat); } .tdot.ring.deadlift { stroke: var(--s-deadlift); } .tdot.ring.neutral { stroke: var(--text); }
+.tbar.bench { fill: var(--s-bench); } .tbar.squat { fill: var(--s-squat); } .tbar.deadlift { fill: var(--s-deadlift); } .tbar.faded { opacity: .4; }
+.tlegend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); margin-top: 8px; align-items: center; }
+.tlegend svg { vertical-align: middle; margin-right: 6px; }
+.ttable .sub2 { max-width: 180px; white-space: normal; }

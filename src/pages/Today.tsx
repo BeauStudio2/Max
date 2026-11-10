@@ -138,11 +138,13 @@ export default function Today({ lifterId }: { lifterId: string }) {
     bar: 'bar' in exEquip ? exEquip.bar ?? null : 'Ohio Power Bar',
     chains_ok: exEquip.chains ?? true,
     load: exEquip.load ?? 'bar',
+    implement: exEquip.bar ? null : exEquip.implement ?? null,
     plates_on: pick(sp.plates_on, prevPlan.plates_on, st.plates_on) ?? ALL_PLATES,
     chains_on: pick(sp.chains_on, prevPlan.chains_on) ?? true,
     kept_45: pick(sp.kept_45) ?? null,
     kept_25: pick(sp.kept_25) ?? null,
     set1_lb: pick(sp.set1_lb) ?? null,
+    spotter: pick(sp.spotter, prevPlan.spotter) ?? false,
   }
 
   const dlWeek = (() => {
@@ -162,7 +164,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   ladderPlanRef.current = ladderPlan
   dlPlanRef.current = dlPlan
   // The exercise's own equipment (bar, chains, load) is looked up each time, not frozen into the session plan.
-  const strip = ({ bar, chains_ok, load, ...rest }: Record<string, any>) => rest
+  const strip = ({ bar, chains_ok, load, implement, ...rest }: Record<string, any>) => rest
   const savePlan = (base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...(session?.planned ?? {}), ...base, ...patch }) })
 
   // Every block is a choice: the day's plan is the default, any other day's block can be picked instead.

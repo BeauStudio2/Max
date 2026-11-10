@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
-import { e1rm, e1rmFromRpe, expectedReps, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
+import { e1rm, e1rmFromRpe, expectedReps, lostReps, repGoal, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
 import type { Equipment, SetRow } from '../../lib/types'
 import { CLAMPS, CHAIN_CLAMP, setupOf, type Ladder } from './Ladder'
 import { type DeadliftCtl, type PullRowDef } from './Deadlift'
@@ -183,9 +183,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const target = r ? L.targets[i] : p!.target
   const t = totals(plates, setup, eq)
   const repsN = reps === '' ? null : Number(reps)
-  const est = e1rm(t.bottom, t.top, repsN, a || f, cfg)
+  const est = e1rm(t.bottom, t.top, repsN, a, f, cfg)
   const exp = target ? expectedReps(target, t.bottom, t.top, cfg) : null
-  const diff = exp !== null && repsN !== null ? repsN - (a || f ? 1 : 0) - exp : null
+  const diff = exp !== null && repsN !== null ? repsN - lostReps(a, f, cfg) - exp : null
+  const goal = exp !== null ? repGoal(exp, L.plan.spotter) : null
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
   const below = L.floor !== null && est !== null && est < L.floor
 
@@ -224,7 +225,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
         <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept) : loadNote(L.plan)}</div></td>
-      <td><CellText value={reps} narrow placeholder={exp !== null ? exp.toFixed(0) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
+      <td><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
@@ -241,7 +242,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
         <div className="morebox">
           <label>Per side{sideCell}</label>
           <label>Setup{setupCell}</label>
-          {exp !== null && <span className="small muted">Expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
+          {exp !== null && <span className="small muted">Goal {goal} · expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
           {r?.rest_s ? <span className="small muted">Rest {fmt(r.rest_s)}</span> : null}
           {logged && <button className="ghost small" onClick={() => api.deleteSet(r!.id!)}>Delete set</button>}
         </div>
@@ -252,7 +253,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
 }
 
 const LOAD_NOTE: Record<string, string> = { added: 'added weight', per_hand: 'per hand', stack: 'machine stack', bodyweight: 'bodyweight +' }
-const loadNote = (p: { bar: string | null; load?: string }) => (p.bar ? '' : LOAD_NOTE[p.load ?? 'added'] ?? 'load')
+const loadNote = (p: { bar: string | null; load?: string; implement?: string | null }) => (p.bar ? '' : (LOAD_NOTE[p.load ?? 'added'] ?? 'load') + (p.implement ? ` + ${p.implement.toLowerCase()}` : ''))
 
 /* Clamps and chains as one choice: straight sets on Rogue or Eleiko, chain sets on the chain clamps. */
 const CHAIN_COMBOS: [number, number][] = [[0, 1], [1, 0], [1, 1], [0, 2], [2, 0], [2, 1], [1, 2], [2, 2]]

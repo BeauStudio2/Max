@@ -4,7 +4,7 @@ export type Block = 'speed' | 'primary' | 'support' | 'deadlift'
 export interface Profile { id: string; display_name: string | null; role: 'coach' | 'lifter' }
 export interface Lifter { id: string; name: string; user_id: string | null; bodyweight_lb: number | null; settings: Record<string, any> }
 export interface Equipment { id: string; kind: string; name: string; weight_lb: number | null; props: Record<string, any> }
-export interface ExerciseEquipment { bar?: string | null; chains?: boolean; load?: 'bar' | 'added' | 'per_hand' | 'stack' | 'bodyweight' }
+export interface ExerciseEquipment { bar?: string | null; chains?: boolean; load?: 'bar' | 'added' | 'per_hand' | 'stack' | 'bodyweight'; implement?: string | null }
 export interface Exercise { id: string; name: string; category: string; muscle_group: string | null; equipment?: ExerciseEquipment }
 export interface Template { id: string; weekday: number; name: string; spec: any; active_from: string; lifter_id: string | null }
 
@@ -22,7 +22,7 @@ export interface SetRow {
   setup: Record<string, any>; notes?: string | null; created_at?: string
 }
 
-export interface Config { rep_divisor: number; chain_bottom_ratio: number; chain_top_ratio: number; assist_lb: number; met?: number; seconds_per_rep?: number; recovery_h?: number }
+export interface Config { rep_divisor: number; chain_bottom_ratio: number; chain_top_ratio: number; assist_lb: number; met?: number; seconds_per_rep?: number; recovery_h?: number; assisted_rep_credit?: number }
 
 export interface SummaryRow {
   session_id: string; lifter_id: string; lifter: string; session_date: string; primary_lift: Lift | null

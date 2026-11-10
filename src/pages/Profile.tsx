@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
 import { CellText } from './today/Sheet'
 import { e1rmFromRpe, fitFatigue, localDate, round } from '../lib/load'
+import Tracker, { type TrackRow, type TLift } from './profile/Tracker'
 
 interface Metric { metric: string; label: string; unit: string; grp: string; sort: number; derived: boolean }
 interface Point { d: string; v: number; x?: boolean; id?: string; src?: string }
@@ -14,6 +15,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
   const lifter = lifters.find(l => l.id === lifterId)
   const [catalog, setCatalog] = useState<Metric[]>([])
   const [series, setSeries] = useState<Record<string, Point[]>>({})
+  const [track, setTrack] = useState<TrackRow[]>([])
   const [adding, setAdding] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -22,7 +24,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
     const [cat, bm, ss, gd] = await Promise.all([
       supabase.from('metric_catalog').select('*').order('sort'),
       supabase.from('body_metrics').select('*').eq('lifter_id', lifterId).order('measured_on'),
-      supabase.from('sessions').select('id, session_date, primary_lift, sick, hurt, exclude_reason, bodyweight_lb').eq('lifter_id', lifterId).order('session_date'),
+      supabase.from('sessions').select('id, session_date, primary_lift, sick, hurt, exclude_reason, bodyweight_lb, planned').eq('lifter_id', lifterId).order('session_date'),
       supabase.from('garmin_daily').select('*').eq('lifter_id', lifterId).order('day'),
     ])
     const e = [cat, bm, ss, gd].find(r => r.error)?.error
@@ -30,10 +32,18 @@ export default function Profile({ lifterId }: { lifterId: string }) {
     const sessions = ss.data ?? []
     const ids = sessions.map(s => s.id)
     const est = ids.length
-      ? (await supabase.from('set_estimates').select('session_id, exercise_id, block, set_index, weight_lb, reps, rpe, e1rm_lb, setup').in('session_id', ids).in('block', ['primary', 'deadlift']).order('set_index')).data ?? []
+      ? (await supabase.from('set_estimates').select('session_id, exercise_id, block, set_index, weight_lb, reps, rpe, e1rm_lb, effective_load_lb, assisted, failed, setup').in('session_id', ids).in('block', ['primary', 'deadlift']).order('set_index')).data ?? []
       : []
 
     const out: Record<string, Point[]> = {}
+    const trows: TrackRow[] = []
+    const assistLb = 7.5
+    // Volume as on the sheet: load × reps, an assisted rep at the load less the assist, a failed rep nothing.
+    const volOf = (r: any) => {
+      const load = Number(r.effective_load_lb ?? r.weight_lb ?? 0), reps = r.reps ?? 0
+      const helped = r.assisted && !r.failed ? 1 : 0, lost = r.failed ? 1 : 0
+      return load * Math.max(0, reps - lost - helped) + Math.max(0, load - assistLb) * helped
+    }
     const push = (k: string, p: Point) => (out[k] ??= []).push(p)
     // Entered values (bodyweight, measurements, skinfolds, energy test results). Fatigue and maxes are worked out from sessions below.
     for (const r of bm.data ?? []) if (!/^(fatigue|e1rm)_/.test(r.metric)) push(r.metric, { d: r.measured_on, v: Number(r.value), id: r.id, src: r.source })
@@ -46,6 +56,11 @@ export default function Profile({ lifterId }: { lifterId: string }) {
         const tops = mine.filter(r => String(r.setup?.step ?? '').startsWith('top') && r.weight_lb && r.reps && (!dlId || r.exercise_id === dlId))
         const best = tops.map(r => e1rmFromRpe(Number(r.weight_lb), r.reps, r.rpe === null ? null : Number(r.rpe))).sort((a, b) => b - a)[0]
         if (best) push('e1rm_deadlift', { d: s.session_date, v: best, x })
+        const top = tops.sort((a, b) => Number(b.weight_lb) - Number(a.weight_lb))[0]
+        const pulls = mine.filter(r => r.block === 'deadlift' && r.weight_lb && r.reps)
+        trows.push({ d: s.session_date, lift: 'deadlift', variant: s.planned?.heavy_exercise ?? null, set1: top ? Number(top.weight_lb) : null, set1Reps: top?.reps ?? null, rpe: top?.rpe ?? null,
+          est: best ?? null, planned: s.planned?.planned_top_lb ?? null, fatigueUsed: null, fatigueFit: null, sets: pulls.length,
+          volume: pulls.reduce((t, r) => t + Number(r.weight_lb) * (r.reps ?? 0), 0), sick: !!s.sick, hurt: s.hurt?.trim() || null, excluded: x })
         continue
       }
       const lift = s.primary_lift
@@ -55,6 +70,15 @@ export default function Profile({ lifterId }: { lifterId: string }) {
       if (prim[0]) push(`e1rm_${lift}`, { d: s.session_date, v: prim[0], x })
       const fit = fitFatigue(prim)
       if (fit && fit.ratePct > 0) push(`fatigue_${lift}`, { d: s.session_date, v: fit.ratePct, x })
+      if (lift === 'bench' || lift === 'squat') {
+        const main = mine.filter(r => r.block === 'primary' && (!mainId || r.exercise_id === mainId))
+        const first = main[0]
+        trows.push({ d: s.session_date, lift, variant: s.planned?.heavy_exercise && s.planned.heavy_exercise !== (lift === 'bench' ? 'Bench Press' : 'Squat') ? s.planned.heavy_exercise : null,
+          set1: first?.effective_load_lb != null ? Number(first.effective_load_lb) : null, set1Reps: first?.reps ?? null, rpe: null,
+          est: prim[0] ?? null, planned: s.planned?.planned_e1rm ?? null, fatigueUsed: s.planned?.fatigue_rate_used_pct ?? null,
+          fatigueFit: fit && fit.ratePct > 0 ? fit.ratePct : null, sets: main.filter(r => r.reps !== null).length,
+          volume: main.reduce((t, r) => t + volOf(r), 0), sick: !!s.sick, hurt: s.hurt?.trim() || null, excluded: x })
+      }
     }
     for (const g of gd.data ?? []) {
       if (g.resting_hr) push('resting_hr', { d: g.day, v: Number(g.resting_hr) })
@@ -64,6 +88,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
     for (const k of Object.keys(out)) out[k].sort((a, b) => a.d.localeCompare(b.d))
     setCatalog((cat.data as Metric[]) ?? [])
     setSeries(out)
+    setTrack(trows)
   }
   useEffect(() => { if (lifterId) load() }, [lifterId])
 
@@ -92,6 +117,9 @@ export default function Profile({ lifterId }: { lifterId: string }) {
         {adding && <AddForm lifterId={lifterId} catalog={catalog.filter(m => !m.derived)} onSaved={() => { setAdding(false); load() }} />}
       </section>
       {err && <p className="err">{err}</p>}
+
+      <Tracker rows={track} rhr={series.resting_hr ?? []} hrv={series.hrv ?? []} sleep={series.sleep_h ?? []} bodyweight={series.bodyweight ?? []}
+        fallback={{ bench: { planned: st.planned_e1rm?.bench }, squat: { planned: st.planned_e1rm?.squat }, deadlift: { planned: st.deadlift_planned_top_lb, best: st.deadlift_best_conventional_lb } }} />
 
       <section className="card">
         <h2>Strength</h2>
