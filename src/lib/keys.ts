@@ -8,11 +8,20 @@ export interface Service { id: string; name: string; where: string; test?: (key:
 export const SERVICES: Service[] = [
   {
     id: 'elevenlabs', name: 'ElevenLabs', where: 'elevenlabs.io → profile → API keys. Used for Max\'s voice.',
+    // Keys can be restricted per feature. Max needs Text to Speech, and Voices (read; write to add library voices).
+    // Account usage is shown when the key may read it, but isn't required.
     async test(key) {
-      const r = await fetch('https://api.elevenlabs.io/v1/user/subscription', { headers: { 'xi-api-key': key } })
-      if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 120)}`)
-      const j = await r.json()
-      return j.character_limit != null ? `OK · ${j.tier ?? 'plan'} · ${(j.character_limit - (j.character_count ?? 0)).toLocaleString()} characters left this month` : 'OK'
+      const h = { 'xi-api-key': key }
+      const sub = await fetch('https://api.elevenlabs.io/v1/user/subscription', { headers: h })
+      let usage = ''
+      if (sub.ok) { const j = await sub.json(); if (j.character_limit != null) usage = ` · ${j.tier ?? 'plan'} · ${(j.character_limit - (j.character_count ?? 0)).toLocaleString()} characters left this month` }
+      else if (sub.status !== 401 && sub.status !== 403) throw new Error(`${sub.status} ${(await sub.text()).slice(0, 120)}`)
+      const v = await fetch('https://api.elevenlabs.io/v1/voices', { headers: h })
+      if (!v.ok) {
+        const t = await v.text()
+        throw new Error(/permission/i.test(t) ? 'Key works but lacks the Voices permission. Edit the key on elevenlabs.io: allow Text to Speech and Voices (read and write).' : `${v.status} ${t.slice(0, 120)}`)
+      }
+      return 'OK' + (usage || ' (this key can\'t show account usage; that\'s fine)')
     },
   },
 ]
