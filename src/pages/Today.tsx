@@ -270,8 +270,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
                 <span className="blockhead">
                   <T tip={BLOCK_TIP[blk]}>{blk[0].toUpperCase() + blk.slice(1)}</T>
                   <span className="movers">
-                    <button type="button" className="mover" disabled={i === 0} onClick={e => { e.preventDefault(); move(i, -1) }} aria-label={`Move ${blk} earlier`} data-tip={`Move ${blk} earlier in the workout`} data-pos="center">◂</button>
-                    <button type="button" className="mover" disabled={i === order.length - 1} onClick={e => { e.preventDefault(); move(i, 1) }} aria-label={`Move ${blk} later`} data-tip={`Move ${blk} later in the workout`} data-pos="right">▸</button>
+                    <button type="button" className="mover" disabled={i === 0} onClick={e => { e.preventDefault(); move(i, -1) }} aria-label={`Move ${blk} up (earlier)`} data-tip={`Move ${blk} up: earlier in the workout`} data-pos="center">▲</button>
+                    <button type="button" className="mover" disabled={i === order.length - 1} onClick={e => { e.preventDefault(); move(i, 1) }} aria-label={`Move ${blk} down (later)`} data-tip={`Move ${blk} down: later in the workout`} data-pos="right">▼</button>
                   </span>
                 </span>
                 {blk === 'heavy' ? (
