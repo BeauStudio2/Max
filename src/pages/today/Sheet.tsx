@@ -279,7 +279,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     const pulses: Pulse[] | undefined = lastSpot.setup.spot.pulses
     // Only a measured last rep (Tindeq) is used; a hand-typed average says too little about the final rep, so the rep count is used instead.
     const lastAssist = pulses?.length ? pulses.at(-1)!.mean : null
-    const Pend = endLevel({ load, totalReps: (lastSpot.reps ?? 0) + (lastSpot.setup.spot.spotted ?? 0), lastAssist, P0: startLevel(lastSpot.set_index, L.cr) }, L.cr)
+    const Pend = endLevel({ load, totalReps: lastSpot.setup.spot.mode === 'all' ? (lastSpot.reps ?? 0) : (lastSpot.reps ?? 0) + (lastSpot.setup.spot.spotted ?? 0), lastAssist, P0: startLevel(lastSpot.set_index, L.cr) }, L.cr)
     return { seconds: Math.round(restFor(Pend, L.cr)), Pend }
   })()
   const restTarget = crRest ? crRest.seconds : restS
@@ -289,8 +289,8 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     const ss: SpotSet[] = L.logged.map((r, i) => ({ r, i })).filter(x => x.r.setup?.spot?.on).map(({ r, i }) => {
       const t = totals(r.weight_lb, setupOf(r), equipment)
       const pulses: Pulse[] = r.setup.spot.pulses ?? []
-      return { idx: r.set_index, load: t.bottom !== null && t.top !== null ? (t.bottom + t.top) / 2 : 0, e1rm: L.actual[i], unaided: r.reps ?? 0,
-        spotted: r.setup.spot.spotted ?? pulses.length, assists: pulses.map(p => p.mean), rest_s: r.rest_s ?? null }
+      return { idx: r.set_index, load: t.bottom !== null && t.top !== null ? (t.bottom + t.top) / 2 : 0, e1rm: L.actual[i], unaided: r.setup.spot.mode === 'all' ? Math.max(0, (r.reps ?? 0) - pulses.length) : r.reps ?? 0,
+        spotted: r.setup.spot.mode === 'all' ? pulses.length : r.setup.spot.spotted ?? pulses.length, assists: pulses.map(p => p.mean), rest_s: r.rest_s ?? null }
     })
     if (!ss.length) return null
     return fitSession(ss, L.cr, L.plan.fatigue_rate_used_pct / 100)
@@ -459,7 +459,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   // Strength on rep 1 of this set: the target max, moved from the level it was measured at to this set's starting level.
   const measuredAt = idx <= 1 ? 1 : r ? startLevel(idx - 1, L.cr) : L.spotBasis
   const pred = sp && target && eff ? predictSet(eff, target * strengthAt(P0, L.cr) / strengthAt(measuredAt, L.cr), P0, L.cr) : null
-  const goal = pred ? pred.unaided : exp !== null ? repGoal(exp, false) : null
+  // Spotter set: Max's rep count is every rep until creatine is spent, all of them done with the spotter helping as needed.
+  const goal = pred ? pred.unaided + pred.spotted : exp !== null ? repGoal(exp, false) : null
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
   const below = L.floor !== null && est !== null && est < L.floor
 
@@ -477,7 +478,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
       setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [], user,
         stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null),
-        spot: (patch.sp ?? sp) ? { on: true, spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined, tempo: (patch.tempo !== undefined ? patch.tempo : tempo) ?? undefined } : null } }
+        spot: (patch.sp ?? sp) ? { on: true, mode: 'all', spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined, tempo: (patch.tempo !== undefined ? patch.tempo : tempo) ?? undefined } : null } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
@@ -490,10 +491,16 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   }
   const setSet = (s: LoadSetup, touch?: string) => {
     setSetup(s)
-    if (!r && target) { const w = L.weightFor(target, s, idx); setPlates(w); return commit({ setup: s, plates: w, touch }) }
+    if (!r && target) { const w = L.weightFor(target, s, idx, sp); setPlates(w); return commit({ setup: s, plates: w, touch }) }
     return commit({ setup: s, touch })
   }
-  // A set recorded on the Tindeq fills this row's spotted reps and average assist (the next set to do, with S on).
+  // S switched on or off on one set: its weight follows (spotter weight or ladder weight), unless the weight was typed by hand.
+  const firstSp = useRef(true)
+  useEffect(() => {
+    if (firstSp.current) { firstSp.current = false; return }
+    if (!r && target && idx > 1 && !mine.includes('lb') && !mine.includes('plates')) setPlates(L.weightFor(target, setup, idx, sp))
+  }, [sp])
+  // A set recorded on the Tindeq fills this row's average assist (the next set to do, with S on).
   const cap = useContext(CaptureCtx)
   useEffect(() => {
     if (!cap || !next || !sp || !cap.pulses.length) return
@@ -511,12 +518,11 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   const stored: number[] | null = manual ?? (Array.isArray(r?.setup?.stack) ? r!.setup.stack : p?.stack ?? null)
   const stack = hasBar ? stackFor(plates, L.kept, stored, L.plan.plates_on) : null
   // The next set to do tells the voice and the Tindeq about itself: weight, rep goal, plates, chains, and for a spotter set
-  // the assist at which creatine is spent (strength there = full strength × its share at the end level), when Max says "Rack".
-  const fullStrength = pred && target ? (target * strengthAt(P0, L.cr) / strengthAt(measuredAt, L.cr)) / strengthAt(P0, L.cr) : null
+  // the rep count at which Max says "Rack".
   const nextInfo = voiceTarget && plates !== null ? {
     lb: Math.round((plates + fixed) * 100) / 100, goal, stack: hasBar ? stack : null,
     chains: hasBar && L.plan.chains_ok ? { half: setup.chain_half ?? 0, big: setup.chain_5_8 ?? 0 } : null,
-    rackLb: pred && eff !== null && fullStrength ? Math.max(1, eff - fullStrength * strengthAt(L.cr.end, L.cr)) : null,
+    rackLb: null, rackAt: pred ? goal : null,
   } : null
   useEffect(() => { if (voiceTarget) { live.next = nextInfo; return () => { if (live.next === nextInfo) live.next = null } } })
   const setPlate = (plate: number, n: number) => {
@@ -545,16 +551,15 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td className={mine.includes('lb') || mine.includes('plates') ? 'o-user' : 'o-dyn'}><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl, touch: 'lb' }) }} />
         <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}{setup.bands?.length ? ` · ${bandLabel(setup.bands)}` : ''}</div></td>
-      <td className="num c-exp o-dyn">{pred ? <span data-tip={`Spotter set: expect ${pred.unaided} reps on his own, then ${pred.spotted} more with the spotter helping, before the set is done.`} data-pos="center">{pred.unaided} <small className="muted">own</small> + {pred.spotted} <small className="muted">spot</small></span> : exp !== null ? exp.toFixed(1) : ''}{!pred && diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
+      <td className="num c-exp o-dyn">{pred ? <span data-tip={`Spotter set: Max's reps for this set, all done with the spotter helping on every rep as needed (until creatine is spent).`} data-pos="center">{pred.unaided + pred.spotted}</span> : exp !== null ? exp.toFixed(1) : ''}{!pred && diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
       <td className="o-user ph-dyn"><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} />
-        {sp && <div className="spotin" data-tip="Reps done with the spotter helping (after the ones on his own), and how much help on average in lb. The Tindeq fills both when it reads the set; otherwise type them." data-pos="left">
-          <span className="small muted">spotted</span><CellText value={spotted} narrow numeric placeholder={pred ? String(pred.spotted) : 'spot'} onSave={v => { setSpotted(v); commit({ spotted: v }) }} />
+        {sp && <div className="spotin" data-tip="Average help per rep in lb. The Tindeq fills it when it reads the set; otherwise type your best guess or leave it." data-pos="left">
           <span className="small muted">avg help</span><CellText value={assist} narrow numeric placeholder="lb" onSave={v => { setAssist(v); commit({ assist: v }) }} />
         </div>}</td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
-        <button className={'flag s' + (sp ? ' on' : '')} data-tip="Spotter set: every rep maximal, the spotter makes up the shortfall. Reps = unaided reps." aria-label="Spotter set" aria-pressed={sp} onClick={() => { setSp(!sp); if (r) commit({ sp: !sp }); else spotCtx.set?.(idx, !sp) }}>S</button>
+        <button className={'flag s' + (sp ? ' on' : '')} data-tip="Spotter set: Max sets the reps and the spotter helps on every rep as needed. Reps = all reps done." aria-label="Spotter set" aria-pressed={sp} onClick={() => { setSp(!sp); if (r) commit({ sp: !sp }); else spotCtx.set?.(idx, !sp) }}>S</button>
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
         {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}</td>

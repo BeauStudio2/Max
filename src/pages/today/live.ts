@@ -2,7 +2,9 @@
  * What the next heavy set looks like, published by its row so the voice and the Tindeq can use it without prop chains:
  * the weight and rep goal to announce, the plates and chains per side, and (spotter sets) the assist at which to say "Rack".
  */
-export interface NextSet { lb: number; goal: number | null; stack: number[] | null; chains: { half: number; big: number } | null; rackLb: number | null }
+export interface NextSet { lb: number; goal: number | null; stack: number[] | null; chains: { half: number; big: number } | null; rackLb: number | null
+  /** Spotter set: the rep count after which Max says "Rack". */
+  rackAt?: number | null }
 export const live: { next: NextSet | null } = { next: null }
 
 const plate = (p: number) => (p === 2.5 ? '2 and a half' : p === 1.25 ? '1 and a quarter' : String(p))

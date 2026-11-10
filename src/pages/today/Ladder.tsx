@@ -78,7 +78,18 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const { equipment, cfg } = useStore()
   const f = plan.fatigue_rate_used_pct / 100
   const logged = useMemo(() => [...sets].sort((a, b) => a.set_index - b.set_index), [sets])
-  const actual = logged.map(r => e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted, r.failed, cfg))
+  const cr = { ...crOf(cfg), ...(plan.cr ?? {}) }
+  // A spotter set (every rep assisted as needed) says nothing about the max from its rep count. Its estimate comes from the Tindeq:
+  // strength on the first measured rep is the bar less its assist; carried back to the start of the set along the creatine curve.
+  const spotE1rm = (r: SetRow) => {
+    const pulses = r.setup?.spot?.pulses as { mean: number }[] | undefined
+    if (!pulses?.length || r.total_bottom_lb == null || r.total_top_lb == null) return null
+    const load = (r.total_bottom_lb + r.total_top_lb) / 2
+    const k = Math.max(1, (r.reps ?? pulses.length) - pulses.length + 1)
+    const P0 = startLevel(r.set_index, cr), Pk = P0 * (1 - cr.cost) ** (k - 1)
+    return Math.round(((load - pulses[0].mean) / strengthAt(Pk, cr)) * strengthAt(P0, cr) * 10) / 10
+  }
+  const actual = logged.map(r => r.setup?.spot?.mode === 'all' ? spotE1rm(r) : e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted, r.failed, cfg))
   // Target estimated max for each logged set: set 1 = planned max; after that, the previous set's actual less one set of fatigue.
   const targets: (number | null)[] = logged.map((r, i) => {
     // A set saved without reps has no result: the next set aims from the last set that has one (or the planned max).
@@ -93,10 +104,9 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   // Auto spotter: rep 1 is set at a fraction of strength at the start of the set (creatine at the recovery target after set 1).
   // The target max comes from the last measured set, which was taken at that set's own starting level.
   // This lifter's fitted numbers for this lift (Profile settings) override the Config defaults.
-  const cr = { ...crOf(cfg), ...(plan.cr ?? {}) }
   const basis = logged.length ? startLevel(logged.at(-1)!.set_index, cr) : 1
-  const weightFor = (target: number, s: LoadSetup, idx = 2) => {
-    const needed = plan.spotter
+  const weightFor = (target: number, s: LoadSetup, idx = 2, spot = plan.spotter) => {
+    const needed = spot
       ? cr.start * target * (strengthAt(startLevel(idx, cr), cr) / strengthAt(idx <= 1 ? 1 : basis, cr))
       : target / (1 + plan.target_reps / cfg.rep_divisor)
     const zero = totals(0, s, equipment)
@@ -189,7 +199,7 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
             </select>
           </label>
         )}
-        <label className="toggle"><T tip="Auto spotter (S). On: every rep is a maximal effort with the spotter making up the shortfall. Weight is set near your strength at the start of each set, the set ends when creatine is spent, and rest is the time to refill it. Off: the normal rep-target ladder.">Auto spotter</T>
+        <label className="toggle"><T tip="Auto spotter (S) on every set after set 1. Max sets the weight near your strength at the start of the set and the number of reps (until creatine is spent); the spotter helps on every rep as needed so all of them get done. Rest is the time to refill creatine. Off: the normal rep-target ladder.">Auto spotter</T>
           <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On' : 'Off'}</button>
         </label>
         {plan.spotter && <Num label="Assist above (lb)" tip="Reading a Tindeq recording: a spotted rep is a stretch of pull above this. Raise it if small tugs get counted; lower it if light assists are missed." origin={src('assist_min_lb')} value={plan.assist_min_lb} onSave={v => v !== null && v >= 0 && setPlan({ assist_min_lb: v })} />}

@@ -72,8 +72,9 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
         w.open = false
         if (w.armed && w.lastAbove - w.pStart >= minS) {
           w.pulses++
-          const rack = live.next?.rackLb
-          if (!w.racked && rack != null && w.sum / w.n >= rack) { w.racked = true; cue('rack') }
+          // Every rep of a spotter set is assisted, so each pulse is a rep: "Rack" once Max's rep count is done.
+          const at = live.next?.rackAt, rack = live.next?.rackLb
+          if (!w.racked && ((at != null && w.pulses >= at) || (rack != null && w.sum / w.n >= rack))) { w.racked = true; cue('rack') }
         }
       }
     }
@@ -111,7 +112,7 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
               data-tip="Backup for when voice isn't on: start and end a set by hand." data-pos="center">{armed ? '■ Stop' : '● Record'}</button>
           </>}
       </div>
-      {last && <span className="small muted">{last.length ? `${last.length} spotted reps · avg ${Math.round(last.reduce((t, p) => t + p.mean, 0) / last.length)} lb` : 'no assisted reps'}
+      {last && <span className="small muted">{last.length ? `${last.length} reps read · avg help ${Math.round(last.reduce((t, p) => t + p.mean, 0) / last.length)} lb` : 'no reps read'}
         {last.length > 1 && tempo?.rep_s != null && <span className="hastip" data-tip="Time from the start of one spotted rep to the start of the next (middle value), against the metronome's time per rep when it was running." data-pos="right"> · {tempo.rep_s.toFixed(1)} s/rep{tempo.beat_s ? <> vs <span className={Math.abs(tempo.rep_s - tempo.beat_s) / tempo.beat_s > 0.15 ? 'down' : 'up'}>{tempo.beat_s.toFixed(1)} s</span> beat</> : ''}</span>}</span>}
     </div>
   )
