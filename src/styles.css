@@ -608,3 +608,12 @@ button.mover:disabled { opacity: .3; cursor: default; }
 .capgrid .capex { margin: 0; }
 .capgrid input, .capgrid select { height: 36px; min-height: 36px; padding: 0 10px; width: 100%; box-sizing: border-box; }
 .capgrid input { text-align: center; }
+
+/* metronome in the bar above the set list */
+.sheetbar { grid-template-columns: 1fr 1fr 96px auto; }
+.metro { display: flex; flex-direction: column; }
+.metrorow { display: flex; align-items: center; gap: 4px; }
+.metrorow .switch { min-height: 34px; min-width: 38px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
+.metrorow .switch.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.metrorow input { width: 46px; min-height: 34px; padding: 4px 6px; text-align: center; }
+@media (max-width: 760px) { .sheetbar { grid-template-columns: 1fr 1fr 96px; } .metro { grid-column: 1 / -1; } }

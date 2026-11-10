@@ -6,6 +6,7 @@ import { CLAMPS, CHAIN_CLAMP, setupOf, type Ladder } from './Ladder'
 import { type DeadliftCtl, type PullRowDef } from './Deadlift'
 import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
+import Metronome from './Metronome'
 import { DelBtn, fmt, useClock, type Api } from './shared'
 
 export type Placement = 'between' | 'first' | 'after'
@@ -271,6 +272,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
         </label>
+        <Metronome />
       </div>
 
       <div className="tablewrap">
