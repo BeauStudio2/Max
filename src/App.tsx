@@ -4,15 +4,13 @@ import { supabase } from './supabase'
 import { StoreProvider, useStore } from './lib/store'
 import SignIn from './pages/SignIn'
 import Today from './pages/Today'
-import History from './pages/History'
 import Plan from './pages/Plan'
 import Profile from './pages/Profile'
 import Config from './pages/Config'
 
-type Tab = 'today' | 'history' | 'profile' | 'plan' | 'config'
+type Tab = 'today' | 'profile' | 'plan' | 'config'
 const TABS: { id: Tab; label: string; coach?: boolean }[] = [
   { id: 'today', label: 'Log' },
-  { id: 'history', label: 'History' },
   { id: 'profile', label: 'Profile' },
   { id: 'plan', label: 'Plan' },
   { id: 'config', label: 'Config' },
@@ -34,7 +32,9 @@ export default function App() {
 
 function Shell() {
   const { isCoach, myLifter, lifters, auth } = useStore()
-  const initial = (location.hash.slice(1) as Tab) || 'today'
+  // Old #history links land on Profile, where session history now lives.
+  const hash = location.hash.slice(1)
+  const initial = (hash === 'history' ? 'profile' : hash as Tab) || 'today'
   const [tab, setTab] = useState<Tab>(TABS.some(t => t.id === initial) ? initial : 'today')
   const [lifterId, setLifterId] = useState<string>(myLifter?.id ?? lifters[0]?.id ?? '')
 
@@ -65,7 +65,6 @@ function Shell() {
         ) : (
           <>
             {tab === 'today' && <Today lifterId={lifterId} />}
-            {tab === 'history' && <History lifterId={lifterId} />}
             {tab === 'profile' && <><Profile lifterId={lifterId} /><Account email={auth.user.email ?? ''} /></>}
             {tab === 'plan' && <Plan lifterId={lifterId} />}
             {tab === 'config' && <Config />}

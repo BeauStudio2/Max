@@ -7,7 +7,7 @@ import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
 import SessionSheet, { type Placement } from './today/Sheet'
 import { useSupportSlots } from './today/Support'
 import { DeadliftPlanFields, useDeadlift, type DeadliftPlan } from './today/Deadlift'
-import { ExercisePicker, Num, T, fmt, useClock, type Api } from './today/shared'
+import { DelBtn, ExercisePicker, Num, T, fmt, useClock, type Api } from './today/shared'
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 const DL_CYCLE_START = '2026-11-07'
@@ -116,8 +116,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
       if (error) { setErr(error.message); return }
       setSets(prev => prev.map(r => (r.id === id ? (data as SetRow) : r)))
     },
-    async deleteSet(id, ask = true) {
-      if (ask && !confirm('Delete this set?')) return
+    async deleteSet(id) {
       const { error } = await supabase.from('sets').delete().eq('id', id)
       if (error) { setErr(error.message); return }
       setSets(prev => prev.filter(r => r.id !== id))
@@ -293,7 +292,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
               <div><span className="small muted">{clock(session.started_at)} – {clock(session.ended_at)}</span>
                 <b className="elapsed">{fmt(Math.round((Date.parse(session.ended_at) - Date.parse(session.started_at)) / 1000))}</b></div>
               <button className="ghost small" data-tip="Keeps the original start time and clears the finish." data-pos="right" onClick={() => ensureSession({ ended_at: null })}>Resume</button>
-              <button className="ghost small" data-tip="Clears start and finish times. Logged sets are kept." data-pos="right" onClick={() => confirm('Clear the start and finish times?') && ensureSession({ started_at: null, ended_at: null })}>Reset</button>
+              <DelBtn label="Reset" text="Reset" tip="Clears start and finish times. Logged sets are kept." onConfirm={() => ensureSession({ started_at: null, ended_at: null })} />
             </>
           )}
         </div>

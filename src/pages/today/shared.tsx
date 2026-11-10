@@ -75,3 +75,19 @@ export function ExercisePicker({ value, onChange, label = 'Exercise', className 
     </label>
   )
 }
+
+/**
+ * Delete in two taps instead of a browser confirm pop-up (browsers can silently block those):
+ * the first tap arms it ("Delete?"), a second tap within 3 s deletes.
+ */
+export function DelBtn({ onConfirm, label = 'Delete', text, tip }: { onConfirm: () => void; label?: string; text?: string; tip?: string }) {
+  const [armed, setArmed] = useState(false)
+  useEffect(() => { if (!armed) return; const t = setTimeout(() => setArmed(false), 3000); return () => clearTimeout(t) }, [armed])
+  return (
+    <button type="button" className={(text ? 'ghost small del' : 'x') + (armed ? ' armed' : '')} aria-label={armed ? `Tap again to ${label.toLowerCase()}` : label}
+      data-tip={armed ? 'Tap again to confirm' : tip} data-pos="right"
+      onClick={() => { if (armed) { setArmed(false); onConfirm() } else setArmed(true) }}>
+      {armed ? `${label}?` : text ?? '×'}
+    </button>
+  )
+}

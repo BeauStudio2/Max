@@ -561,3 +561,11 @@ button.bandadd:hover { color: var(--text); border-color: var(--muted); }
 /* rest is its own right-aligned column; delete sits in a narrow column after it */
 table.sheet th.c-rest, table.sheet td.c-rest { text-align: right; white-space: nowrap; }
 table.sheet th.c-del, table.sheet td.c-del { width: 1%; padding-left: 2px; text-align: center; }
+button.x.armed, button.del.armed { color: #fff; background: var(--err); border-color: var(--err); font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 6px; width: auto; white-space: nowrap; }
+
+/* Profile → Tracker → Sessions (was the History tab) */
+.tracker h3.tsess { margin: 18px 0 6px; font-size: 14px; }
+.ttable tr.srow { cursor: pointer; }
+.ttable tr.srow:hover td, .ttable tr.srow.open td { background: color-mix(in srgb, var(--card) 85%, var(--line)); }
+.ttable tr.sdetail td { background: var(--bg); padding: 8px 10px 12px; white-space: normal; }
+@media (max-width: 760px) { .ttable .t-opt { display: none; } .ttable tr.sdetail td { padding: 8px 6px; } }

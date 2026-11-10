@@ -6,7 +6,7 @@ import { CLAMPS, CHAIN_CLAMP, setupOf, type Ladder } from './Ladder'
 import { type DeadliftCtl, type PullRowDef } from './Deadlift'
 import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
-import { fmt, useClock, type Api } from './shared'
+import { DelBtn, fmt, useClock, type Api } from './shared'
 
 export type Placement = 'between' | 'first' | 'after'
 const n0 = (v: unknown) => (v === null || v === undefined || v === '' ? 0 : Number(v))
@@ -400,7 +400,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
       <ChainCells half={setup.chain_half} big={setup.chain_5_8} onSet={hasBar && L.plan.chains_ok ? setChain : undefined} />
       <td className="c-band"><BandEditor bands={setup.bands ?? []} onChange={bb => setSet({ ...setup, bands: bb })} /></td>
       <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}</td>
-      <td className="c-del">{logged && <button className="x" onClick={() => api.deleteSet(r!.id!)} aria-label="Delete set" data-tip="Delete this logged set" data-pos="right">×</button>}</td>
+      <td className="c-del">{logged && <DelBtn tip="Delete this logged set" onConfirm={() => api.deleteSet(r!.id!)} />}</td>
     </tr>
     {more && (
       <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
@@ -413,7 +413,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
           <label className="wide">Bands per side<BandEditor bands={setup.bands ?? []} onChange={bb => setSet({ ...setup, bands: bb })} /></label>
           {exp !== null && <span className="small muted">Goal {goal} · expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
           {r?.rest_s ? <span className="small muted">Rest {fmt(r.rest_s)}</span> : null}
-          {logged && <button className="ghost small" onClick={() => api.deleteSet(r!.id!)}>Delete set</button>}
+          {logged && <DelBtn text="Delete set" onConfirm={() => api.deleteSet(r!.id!)} />}
         </div>
       </td></tr>
     )}
@@ -473,7 +473,7 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
       <ChainCells half={0} big={0} />
       <td className="c-band"><BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }) }} /></td>
       <td className="num c-rest" />
-      <td className="c-del">{r && <button className="x" onClick={() => D.api.deleteSet(r.id!)} aria-label="Delete set" data-tip="Delete this logged set" data-pos="right">×</button>}</td>
+      <td className="c-del">{r && <DelBtn tip="Delete this logged set" onConfirm={() => D.api.deleteSet(r.id!)} />}</td>
     </tr>
     {more && (
       <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
@@ -539,7 +539,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
         <ChainCells half={0} big={0} />
         <td className="c-band"><BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }) }} /></td>
         <td className="num muted c-rest">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}</td>
-        <td className="c-del">{r && <button className="x" onClick={() => api.deleteSet(r.id!)} aria-label="Delete set" data-tip="Delete this logged set" data-pos="right">×</button>}</td>
+        <td className="c-del">{r && <DelBtn tip="Delete this logged set" onConfirm={() => api.deleteSet(r.id!)} />}</td>
       </tr>
       {open && (
         <tr className="morerow"><td className="stick" /><td colSpan={C.span}>
@@ -642,7 +642,7 @@ function SupportTr({ slot, S, api, inline }: { slot: SupportSlot; S: SupportCtl;
           <label data-tip="Number of drops after the start weight.">Drops{field('drops')}</label>
           <label className="grow">Note{note}</label>
           <span className="nowrap"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} data-tip="Add another set of this exercise" data-pos="right" aria-label="Another set">+</button>
-            <button className="x" onClick={() => S.remove(slot)} aria-label="Remove" data-tip="Remove this exercise or set" data-pos="right">×</button></span>
+            <DelBtn label="Remove" tip="Remove this exercise or set" onConfirm={() => S.remove(slot)} /></span>
         </div>
       </td>
     </tr>
@@ -664,7 +664,7 @@ function SupportTr({ slot, S, api, inline }: { slot: SupportSlot; S: SupportCtl;
         <td className="c-exp">{field('step')}</td><td className="c-exp">{field('drops')}</td>
         <td className="c-side">{note}</td>
         <td className="nowrap c-rest"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} data-tip="Add another set of this exercise" data-pos="right" aria-label="Another set">+</button>
-          <button className="x" onClick={() => S.remove(slot)} aria-label="Remove" data-tip="Remove this exercise or set" data-pos="right">×</button></td>
+          <DelBtn label="Remove" tip="Remove this exercise or set" onConfirm={() => S.remove(slot)} /></td>
       </tr>
       {more && (
         <tr className="morerow"><td className="stick" /><td colSpan={9}>
@@ -673,7 +673,7 @@ function SupportTr({ slot, S, api, inline }: { slot: SupportSlot; S: SupportCtl;
             <label>Step{field('step')}</label><label>Drops{field('drops')}</label>
             <label className="grow">Note{note}</label>
             <button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex}>+ set</button>
-            <button className="ghost small" onClick={() => S.remove(slot)}>Remove</button>
+            <DelBtn label="Remove" text="Remove" onConfirm={() => S.remove(slot)} />
           </div>
         </td></tr>
       )}

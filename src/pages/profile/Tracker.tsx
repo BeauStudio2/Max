@@ -1,9 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { supabase } from '../../supabase'
+import { useStore } from '../../lib/store'
+import { T } from '../today/shared'
+import { setupOf } from '../today/Ladder'
+import type { Equipment } from '../../lib/types'
+
+/** What was on the bar, like the Log's lb column: plates + bar + clamps (chains and bands not included). */
+export function onBar(x: { weight_lb: any; setup?: any }, eq: Equipment[]) {
+  if (x.weight_lb == null) return null
+  const s = setupOf(x as any)
+  const w = (n: string) => Number(eq.find(e => e.name === n)?.weight_lb ?? 0)
+  return Number(x.weight_lb) + (s.bar ? w(s.bar) + w(s.clamp) : 0)
+}
 import { round } from '../../lib/load'
 
 export type TLift = 'bench' | 'squat' | 'deadlift'
 /** One session, as a row on the sheet's Tracker tab. */
 export interface TrackRow {
+  id?: string; notes?: string | null; excludeReason?: string | null
   d: string; lift: TLift; variant?: string | null
   set1?: number | null; set1Reps?: number | null; rpe?: number | null
   est: number | null; planned: number | null
@@ -55,7 +69,7 @@ export default function Tracker({ rows, rhr, hrv, sleep, bodyweight, fallback }:
   const [ref, W] = useWidth()
   const [hover, setHover] = useState<number | null>(null)
   const [range, setRange] = useState<'30' | '90' | 'all'>('90')
-  const [table, setTable] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)
 
   const all = [...rows.map(r => r.d), ...rhr.map(p => p.d), ...hrv.map(p => p.d), ...sleep.map(p => p.d)].sort()
   const end = all.length ? Math.max(t(all.at(-1)!), t(new Date().toISOString().slice(0, 10))) : t(new Date().toISOString().slice(0, 10))
@@ -140,7 +154,6 @@ export default function Tracker({ rows, rhr, hrv, sleep, bodyweight, fallback }:
         <h2 style={{ margin: 0 }}>Tracker</h2>
         <div className="seg" role="group" aria-label="Time range">
           {(['30', '90', 'all'] as const).map(k => <button key={k} className={range === k ? 'on' : ''} onClick={() => setRange(k)}>{k === 'all' ? 'All' : `${k} d`}</button>)}
-          <button className={table ? 'on' : ''} onClick={() => setTable(v => !v)}>Table</button>
         </div>
       </div>
 
@@ -231,21 +244,74 @@ export default function Tracker({ rows, rhr, hrv, sleep, bodyweight, fallback }:
         <span><svg width="10" height="10"><circle cx="5" cy="5" r="3.5" className="tdot hollow legend" /></svg>excluded</span>
       </div>
 
-      {table && (
-        <div className="tablewrap"><table className="sheet cfg ttable">
-          <thead><tr><th className="stick">Date</th><th>Lift</th><th>Set 1</th><th>Est max</th><th>Planned</th><th>Fatigue used</th><th>Fit</th><th>Sets</th><th>Volume</th><th>Status</th></tr></thead>
-          <tbody>{[...rows].reverse().map(r => (
-            <tr key={r.d + r.lift} className={r.excluded ? 'muted' : ''}>
-              <td className="stick">{md(r.d)}</td><td>{NAME[r.lift]}{r.variant ? <div className="sub2">{r.variant}</div> : null}</td>
-              <td className="num">{r.set1 ? `${round(r.set1, 1)} × ${r.set1Reps ?? ''}${r.rpe ? ` @${r.rpe}` : ''}` : ''}</td>
-              <td className="num">{r.est ? round(r.est) : ''}</td><td className="num">{r.planned ? round(r.planned) : ''}</td>
-              <td className="num">{r.fatigueUsed !== null ? `${r.fatigueUsed}%` : ''}</td><td className="num">{r.fatigueFit !== null ? `${r.fatigueFit.toFixed(1)}%` : ''}</td>
-              <td className="num">{r.sets || ''}</td><td className="num">{r.volume ? Math.round(r.volume).toLocaleString() : ''}</td>
-              <td className="small">{r.sick ? 'sick ' : ''}{r.hurt ?? ''}{r.excluded && !r.sick && !r.hurt ? 'excluded' : ''}</td>
-            </tr>
-          ))}</tbody>
-        </table></div>
-      )}
+      <h3 className="tsess"><T tip="Every session, newest first. Tap one to see its sets.">Sessions</T></h3>
+      {rows.length === 0 && <p className="muted small">Nothing logged yet.</p>}
+      <div className="tablewrap"><table className="sheet cfg ttable">
+        <thead><tr><th className="stick">Date</th><th>Lift</th><th className="num">Set 1</th><th className="num">Est max</th><th className="num t-opt">Planned</th>
+          <th className="num t-opt">Fatigue used</th><th className="num t-opt">Fit</th><th className="num">Sets</th><th className="num t-opt">Volume</th><th>Status</th></tr></thead>
+        <tbody>{[...rows].reverse().map(r => {
+          const k = r.id ?? r.d + r.lift
+          const isOpen = open === k
+          return (
+            <Fragment key={k}>
+              <tr className={'srow' + (r.excluded ? ' muted' : '') + (isOpen ? ' open' : '')} onClick={() => setOpen(isOpen ? null : k)} tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter') setOpen(isOpen ? null : k) }} aria-expanded={isOpen}>
+                <td className="stick">{md(r.d)} <span className="muted">{isOpen ? '▴' : '▾'}</span></td>
+                <td><span className={'key ' + r.lift} />{NAME[r.lift]}{r.variant ? <div className="sub2">{r.variant}</div> : null}</td>
+                <td className="num">{r.set1 ? `${Math.round(r.set1 * 10) / 10} × ${r.set1Reps ?? ''}${r.rpe ? ` @${r.rpe}` : ''}` : ''}</td>
+                <td className="num"><b>{r.est ? round(r.est) : ''}</b></td><td className="num t-opt">{r.planned ? round(r.planned) : ''}</td>
+                <td className="num t-opt">{r.fatigueUsed !== null ? `${r.fatigueUsed}%` : ''}</td><td className="num t-opt">{r.fatigueFit !== null ? `${r.fatigueFit.toFixed(1)}%` : ''}</td>
+                <td className="num">{r.sets || ''}</td><td className="num t-opt">{r.volume ? Math.round(r.volume).toLocaleString() : ''}</td>
+                <td>{r.sick && <span className="tag sick">sick</span>}{r.hurt && <span className="tag hurt">injury</span>}{r.excludeReason && <span className="tag hurt">excluded</span>}</td>
+              </tr>
+              {isOpen && <tr className="sdetail"><td colSpan={10}><SessionSets r={r} rhr={rhr} hrv={hrv} sleep={sleep} /></td></tr>}
+            </Fragment>
+          )
+        })}</tbody>
+      </table></div>
     </section>
+  )
+}
+
+/** One session's sets (heavy, speed, deadlift, support), its notes and that day's recovery numbers. */
+function SessionSets({ r, rhr, hrv, sleep }: { r: TrackRow; rhr: DayVal[]; hrv: DayVal[]; sleep: DayVal[] }) {
+  const { exercises, equipment } = useStore()
+  const [sets, setSets] = useState<any[] | null>(null)
+  useEffect(() => {
+    if (!r.id) { setSets([]); return }
+    supabase.from('set_estimates').select('*').eq('session_id', r.id).order('block').order('set_index').then(({ data }) => setSets(data ?? []))
+  }, [r.id])
+  const name = (id: string) => exercises.find(e => e.id === id)?.name ?? '?'
+  const day = (pts: DayVal[]) => pts.find(p => p.d === r.d)?.v
+  const g = [day(sleep) && `sleep ${day(sleep)!.toFixed(1)} h`, day(hrv) && `HRV ${day(hrv)}`, day(rhr) && `RHR ${day(rhr)}`].filter(Boolean)
+  const blocks: [string, string][] = [['primary', 'Heavy'], ['deadlift', 'Deadlift'], ['speed', 'Speed'], ['support', 'Support']]
+  return (
+    <div className="detail">
+      {r.hurt && <p className="small"><b>Injury:</b> {r.hurt}</p>}
+      {r.excludeReason && <p className="small"><b>Excluded:</b> {r.excludeReason}</p>}
+      {r.notes && <p className="small">{r.notes}</p>}
+      {g.length > 0 && <p className="small muted">{g.join(' · ')}</p>}
+      {!sets ? <p className="muted small">Loading…</p> : !sets.length ? <p className="muted small">No sets logged.</p> : blocks.map(([b, label]) => {
+        const s = sets.filter(x => x.block === b)
+        if (!s.length) return null
+        return (
+          <div key={b}>
+            <p className="small"><b>{label}</b></p>
+            {b === 'support' ? (
+              <ul className="plain small">{s.map(x => (
+                <li key={x.id}>{name(x.exercise_id)}: {x.start_weight_lb ?? '—'} lb{x.reps ? ` × ${x.reps}` : ''}{x.scheme ? ` (${x.scheme})` : ''}{x.notes ? ` · ${x.notes}` : ''}</li>
+              ))}</ul>
+            ) : (
+              <p className="chips">{s.map(x => (
+                <span key={x.id} className="chip" title={name(x.exercise_id)}>
+                  {x.weight_lb != null ? `${Math.round((b === 'primary' ? onBar(x, equipment)! : Number(x.weight_lb)) * 10) / 10}×` : ''}{x.reps ?? ''}{x.assisted ? 'A' : ''}{x.failed ? 'F' : ''}{x.rpe ? ` @${x.rpe}` : ''}
+                  {b !== 'speed' && x.e1rm_lb ? <em> {round(Number(x.e1rm_lb))}</em> : null}
+                </span>
+              ))}</p>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }

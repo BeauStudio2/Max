@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
 import { CellText } from './today/Sheet'
+import { DelBtn } from './today/shared'
 import { e1rmFromRpe, fitFatigue, localDate, round } from '../lib/load'
-import Tracker, { type TrackRow, type TLift } from './profile/Tracker'
+import Tracker, { onBar, type TrackRow, type TLift } from './profile/Tracker'
 
 interface Metric { metric: string; label: string; unit: string; grp: string; sort: number; derived: boolean }
 interface Point { d: string; v: number; x?: boolean; id?: string; src?: string }
@@ -11,7 +12,7 @@ interface Point { d: string; v: number; x?: boolean; id?: string; src?: string }
 const DAY = 86400000
 
 export default function Profile({ lifterId }: { lifterId: string }) {
-  const { lifters, exercises } = useStore()
+  const { lifters, exercises, equipment } = useStore()
   const lifter = lifters.find(l => l.id === lifterId)
   const [catalog, setCatalog] = useState<Metric[]>([])
   const [series, setSeries] = useState<Record<string, Point[]>>({})
@@ -24,7 +25,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
     const [cat, bm, ss, gd] = await Promise.all([
       supabase.from('metric_catalog').select('*').order('sort'),
       supabase.from('body_metrics').select('*').eq('lifter_id', lifterId).order('measured_on'),
-      supabase.from('sessions').select('id, session_date, primary_lift, sick, hurt, exclude_reason, bodyweight_lb, planned').eq('lifter_id', lifterId).order('session_date'),
+      supabase.from('sessions').select('id, session_date, primary_lift, sick, hurt, exclude_reason, bodyweight_lb, planned, notes').eq('lifter_id', lifterId).order('session_date'),
       supabase.from('garmin_daily').select('*').eq('lifter_id', lifterId).order('day'),
     ])
     const e = [cat, bm, ss, gd].find(r => r.error)?.error
@@ -58,7 +59,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
         if (best) push('e1rm_deadlift', { d: s.session_date, v: best, x })
         const top = tops.sort((a, b) => Number(b.weight_lb) - Number(a.weight_lb))[0]
         const pulls = mine.filter(r => r.block === 'deadlift' && r.weight_lb && r.reps)
-        trows.push({ d: s.session_date, lift: 'deadlift', variant: s.planned?.heavy_exercise ?? null, set1: top ? Number(top.weight_lb) : null, set1Reps: top?.reps ?? null, rpe: top?.rpe ?? null,
+        trows.push({ id: s.id, notes: s.notes, excludeReason: s.exclude_reason?.trim() || null, d: s.session_date, lift: 'deadlift', variant: s.planned?.heavy_exercise ?? null, set1: top ? Number(top.weight_lb) : null, set1Reps: top?.reps ?? null, rpe: top?.rpe ?? null,
           est: best ?? null, planned: s.planned?.planned_top_lb ?? null, fatigueUsed: null, fatigueFit: null, sets: pulls.length,
           volume: pulls.reduce((t, r) => t + Number(r.weight_lb) * (r.reps ?? 0), 0), sick: !!s.sick, hurt: s.hurt?.trim() || null, excluded: x })
         continue
@@ -73,8 +74,8 @@ export default function Profile({ lifterId }: { lifterId: string }) {
       if (lift === 'bench' || lift === 'squat') {
         const main = mine.filter(r => r.block === 'primary' && (!mainId || r.exercise_id === mainId))
         const first = main[0]
-        trows.push({ d: s.session_date, lift, variant: s.planned?.heavy_exercise && s.planned.heavy_exercise !== (lift === 'bench' ? 'Bench Press' : 'Squat') ? s.planned.heavy_exercise : null,
-          set1: first?.effective_load_lb != null ? Number(first.effective_load_lb) : null, set1Reps: first?.reps ?? null, rpe: null,
+        trows.push({ id: s.id, notes: s.notes, excludeReason: s.exclude_reason?.trim() || null, d: s.session_date, lift, variant: s.planned?.heavy_exercise && s.planned.heavy_exercise !== (lift === 'bench' ? 'Bench Press' : 'Squat') ? s.planned.heavy_exercise : null,
+          set1: first ? onBar(first, equipment) : null, set1Reps: first?.reps ?? null, rpe: null,
           est: prim[0] ?? null, planned: s.planned?.planned_e1rm ?? null, fatigueUsed: s.planned?.fatigue_rate_used_pct ?? null,
           fatigueFit: fit && fit.ratePct > 0 ? fit.ratePct : null, sets: main.filter(r => r.reps !== null).length,
           volume: main.reduce((t, r) => t + volOf(r), 0), sick: !!s.sick, hurt: s.hurt?.trim() || null, excluded: x })
@@ -311,7 +312,6 @@ function Detail({ m, pts, lifterId, onChange }: { m: Metric; pts: Point[]; lifte
     if (error) alert(error.message); else { setV(''); onChange() }
   }
   async function del(id: string) {
-    if (!confirm('Delete this entry?')) return
     const { error } = await supabase.from('body_metrics').delete().eq('id', id)
     if (error) alert(error.message); else onChange()
   }
@@ -332,7 +332,7 @@ function Detail({ m, pts, lifterId, onChange }: { m: Metric; pts: Point[]; lifte
         {[...pts].reverse().map((p, i) => (
           <li key={p.id ?? p.d + i}>
             {p.d} · <b>{round(p.v, dp)}</b> {m.unit}{p.x ? ' · sick/injury' : ''}{p.src && p.src !== 'app' ? <span className="muted"> · {p.src.replace('_', ' ')}</span> : null}
-            {p.id && !m.derived && <button className="x" onClick={() => del(p.id!)} aria-label="Delete entry">×</button>}
+            {p.id && !m.derived && <DelBtn tip="Delete this entry" onConfirm={() => del(p.id!)} />}
           </li>
         ))}
       </ul>
