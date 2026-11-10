@@ -310,9 +310,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
 function Status({ session, save }: { session: Session | null; save: (p: Partial<Session>) => Promise<Session | null> }) {
   const [hurt, setHurt] = useState(session?.hurt ?? '')
   const [notes, setNotes] = useState(session?.notes ?? '')
-  const [bw, setBw] = useState(session?.bodyweight_lb?.toString() ?? '')
   useEffect(() => {
-    setHurt(session?.hurt ?? ''); setNotes(session?.notes ?? ''); setBw(session?.bodyweight_lb?.toString() ?? '')
+    setHurt(session?.hurt ?? ''); setNotes(session?.notes ?? '')
   }, [session?.id])
   const [excl, setExcl] = useState(session?.exclude_reason ?? '')
   useEffect(() => setExcl(session?.exclude_reason ?? ''), [session?.id])
@@ -324,10 +323,6 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
         <label className="grow">Injury (describe)
           <input value={hurt} placeholder="blank = no injury" onChange={e => setHurt(e.target.value)}
             onBlur={() => hurt !== (session?.hurt ?? '') && save({ hurt: hurt.trim() || null })} />
-        </label>
-        <label className="narrow">Body wt
-          <input inputMode="decimal" value={bw} onChange={e => setBw(e.target.value)}
-            onBlur={() => bw !== (session?.bodyweight_lb?.toString() ?? '') && save({ bodyweight_lb: bw ? Number(bw) : null })} />
         </label>
       </div>
       <label>Exclude for another reason (blank = count it)
@@ -347,8 +342,12 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
 function SessionStats({ session, sets, volume, bwDefault, lifterId, date }: { session: Session | null; sets: SetRow[]; volume: number | null; bwDefault: number | null; lifterId?: string; date: string }) {
   const { cfg } = useStore()
   const [prev, setPrev] = useState<{ at: string; date: string } | null>(null)
+  const [profileBw, setProfileBw] = useState<number | null>(null)
   useEffect(() => {
     if (!lifterId) return
+    // Bodyweight lives on Profile: the latest entry on or before this date.
+    supabase.from('body_metrics').select('value').eq('lifter_id', lifterId).eq('metric', 'bodyweight').lte('measured_on', date)
+      .order('measured_on', { ascending: false }).limit(1).then(({ data }) => setProfileBw(data?.[0] ? Number(data[0].value) : null))
     supabase.from('sessions').select('session_date, started_at, ended_at').eq('lifter_id', lifterId).lt('session_date', date)
       .order('session_date', { ascending: false }).limit(1)
       .then(({ data }) => { const r = data?.[0]; setPrev(r ? { at: r.ended_at ?? r.started_at ?? r.session_date + 'T12:00:00', date: r.session_date } : null) })
@@ -356,7 +355,7 @@ function SessionStats({ session, sets, volume, bwDefault, lifterId, date }: { se
   const reps = sets.reduce((t, s) => t + (s.reps ?? 0), 0)
   const timed = session?.started_at ? ((session.ended_at ? Date.parse(session.ended_at) : Date.now()) - Date.parse(session.started_at)) / 60000 : null
   const minutes = timed ?? (reps ? (reps * (cfg.seconds_per_rep ?? 4)) / 60 : null)
-  const bw = session?.bodyweight_lb ?? bwDefault
+  const bw = profileBw ?? session?.bodyweight_lb ?? bwDefault
   const kcal = minutes && bw ? (cfg.met ?? 6) * (bw / 2.2046) * (minutes / 60) : null
   const startMs = session?.started_at ? Date.parse(session.started_at) : null
   const since = prev ? ((startMs ?? Date.now()) - Date.parse(prev.at)) / 3600000 : null
