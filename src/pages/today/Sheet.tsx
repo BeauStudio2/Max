@@ -7,8 +7,8 @@ import { type DeadliftCtl, type PullRowDef } from './Deadlift'
 import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
-import TindeqPanel from './TindeqPanel'
-import { endLevel, predictSet, restFor, startLevel, strengthAt, crOf, type Pulse } from '../../lib/creatine'
+import TindeqPanel, { type Tempo } from './TindeqPanel'
+import { endLevel, fitSession, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
 import { DelBtn, fmt, useClock, type Api } from './shared'
 
 export type Placement = 'between' | 'first' | 'after'
@@ -130,7 +130,7 @@ export const bandColor = (name: string) => BAND_COLORS.find(([re]) => re.test(na
 const bandShort = (name: string) => BAND_COLORS.find(([re]) => re.test(name))?.[2] ?? name.replace('Rogue band ', '').slice(0, 4)
 
 interface Cols { chains: boolean; span: number; allBands: Equipment[] }
-const CaptureCtx = createContext<{ id: number; pulses: Pulse[] } | null>(null)
+const CaptureCtx = createContext<{ id: number; pulses: Pulse[]; tempo: Tempo } | null>(null)
 const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v))
 const ColsCtx = createContext<Cols>({ chains: false, span: 12, allBands: [] })
 
@@ -200,10 +200,10 @@ function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: bo
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, speedMax = {}, supportMax = {}, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, speedMax = {}, supportMax = {}, S, circuit, onCircuit }: {
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; order: Block[]; joins: boolean[]; running?: boolean; onPlannedMax?: (v: number | null) => void
-  speedMax?: Record<string, number>; supportMax?: Record<string, number>
+  speedMax?: Record<string, number>; supportMax?: Record<string, number>; onApplyFit?: (patch: Record<string, number>) => void
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
   const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
@@ -255,7 +255,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
   const rest = useClock(running ? lastMain?.created_at : null)
   // Auto spotter: rest is the time for creatine to refill from where the last set ended to the recovery target.
-  const [capture, setCapture] = useState<{ id: number; pulses: Pulse[] } | null>(null)
+  const [capture, setCapture] = useState<{ id: number; pulses: Pulse[]; tempo: Tempo } | null>(null)
   const spotMode = !!L?.plan.spotter
   const lastSpot = lastMain?.setup?.spot?.on ? lastMain : null
   const crRest = (() => {
@@ -269,6 +269,18 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     return { seconds: Math.round(restFor(Pend, L.cr)), Pend }
   })()
   const restTarget = crRest ? crRest.seconds : restS
+  // What today's spotter sets say about the model, against the numbers in use.
+  const fit = (() => {
+    if (!L) return null
+    const ss: SpotSet[] = L.logged.map((r, i) => ({ r, i })).filter(x => x.r.setup?.spot?.on).map(({ r, i }) => {
+      const t = totals(r.weight_lb, setupOf(r), equipment)
+      const pulses: Pulse[] = r.setup.spot.pulses ?? []
+      return { idx: r.set_index, load: t.bottom !== null && t.top !== null ? (t.bottom + t.top) / 2 : 0, e1rm: L.actual[i], unaided: r.reps ?? 0,
+        spotted: r.setup.spot.spotted ?? pulses.length, assists: pulses.map(p => p.mean), rest_s: r.rest_s ?? null }
+    })
+    if (!ss.length) return null
+    return fitSession(ss, L.cr, L.plan.fatigue_rate_used_pct / 100)
+  })()
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
 
   // Circuit time: what you entered, or first to last set of the circuit.
@@ -292,7 +304,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
         </label>
         <Metronome />
-        {spotMode && <TindeqPanel onCapture={pulses => setCapture({ id: Date.now(), pulses })} />}
+        {spotMode && <TindeqPanel onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
       <div className="tablewrap">
@@ -328,6 +340,15 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         </table>
         </ColsCtx.Provider></CaptureCtx.Provider>
       </div>
+      {fit && (fit.cost !== null || fit.half_s !== null) && (
+        <p className="small fitline">
+          <span className="hastip" data-tip="Fitted from today's spotter sets. Rep cost needs Tindeq readings (how fast strength falls rep to rep). Recovery half-time comes from how much strength returned over each rest." data-pos="left">Model check</span>:
+          {fit.half_s !== null && <> recovery half-time <b>{Math.round(fit.half_s)} s</b> from {fit.halfN} rest{fit.halfN > 1 ? 's' : ''} (using {Math.round(L!.cr.half_s)} s)
+            {' '}{Math.round(fit.half_s) !== Math.round(L!.cr.half_s) && <button className="linkish" onClick={() => onApplyFit?.({ half_s: Math.round(fit.half_s!) })} data-tip="Save this as the lifter's half-time for this lift; later sessions plan with it." data-pos="center">use it</button>}</>}
+          {fit.cost !== null && <>{fit.half_s !== null ? ' · ' : ' '}creatine per rep <b>{(fit.cost * 100).toFixed(1)}%</b> from {fit.costN} set{fit.costN > 1 ? 's' : ''} (using {(L!.cr.cost * 100).toFixed(1)}%)
+            {' '}{Math.round(fit.cost * 1000) !== Math.round(L!.cr.cost * 1000) && <button className="linkish" onClick={() => onApplyFit?.({ cost: Math.round(fit.cost! * 1000) / 1000 })} data-tip="Save this as the lifter's rep cost for this lift." data-pos="center">use it</button>}</>}
+        </p>
+      )}
       <p className="small muted sheetfoot">
         Grey rows are the plan; type reps in one to log it. {L?.floor ? `Stop line ${round(L.floor)}. ` : ''}
         {L?.fit ? `Fatigue ${L.fit.ratePct.toFixed(2)}%/set` : ''}{perMin ? ` · ${perMin.toFixed(2)}%/min over ${minutes} min, ${mainCount} sets` : ''}
@@ -356,6 +377,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const [spotted, setSpotted] = useState<string>(r?.setup?.spot?.spotted?.toString() ?? '')
   const [assist, setAssist] = useState<string>(r?.setup?.spot?.assist_lb?.toString() ?? '')
   const [trace, setTrace] = useState<Pulse[] | null>(r?.setup?.spot?.pulses ?? null)
+  const [tempo, setTempo] = useState<Tempo | null>(r?.setup?.spot?.tempo ?? null)
   useEffect(() => { if (!r) setSp(L.plan.spotter) }, [L.plan.spotter])
   // Plates typed into the columns, kept as entered until the set is logged (then they're saved on the set).
   const [manual, setManual] = useState<number[] | null>(null)
@@ -379,7 +401,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
   const below = L.floor !== null && est !== null && est < L.floor
 
-  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null }) {
+  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null }) {
     const s = patch.setup ?? setup, pl = patch.plates !== undefined ? patch.plates : plates
     // The plates actually loaded: as typed, else the planned stack when the weight still matches, else the kept plates plus change.
     const sumSt = (st: number[]) => st.reduce((t, p) => t + p, 0) * 2
@@ -391,7 +413,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
       setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [],
         stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null),
-        spot: (patch.sp ?? sp) ? { on: true, spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined } : null } }
+        spot: (patch.sp ?? sp) ? { on: true, spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined, tempo: (patch.tempo !== undefined ? patch.tempo : tempo) ?? undefined } : null } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
@@ -410,8 +432,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   useEffect(() => {
     if (!cap || !next || !sp || !cap.pulses.length) return
     const n = String(cap.pulses.length), avg = String(Math.round((cap.pulses.reduce((t, x) => t + x.mean, 0) / cap.pulses.length) * 10) / 10)
-    setSpotted(n); setAssist(avg); setTrace(cap.pulses)
-    if (r) commit({ spotted: n, assist: avg, trace: cap.pulses })
+    setSpotted(n); setAssist(avg); setTrace(cap.pulses); setTempo(cap.tempo)
+    if (r) commit({ spotted: n, assist: avg, trace: cap.pulses, tempo: cap.tempo })
   }, [cap?.id])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)

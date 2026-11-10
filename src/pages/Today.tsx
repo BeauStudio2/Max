@@ -24,7 +24,7 @@ const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
 export default function Today({ lifterId }: { lifterId: string }) {
-  const { templates, lifters, exercises } = useStore()
+  const { templates, lifters, exercises, reload } = useStore()
   const lifter = lifters.find(l => l.id === lifterId)
   const st = lifter?.settings ?? {}
   const [date, setDate] = useState(localDate())
@@ -164,6 +164,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     max_sets: pick(sp.max_sets) ?? null,
     set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
     spotter: pick(sp.spotter, f.spotter, H.spotter) ?? false,
+    cr: st.creatine?.[lift],
   }
 
   const dlWeek = (() => {
@@ -183,7 +184,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
   ladderPlanRef.current = ladderPlan
   dlPlanRef.current = dlPlan
   // The exercise's own equipment (bar, chains, load) is looked up each time, not frozen into the session plan.
-  const strip = ({ bar, chains_ok, load, implement, ...rest }: Record<string, any>) => rest
+  const strip = ({ bar, chains_ok, load, implement, cr, ...rest }: Record<string, any>) => rest
+  // Fitted creatine numbers are the lifter's, per lift: saved on their settings so every later session uses them.
+  async function applyFit(patch: Record<string, number>) {
+    if (!lifter) return
+    const creatine = { ...(st.creatine ?? {}), [lift]: { ...(st.creatine?.[lift] ?? {}), ...patch } }
+    const { error } = await supabase.from('lifters').update({ settings: { ...st, creatine } }).eq('id', lifter.id)
+    if (error) setErr(error.message); else await reload()
+  }
   // Saving writes only what was edited, so everything else keeps following the Plan page.
   const own = () => (session?.planned ?? {}) as Record<string, any>
   const savePlan = (_base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
@@ -363,7 +371,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} speedMax={speedMax} supportMax={supportMax}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 

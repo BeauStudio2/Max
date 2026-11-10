@@ -3,7 +3,7 @@ import { useStore } from '../../lib/store'
 import { ALL_PLATES, e1rm, expectedReps, fitFatigue, round, roundTo, totals, effectiveLoad, keptFor, keptFromStored, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
 import { Num, T } from './shared'
-import { crOf, startLevel, strengthAt } from '../../lib/creatine'
+import { crOf, startLevel, strengthAt, type Cr } from '../../lib/creatine'
 
 export interface LadderPlan {
   planned_e1rm: number | null
@@ -33,6 +33,8 @@ export interface LadderPlan {
   max_sets: number | null
   /** Set 1 weight on the bar (plates); null = calculated. */
   set1_lb: number | null
+  /** This lifter's fitted creatine numbers for this lift, if any. */
+  cr?: Partial<Cr>
   /** Auto spotter mode: weights, reps and rest come from the creatine model. */
   spotter: boolean
 }
@@ -88,7 +90,8 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
 
   // Auto spotter: rep 1 is set at a fraction of strength at the start of the set (creatine at the recovery target after set 1).
   // The target max comes from the last measured set, which was taken at that set's own starting level.
-  const cr = crOf(cfg)
+  // This lifter's fitted numbers for this lift (Profile settings) override the Config defaults.
+  const cr = { ...crOf(cfg), ...(plan.cr ?? {}) }
   const basis = logged.length ? startLevel(logged.at(-1)!.set_index, cr) : 1
   const weightFor = (target: number, s: LoadSetup, idx = 2) => {
     const needed = plan.spotter

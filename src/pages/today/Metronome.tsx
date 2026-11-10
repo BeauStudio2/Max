@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from 'react'
 const load = (k: string, d: number) => { try { const v = Number(localStorage.getItem(k)); return v > 0 ? v : d } catch { return d } }
 const store = (k: string, v: number) => { try { localStorage.setItem(k, String(v)) } catch { /* private mode: keep it in memory only */ } }
 
+/** What the click track is doing right now, for anything recording alongside it (seconds per rep, or null when it's off). */
+const live = { on: false, bpm: 60, per: 2 }
+export const metronomeRepSeconds = () => (live.on ? (live.per * 60) / live.bpm : null)
+
 /**
  * A click track for rep tempo. Beats are scheduled on the audio clock (not timers), so the tempo stays exact
  * even when the page is busy. The first beat of each rep is a higher click.
@@ -13,6 +17,8 @@ export default function Metronome() {
   const [per, setPer] = useState(() => load('max.metro.per', 2))
   const ctx = useRef<AudioContext | null>(null)
   const cfg = useRef({ bpm, per }); cfg.current = { bpm, per }
+  live.on = on; live.bpm = bpm; live.per = per
+  useEffect(() => () => { live.on = false }, [])
 
   useEffect(() => {
     if (!on) return

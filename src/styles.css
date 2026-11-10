@@ -625,3 +625,5 @@ button.flag.s.on { background: var(--accent); border-color: var(--accent); color
 .tindeq { display: flex; flex-direction: column; grid-column: 1 / -1; }
 .tindeq .tlb { min-width: 74px; font-variant-numeric: tabular-nums; }
 .tindeq .metrorow .switch { min-width: 0; }
+.fitline { margin: 8px 0 0; color: var(--text); }
+.fitline .linkish { font-size: 12px; }

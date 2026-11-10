@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { bluetoothAvailable, connectTindeq, type Tindeq } from '../../lib/tindeq'
 import { findPulses, type Pulse, type Sample } from '../../lib/creatine'
+import { metronomeRepSeconds } from './Metronome'
+
+/** Tempo of a recorded set: the metronome's seconds per rep (null if it was off) and the measured time from one spotted rep to the next. */
+export interface Tempo { beat_s: number | null; rep_s: number | null }
+const repGap = (p: Pulse[]) => { const g = p.slice(1).map((x, i) => x.start - p[i].start).sort((a, b) => a - b); return g.length ? g[Math.floor(g.length / 2)] : null }
 
 /**
  * The Tindeq in the spotter line: live assist force, tare, and Record for a set.
  * Stopping a recording finds each spotted rep (a pulse of assist) and hands them to the next set in the list.
  */
-export default function TindeqPanel({ onCapture }: { onCapture: (pulses: Pulse[]) => void }) {
+export default function TindeqPanel({ onCapture }: { onCapture: (pulses: Pulse[], tempo: Tempo) => void }) {
   const dev = useRef<Tindeq | null>(null)
   const buf = useRef<Sample[]>([])
   const recording = useRef(false)
@@ -14,6 +19,8 @@ export default function TindeqPanel({ onCapture }: { onCapture: (pulses: Pulse[]
   const [rec, setRec] = useState(false)
   const [lb, setLb] = useState(0)
   const [last, setLast] = useState<Pulse[] | null>(null)
+  const [tempo, setTempo] = useState<Tempo | null>(null)
+  const beat = useRef<number | null>(null)
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => () => dev.current?.disconnect(), [])
 
@@ -28,10 +35,12 @@ export default function TindeqPanel({ onCapture }: { onCapture: (pulses: Pulse[]
     } catch (e: any) { setState('off'); if (e?.name !== 'NotFoundError') setErr(e?.message ?? 'Could not connect') }
   }
   function toggleRec() {
-    if (!rec) { buf.current = []; recording.current = true; setRec(true); setLast(null); return }
+    if (!rec) { buf.current = []; recording.current = true; beat.current = metronomeRepSeconds(); setRec(true); setLast(null); return }
     recording.current = false; setRec(false)
     const pulses = findPulses(buf.current)
-    setLast(pulses); onCapture(pulses)
+    // The metronome may be switched on after Record is pressed; take whichever reading has it running.
+    const t: Tempo = { beat_s: beat.current ?? metronomeRepSeconds(), rep_s: repGap(pulses) }
+    setLast(pulses); setTempo(t); onCapture(pulses, t)
   }
 
   if (!bluetoothAvailable()) return (
@@ -50,7 +59,8 @@ export default function TindeqPanel({ onCapture }: { onCapture: (pulses: Pulse[]
             <button type="button" className="switch" onClick={() => dev.current?.disconnect()} aria-label="Disconnect Tindeq" data-tip="Disconnect" data-pos="right">×</button>
           </>}
       </div>
-      {last && <span className="small muted">{last.length ? `${last.length} spotted reps · avg ${Math.round(last.reduce((t, p) => t + p.mean, 0) / last.length)} lb · ${(last.reduce((t, p) => t + p.dur, 0) / last.length).toFixed(1)} s each` : 'no assist pulses found'}</span>}
+      {last && <span className="small muted">{last.length ? `${last.length} spotted reps · avg ${Math.round(last.reduce((t, p) => t + p.mean, 0) / last.length)} lb` : 'no assist pulses found'}
+        {last.length > 1 && tempo?.rep_s != null && <span className="hastip" data-tip="Time from the start of one spotted rep to the start of the next (middle value), against the metronome's time per rep when it was running." data-pos="right"> · {tempo.rep_s.toFixed(1)} s/rep{tempo.beat_s ? <> vs <span className={Math.abs(tempo.rep_s - tempo.beat_s) / tempo.beat_s > 0.15 ? 'down' : 'up'}>{tempo.beat_s.toFixed(1)} s</span> beat</> : ''}</span>}</span>}
       {err && <span className="small err">{err}</span>}
     </div>
   )
