@@ -24,7 +24,7 @@ export default function History({ lifterId }: { lifterId: string }) {
   const best = good.reduce((m, p) => Math.max(m, p.v), 0)
 
   return (
-    <div className="stack">
+    <div className="stack history">
       <section className="card">
         <div className="seg">
           {LIFTS.map(l => <button key={l} className={l === lift ? 'on' : ''} onClick={() => setLift(l)}>{l}</button>)}

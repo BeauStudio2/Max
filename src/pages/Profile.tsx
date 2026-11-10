@@ -69,7 +69,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
   const byGroup = useMemo(() => GROUPS.map(g => ({ g, items: catalog.filter(m => m.grp === g) })), [catalog])
 
   return (
-    <div className="stack">
+    <div className="stack cols profile">
       <section className="card">
         <div className="row between">
           <h2 style={{ margin: 0 }}>{lifter?.name ?? 'Profile'}</h2>

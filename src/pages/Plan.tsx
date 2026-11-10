@@ -8,7 +8,7 @@ export default function Plan({ lifterId }: { lifterId: string }) {
   const date = localDate()
   const today = new Date().getDay()
   return (
-    <div className="stack">
+    <div className="stack cols">
       {DAYS.map(wd => {
         const t = templateFor(templates, lifterId, wd, '9999-12-31')
         if (!t) return null

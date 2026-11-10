@@ -191,7 +191,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const [planOpen, setPlanOpen] = useState(false)
 
   return (
-    <div className="stack">
+    <div className="stack today">
       <section className="card">
         <div className="row wrap">
           <label className="grow">Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>

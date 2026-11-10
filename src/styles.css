@@ -250,3 +250,41 @@ td.wrapcell { white-space: normal; min-width: 220px; }
 .top { z-index: 40; }
 .tabs { z-index: 50; }
 .sheetbar { top: 69px; padding-top: 8px; }
+
+/* ---------- responsive: use the whole screen on tablets and desktops ---------- */
+.app { max-width: none; }
+main { max-width: 1680px; margin: 0 auto; }
+
+@media (min-width: 900px) {
+  /* Tabs move up into the top bar; no bottom bar on big screens. */
+  .app { padding-bottom: 24px; }
+  .top { padding: 12px 24px; }
+  .lifter, .lifter-name { margin-left: 16px; width: auto; min-width: 180px; }
+  .tabs { top: 0; bottom: auto; left: auto; right: 24px; height: 69px; padding: 0; background: none; border-top: 0; align-items: center; gap: 6px; }
+  .tabs button { flex: 0 0 auto; padding: 10px 16px; font-size: 15px; }
+  main { padding: 20px 24px; }
+  .sheetbar { top: 69px; }
+
+  /* Pages with independent cards flow into columns. */
+  .stack.cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); align-items: start; }
+  .stack.cols > :first-child:not(.card), .stack.cols > p { grid-column: 1 / -1; }
+  .stack.history { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 1.2fr); align-items: start; }
+  .stack.history > section:first-child { position: sticky; top: 85px; }
+  .config table.sheet td.wrapcell { min-width: 360px; }
+}
+
+@media (min-width: 1100px) {
+  /* Log: session controls and plan on the left, the set table filling the rest. */
+  .stack.today { display: grid; grid-template-columns: 380px minmax(0, 1fr); align-items: start; column-gap: 16px; }
+  .stack.today > * { grid-column: 1; }
+  .stack.today > .sheetcard { grid-column: 2; grid-row: 1 / span 20; }
+  .stack.today .choices { grid-template-columns: 1fr; }
+  table.sheet { font-size: 15px; }
+  .cellin { width: 76px; } .cellin.n { width: 62px; } .cellin.w { width: 190px; }
+  table.sheet .stick { min-width: 140px; max-width: 200px; }
+  .sheetbar { grid-template-columns: 200px 200px 140px; justify-content: start; }
+}
+
+@media (min-width: 1500px) {
+  .stack.today { grid-template-columns: 420px minmax(0, 1fr); }
+}
