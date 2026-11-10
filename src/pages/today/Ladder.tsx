@@ -178,17 +178,9 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
         <label className="toggle"><T tip="Rep goals round down normally; with a spotter on hand they round up, since the last rep can be helped.">Spotter</T>
           <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On · goals round up' : 'Off · goals round down'}</button>
         </label>
-        {chainsShown && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chains below.">Chains</T>
+        {chainsShown && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chain counts set for this day on the Plan page. Any single set can be changed in its chain columns.">Chains</T>
           <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
         </label>}
-        {chainsShown && plan.chains_on && <>
-          <label><T tip="Number of ½ in chains per side on sets 2 and up.">½ chains/side, sets 2+</T>
-            <select value={plan.chain_half} onChange={e => setPlan({ chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
-          </label>
-          <label><T tip="Number of ⅝ in chains per side on sets 2 and up.">⅝ chains/side, sets 2+</T>
-            <select value={plan.chain_5_8} onChange={e => setPlan({ chain_5_8: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
-          </label>
-        </>}
       </div>
       {plan.bar && <PlatesOn value={plan.plates_on} onChange={v => setPlan({ plates_on: v })} />}
       {plan.bar && L.kept.base.length > 0 && (
