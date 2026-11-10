@@ -18,6 +18,9 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
   if (!best) return null
   return roundTo(best * ([0, 0, 0.8, 0.8, 0.85, 0.92][week - 1] ?? 0.85), 5)
 }
+const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
+  chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', clamp: 'clamps', kept_45: '45s kept', kept_25: '25s kept', set1_lb: 'set 1 lb', bar_lb: 'bar',
+  speed_choice: 'speed', support_choice: 'support', speed_placement: 'speed placement', speed_offset_s: 'speed start' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
 export default function Today({ lifterId }: { lifterId: string }) {
@@ -58,7 +61,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const heavyNow = (s as any)?.planned?.heavy_exercise ?? LIFT_EXERCISE[lift]
     const prev = (p ?? []).find(x => exOf(x) === heavyNow)
     const heavyId = exercises.find(e => e.name === heavyNow)?.id
-    const carried: Record<string, any> = { ...((prev?.planned as Record<string, any>) ?? {}) }
+    // Only results carry forward (planned max, fatigue); program settings come from the Plan page.
+    const pp: Record<string, any> = (prev?.planned as Record<string, any>) ?? {}
+    const carried: Record<string, any> = {
+      planned_e1rm: pp.planned_e1rm ?? pp.snap?.plan?.planned_e1rm, fatigue_rate_used_pct: pp.fatigue_rate_used_pct ?? pp.snap?.plan?.fatigue_rate_used_pct,
+    }
     if (prev && !prev.sick && !prev.hurt?.trim() && !prev.exclude_reason?.trim()) {
       // Same rule as the sheet: a healthy previous session hands on its actual set-1 max and its fitted fatigue rate.
       let q = supabase.from('set_estimates').select('set_index, e1rm_lb').eq('session_id', prev.id).in('block', ['primary', 'deadlift'])
@@ -84,7 +91,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const { data, error } = await supabase.from('sessions').insert({
       lifter_id: lifterId, session_date: date, primary_lift: lift, template_id: tpl?.id ?? null,
       source: 'app',
-      planned: strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...patch,
+      planned: {}, ...patch,
     }).select().single()
     if (error) { setErr(error.message); return null }
     setSession(data as Session); return data as Session
@@ -96,8 +103,10 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const api: Api = {
     exId,
     async addSet(row) {
-      const s = await ensureSession()
+      let s = await ensureSession()
       if (!s) return null
+      // The first logged set freezes the plan as it stood, so later Plan edits don't rewrite this session once it's past.
+      if (!(s.planned as any)?.snap) s = await freeze(s) ?? s
       const { data, error } = await supabase.from('sets').insert({ ...row, session_id: s.id }).select().single()
       if (error) { setErr(error.message); return null }
       setSets(prev => [...prev, data as SetRow]); return data as SetRow
@@ -115,7 +124,12 @@ export default function Today({ lifterId }: { lifterId: string }) {
     },
   }
 
-  const sp = session?.planned ?? {}
+  // Inheritance: this session's own edits → (once past) the plan frozen at its first set → the day's Plan → lifter → defaults.
+  const { snap, ...sp } = (session?.planned ?? {}) as Record<string, any>
+  const past = date < localDate()
+  const frozen: Record<string, any> = past && snap?.plan ? snap.plan : {}
+  const spec: any = (past && snap?.spec) ? snap.spec : tpl?.spec ?? {}
+  const hv: any = spec.heavy ?? {}
   const heavyDefault = LIFT_EXERCISE[lift]
   const heavyEx: string = sp.heavy_exercise ?? heavyDefault
   const isMainEx = heavyEx === heavyDefault
@@ -123,49 +137,66 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const valid = history.filter(h => !h.excluded && h.set1_e1rm_lb)
   const currentMax = isMainEx && valid[0] ? Number(valid[0].set1_e1rm_lb) : null
 
+  // The heavy block's settings come from today's plan, or from the day that programs this lift if heavy was switched.
+  const H: any = hv.lift === lift ? hv : templates.map(t => t.spec?.heavy).find(h => h?.lift === lift) ?? {}
+  const f = frozen
   const ladderPlan: LadderPlan = {
-    planned_e1rm: pick(sp.planned_e1rm, prevPlan.planned_e1rm, isMainEx ? st.planned_e1rm?.[lift] : st.planned_e1rm?.[heavyEx], currentMax) ?? null,
-    target_reps: pick(sp.target_reps, prevPlan.target_reps, st.target_reps?.[lift], tpl?.spec?.heavy?.target_reps) ?? 5,
-    stop_pct: pick(sp.stop_pct, prevPlan.stop_pct, st.stop_pct?.[lift]) ?? 70,
-    fatigue_rate_used_pct: pick(sp.fatigue_rate_used_pct, prevPlan.fatigue_rate_used_pct, st.fatigue_pct?.[lift]) ?? 3,
-    step_lb: pick(sp.step_lb, prevPlan.step_lb) ?? 2.5,
-    rest_s: pick(sp.rest_s, prevPlan.rest_s, st.rest_s) ?? 100,
-    chain_half: pick(sp.chain_half, prevPlan.chain_half, st.chain_setup?.[lift]?.chain_half) ?? 0,
-    chain_5_8: pick(sp.chain_5_8, prevPlan.chain_5_8, st.chain_setup?.[lift]?.chain_5_8) ?? 1,
-    clamp: pick(sp.clamp, prevPlan.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
-    rom_in: pick(sp.rom_in, prevPlan.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
-    hang_in: pick(sp.hang_in, prevPlan.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? null,
+    planned_e1rm: pick(sp.planned_e1rm, f.planned_e1rm, prevPlan.planned_e1rm, isMainEx ? st.planned_e1rm?.[lift] : st.planned_e1rm?.[heavyEx], currentMax) ?? null,
+    target_reps: pick(sp.target_reps, f.target_reps, H.target_reps, st.target_reps?.[lift]) ?? 5,
+    stop_pct: pick(sp.stop_pct, f.stop_pct, H.stop_pct, st.stop_pct?.[lift]) ?? 70,
+    fatigue_rate_used_pct: pick(sp.fatigue_rate_used_pct, f.fatigue_rate_used_pct, prevPlan.fatigue_rate_used_pct, st.fatigue_pct?.[lift]) ?? 3,
+    step_lb: pick(sp.step_lb, f.step_lb, H.step_lb) ?? 2.5,
+    rest_s: pick(sp.rest_s, f.rest_s, H.rest_s, st.rest_s) ?? 100,
+    chain_half: pick(sp.chain_half, f.chain_half, H.chain_half, st.chain_setup?.[lift]?.chain_half) ?? 0,
+    chain_5_8: pick(sp.chain_5_8, f.chain_5_8, H.chain_5_8, st.chain_setup?.[lift]?.chain_5_8) ?? 1,
+    clamp: pick(sp.clamp, f.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
+    rom_in: pick(sp.rom_in, f.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
+    hang_in: pick(sp.hang_in, f.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? null,
     bar: 'bar' in exEquip ? exEquip.bar ?? null : 'Ohio Power Bar',
     chains_ok: exEquip.chains ?? true,
     load: exEquip.load ?? 'bar',
     implement: exEquip.bar ? null : exEquip.implement ?? null,
-    plates_on: pick(sp.plates_on, prevPlan.plates_on, st.plates_on) ?? ALL_PLATES,
-    chains_on: pick(sp.chains_on, prevPlan.chains_on) ?? true,
-    kept_45: pick(sp.kept_45) ?? null,
-    kept_25: pick(sp.kept_25) ?? null,
-    set1_lb: pick(sp.set1_lb) ?? null,
-    spotter: pick(sp.spotter, prevPlan.spotter) ?? false,
+    plates_on: pick(sp.plates_on, f.plates_on, H.plates_on, st.plates_on) ?? ALL_PLATES,
+    chains_on: pick(sp.chains_on, f.chains_on, H.chains_on) ?? true,
+    kept_45: pick(sp.kept_45, f.kept_45) ?? null,
+    kept_25: pick(sp.kept_25, f.kept_25) ?? null,
+    set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
+    spotter: pick(sp.spotter, f.spotter, H.spotter) ?? false,
   }
 
   const dlWeek = (() => {
     const days = Math.round((Date.parse(date) - Date.parse(DL_CYCLE_START)) / 86400000)
     return days < 0 ? null : (Math.floor(days / 7) % 6) + 1
   })()
-  const cycle: any[] | undefined = tpl?.spec?.deadlift_cycle ?? templates.find(t => t.spec?.deadlift_cycle)?.spec?.deadlift_cycle
+  const cycle: any[] | undefined = spec.deadlift_cycle ?? tpl?.spec?.deadlift_cycle ?? templates.find(t => t.spec?.deadlift_cycle)?.spec?.deadlift_cycle
   const wk = dlWeek && cycle ? cycle.find(c => c.week === dlWeek) : null
   const best = st.deadlift_best_conventional_lb as number | undefined
   const dlPlan: DeadliftPlan = {
-    planned_top_lb: pick(sp.planned_top_lb, dlDefaultTop(dlWeek, st.deadlift_planned_top_lb ?? (best ? best * 0.825 : null), best)) ?? null,
-    bar_lb: pick(sp.bar_lb) ?? (String(wk?.bar ?? wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
-    rest_s: pick(sp.rest_s) ?? 180,
-    plates_on: pick(sp.plates_on, st.plates_on) ?? ALL_PLATES,
+    planned_top_lb: pick(sp.planned_top_lb, frozen.planned_top_lb, dlDefaultTop(dlWeek, st.deadlift_planned_top_lb ?? (best ? best * 0.825 : null), best)) ?? null,
+    bar_lb: pick(sp.bar_lb, frozen.bar_lb) ?? (String(wk?.bar ?? wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
+    rest_s: pick(sp.rest_s, frozen.rest_s, H.rest_s) ?? 180,
+    plates_on: pick(sp.plates_on, frozen.plates_on, H.plates_on, st.plates_on) ?? ALL_PLATES,
   }
 
   ladderPlanRef.current = ladderPlan
   dlPlanRef.current = dlPlan
   // The exercise's own equipment (bar, chains, load) is looked up each time, not frozen into the session plan.
   const strip = ({ bar, chains_ok, load, implement, ...rest }: Record<string, any>) => rest
-  const savePlan = (base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...(session?.planned ?? {}), ...base, ...patch }) })
+  // Saving writes only what was edited, so everything else keeps following the Plan page.
+  const own = () => (session?.planned ?? {}) as Record<string, any>
+  const savePlan = (_base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
+  async function freeze(s: Session) {
+    const plan = strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current)
+    const { deadlift_cycle, ...daySpec } = tpl?.spec ?? {}
+    const snapSpec = { ...daySpec, speed: speedFor ?? daySpec.speed ?? null, support: support ?? daySpec.support ?? null, deadlift_cycle: deadlift_cycle ? deadlift_cycle : undefined }
+    const { data, error } = await supabase.from('sessions').update({ planned: { ...((s.planned as any) ?? {}), snap: { plan, spec: snapSpec, at: new Date().toISOString() } } }).eq('id', s.id).select().single()
+    if (error) { setErr(error.message); return null }
+    setSession(data as Session); return data as Session
+  }
+  /** Fields this session has edited itself (they no longer follow the Plan page). */
+  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'kept_45', 'kept_25', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s']
+  const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
+  const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
   // Every block is a choice: the day's plan is the default, any other day's block can be picked instead.
   const speedOptions = new Map<string, any>()
@@ -176,12 +207,12 @@ export default function Today({ lifterId }: { lifterId: string }) {
   }
   // Speed pairs with the other lift: heavy squat gets speed bench and heavy bench gets speed squat, whatever the day planned.
   const pairedSpeed = lift === 'squat' ? 'bench' : lift === 'bench' ? 'squat' : null
-  const speedKey: string = sp.speed_choice ?? (lift === planLift ? tpl?.spec?.speed?.lift : pairedSpeed) ?? 'none'
-  const supportKey: string = sp.support_choice ?? tpl?.spec?.support?.group ?? 'none'
-  const speedFor = speedOptions.get(speedKey) ?? null
-  const support = supportOptions.get(supportKey) ?? null
-  const savePlanned = (patch: Record<string, any>) =>
-    ensureSession({ planned: strip({ ...(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...(session?.planned ?? {}), ...patch }) })
+  const speedKey: string = sp.speed_choice ?? (lift === planLift ? spec.speed?.lift : pairedSpeed) ?? 'none'
+  const supportKey: string = sp.support_choice ?? spec.support?.group ?? 'none'
+  // A past session shows the speed and support it was planned with, not today's versions.
+  const speedFor = (past && snap?.spec?.speed?.lift === speedKey ? snap.spec.speed : null) ?? (spec.speed?.lift === speedKey ? spec.speed : null) ?? speedOptions.get(speedKey) ?? null
+  const support = (past && snap?.spec?.support?.group === supportKey ? snap.spec.support : null) ?? (spec.support?.group === supportKey ? spec.support : null) ?? supportOptions.get(supportKey) ?? null
+  const savePlanned = (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
   const choose = (k: 'speed_choice' | 'support_choice', v: string) => savePlanned({ [k]: v })
 
   // Exercise choices for the heavy block and each speed slot; switching also relabels sets already logged there.
@@ -277,6 +308,13 @@ export default function Today({ lifterId }: { lifterId: string }) {
             {lift === 'deadlift'
               ? <DeadliftPlanFields D={D} setPlan={savePlan(dlPlan)} best={best} />
               : <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} />}
+            {edited.length > 0 && (
+              <p className="small edited">
+                <T tip="These were changed on this session, so they no longer follow the Plan page. Everything else still does.">Edited for this session</T>: {edited.map(k => KEY_LABEL[k] ?? k).join(', ')}
+                {' · '}<button className="linkish" onClick={resetEdits} data-tip="Clear this session's edits so it follows the Plan page again." data-pos="right">Use the Plan</button>
+              </p>
+            )}
+            {past && snap && <p className="small muted">Past session: shows the plan as it stood when its first set was logged. Plan page edits don't change it.</p>}
             {speedFor?.items?.map((it: any, i: number) => (
               <ExercisePicker key={it.name} label={`Speed exercise ${i + 1}`} value={speedEx(it)} onChange={n => setSpeedEx(it, n)} className="exrow" />
             ))}

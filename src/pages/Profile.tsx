@@ -128,7 +128,6 @@ export default function Profile({ lifterId }: { lifterId: string }) {
             <LiftCard key={lift} lift={lift} lifterId={lifterId} series={series} metric={metric} reload={load} />
           ))}
         </div>
-        <RestField lifterId={lifterId} />
       </section>
 
       <MetricSection title="Body" items={catalog.filter(m => m.grp === 'Body' && !m.derived)} series={series} lifterId={lifterId} reload={load}
@@ -189,7 +188,7 @@ function LiftCard({ lift, lifterId, series, metric, reload }: {
   }
   const fields = lift === 'deadlift'
     ? [field('Best conventional (lb)', 'deadlift_best_conventional_lb'), field('Week-1 top single (lb)', 'deadlift_planned_top_lb')]
-    : [field('Planned max', `planned_e1rm.${lift}`), field('Target reps', `target_reps.${lift}`), field('Stop below %', `stop_pct.${lift}`),
+    : [field('Planned max', `planned_e1rm.${lift}`),
        field('Fatigue %/set', `fatigue_pct.${lift}`), field('Range of motion (in)', `chain_geometry.${lift}.rom_in`), field('Chain hang at bottom (in)', `chain_geometry.${lift}.hang_in`)]
 
   return (
@@ -213,7 +212,7 @@ function LiftCard({ lift, lifterId, series, metric, reload }: {
       {view === 'settings' && (
         <div className="liftsettings">
           <div className="planfields">{fields}</div>
-          <p className="small muted">Starting values. After a session, the next one carries its numbers forward.{isCoach ? '' : ' The coach edits these.'}</p>
+          <p className="small muted">This lifter's starting values. After a session, the next one carries its results forward. Reps, stop %, rest and chains are set on the Plan page.{isCoach ? '' : ' The coach edits these.'}</p>
         </div>
       )}
     </div>

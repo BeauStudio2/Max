@@ -637,7 +637,6 @@ function SupportTr({ slot, S, api }: { slot: SupportSlot; S: SupportCtl; api: Ap
         <td className="nowrap c-rest"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} data-tip="Add another set of this exercise" data-pos="right" aria-label="Another set">+</button>
           <button className="x" onClick={() => S.remove(slot)} aria-label="Remove" data-tip="Remove this exercise or set" data-pos="right">×</button></td>
       </tr>
-      {loads && <tr className="loadrow"><td className="stick" /><td colSpan={9} className="small muted">{loads}</td></tr>}
       {more && (
         <tr className="morerow"><td className="stick" /><td colSpan={9}>
           <div className="morebox">

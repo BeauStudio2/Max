@@ -496,3 +496,36 @@ table.sheet th.stick { z-index: 5; overflow: visible; }
 table.sheet th:hover, table.sheet th:focus-within, table.sheet td[data-tip]:hover, table.sheet td:focus-within, table.sheet td:hover { z-index: 30; }
 table.sheet td .sub2[data-tip]:hover { z-index: 31; }
 .sheetbar:hover { z-index: 35; }
+
+/* Plan page */
+.planpage .dayplan h3 { margin: 14px 0 6px; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.dayhead { display: flex; align-items: center; gap: 10px; }
+.dayname { font-size: 18px; font-weight: 700; background: transparent; border: 1px dashed transparent; padding: 4px 6px; flex: 1; color: var(--text); }
+.dayname:hover, .dayname:focus { border-color: var(--line); }
+textarea.logic { width: 100%; margin-top: 4px; background: transparent; border: 1px dashed var(--line); resize: vertical; color: var(--muted); }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+select.mini.inline, input.mini.inline { width: auto; min-height: 28px; padding: 2px 8px; font-size: 13px; font-weight: 400; }
+input.groupname { max-width: 200px; }
+.plantable select.mini { max-width: 240px; }
+.plantable td.wrapcell .cellin.w { min-width: 180px; }
+p.edited { color: var(--warn); }
+p.edited .linkish { color: var(--warn); font-size: 12px; }
+@media (min-width: 1500px) { .stack.planpage { display: grid; grid-template-columns: 1fr 1fr; align-items: start; } .stack.planpage > p { grid-column: 1 / -1; } }
+.plantable { table-layout: auto; width: 100%; }
+.plantable .stick select.mini, .plantable td.stick select.mini { max-width: 170px; min-width: 110px; white-space: normal; }
+.plantable td.wrapcell, .plantable td.wrapcell .cellin.w { min-width: 70px; width: 100%; }
+.plantable .cellin.n { min-width: 36px; width: 46px; }
+.plantable td, .plantable th { padding-left: 3px; padding-right: 3px; }
+/* Phones: each plan row becomes a small labelled grid instead of a wide table row. */
+@media (max-width: 760px) {
+  .plantable thead { display: none; }
+  .plantable, .plantable tbody { display: block; width: 100%; }
+  .plantable tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .plantable td { display: flex; flex-direction: column; gap: 2px; padding: 0; border: 0; min-width: 0; position: static; }
+  .plantable td[data-l]::before { content: attr(data-l); font-size: 11px; color: var(--muted); }
+  .plantable td.stick, .plantable td.wrapcell, .plantable td[data-l="Lift"], .plantable td[data-l="Scheme"] { grid-column: 1 / -1; }
+  .plantable td.stick select.mini, .plantable select.mini { max-width: none; width: 100%; }
+  .plantable .cellin, .plantable .cellin.n, .plantable td.wrapcell .cellin.w { width: 100%; min-width: 0; max-width: none; }
+  .plantable td.nowrap { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
+  .plantable td.stick { max-width: none; overflow: visible; background: transparent; }
+}
