@@ -42,7 +42,8 @@ export function StoreProvider({ auth, children }: { auth: AuthSession; children:
     const err = [p, l, e, x, t, s].find(r => r.error)?.error
     if (err) { setError(err.message); return }
     const cfg = { ...DEFAULT_CFG }
-    for (const row of s.data ?? []) (cfg as any)[row.key] = Number(row.value)
+    // Model numbers only; other settings (e.g. the voice choice) are read where they're used.
+    for (const row of s.data ?? []) if (typeof row.value !== 'object' || row.value === null) (cfg as any)[row.key] = Number(row.value)
     const profile = (p.data as Profile) ?? null
     const lifters = (l.data as Lifter[]) ?? []
     setState({

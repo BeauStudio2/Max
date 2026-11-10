@@ -35,6 +35,7 @@ export default function Sensors() {
               <>
                 <div className="sensrow">
                   <b className="senslb">{st.lb.toFixed(1)} lb</b>
+                  <span className={'small ' + (st.hz ? 'muted' : 'err')} data-tip="Readings arriving each second. 0 means it's connected but not sending: press the Tindeq's button, or disconnect and connect again." data-pos="right">{st.hz} /s</span>
                   <div className="sensbar"><i style={{ width: `${Math.min(100, (Math.max(0, st.lb) / span) * 100)}%` }} /></div>
                   <button className="ghost small" onClick={() => sensor.tare()} data-tip="Zero the reading with the line just taut." data-pos="right">Tare</button>
                 </div>

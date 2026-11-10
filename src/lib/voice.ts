@@ -126,11 +126,15 @@ export async function speak(text: string | string[], s = state.settings) {
   try {
     if (s.engine === 'eleven') {
       audio?.pause()
+      // Each piece plays from its recording; a piece that can't be had (not recorded, no key here, offline) is said by the built-in voice instead, and the rest carry on.
       for (const p of parts) {
-        const blob = await elevenAudio(p, s)
+        let blob: Blob | null = null
+        try { blob = await elevenAudio(p, s) } catch (e: any) { set({ error: `"${p}": ${e?.message ?? e}` }) }
         if (my !== gen) return
+        if (!blob) { await browserSpeak(p, s); continue }
         audio = new Audio(URL.createObjectURL(blob)); audio.volume = s.volume
-        await new Promise<void>(res => { audio!.onended = () => res(); audio!.onerror = () => res(); audio!.play().catch(() => res()) })
+        const ok = await new Promise<boolean>(res => { audio!.onended = () => res(true); audio!.onerror = () => res(false); audio!.play().catch(e => { set({ error: 'Audio blocked by the browser: ' + (e?.message ?? e) }); res(false) }) })
+        if (!ok && my === gen) await browserSpeak(p, s)
         if (my !== gen) return
       }
     } else await browserSpeak(parts.join(', '), s)
@@ -150,16 +154,16 @@ export function cue(k: CueKey, text?: string | string[]) {
 export const cueWord = (k: CueKey) => state.settings.cues[k]?.word ?? ''
 
 /* Words for numbers, so every spoken value is one of a fixed set of recorded phrases. */
-export const sayLb = (lb: number) => { const w = Math.round(lb * 4) / 4, f = w - Math.floor(w); return String(Math.floor(w)) + (f === 0.5 ? ' and a half' : f === 0.25 ? ' and a quarter' : f === 0.75 ? ' and three quarters' : '') }
+export const sayLb = (lb: number) => { const w = Math.round(lb * 2) / 2; return String(Math.floor(w)) + (w % 1 ? ' and a half' : '') }
 export const saySeconds = (sec: number) => { const s = Math.max(0, Math.round(sec)); return String(s <= 30 ? s : Math.round(s / 5) * 5) }
 /** Everything Max can say, for recording ahead of time. */
 export function allPhrases() {
   const c = state.settings.cues
   const words = [c.warn.word, c.lift.word, c.over.word, c.rack.word, 'Go', 'Record', 'Stop', 'Tare', 'Done', 'Each side', 'Chains', 'No chains', 'half', 'five eighths', 'seconds']
   const nums = Array.from({ length: 31 }, (_, i) => String(i))
-  for (let n = 35; n <= 600; n += 5) nums.push(String(n))
+  for (let n = 31; n <= 600; n++) nums.push(String(n))   // any whole weight, with chains and clamps too
   const halves: string[] = []
-  for (let w = 45; w < 600; w += 2.5) if (w % 1) halves.push(sayLb(w))
+  for (let w = 45; w < 600; w++) halves.push(w + ' and a half')
   return [...new Set([...words, ...nums, '1 and a quarter', '2 and a half', ...halves].filter(Boolean))]
 }
 
@@ -268,6 +272,26 @@ function stopListening(off = false) {
   set({ listening: false }); if (off) voice.setSettings({ listen: false })
 }
 
+/* The voice choice (engine, voice, model, cue words, wake word) is kept in Max too, so every laptop and browser uses it.
+   This laptop's own copy wins only until Max's arrives. Listening on/off and the API key stay per laptop. */
+const SHARED: (keyof VoiceSettings)[] = ['engine', 'browserVoice', 'rate', 'pitch', 'volume', 'elevenVoice', 'elevenVoiceName', 'elevenModel', 'cues', 'wake']
+let pushTimer: any = null
+function pushShared(settings: VoiceSettings) {
+  clearTimeout(pushTimer)
+  pushTimer = setTimeout(() => {
+    const value: Record<string, unknown> = {}
+    SHARED.forEach(k => { value[k] = settings[k] })
+    supabase.from('settings').upsert({ key: 'voice', value, notes: 'Max voice: chosen voice, cue words, wake word (set in Config → Voice)' }).then(() => {})
+  }, 600)
+}
+supabase.from('settings').select('value').eq('key', 'voice').maybeSingle().then(({ data }) => {
+  const v = data?.value as Partial<VoiceSettings> | undefined
+  if (!v) return
+  const settings = { ...state.settings, ...v, cues: { ...DEFAULTS.cues, ...(v.cues ?? {}) }, listen: state.settings.listen }
+  try { localStorage.setItem(KEY, JSON.stringify(settings)) } catch { /* private mode */ }
+  set({ settings })
+})
+
 export const voice = {
   get: () => state,
   subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f) } },
@@ -275,6 +299,7 @@ export const voice = {
     const settings = { ...state.settings, ...p }
     try { localStorage.setItem(KEY, JSON.stringify(settings)) } catch { /* private mode: this visit only */ }
     set({ settings })
+    if (SHARED.some(k => k in p)) pushShared(settings)
     if ('listen' in p) (p.listen ? startListening() : stopListening())
   },
   /** Call once from a click (browsers only open the microphone after the page has been used). */

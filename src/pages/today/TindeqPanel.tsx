@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useClock } from './shared'
 import { bluetoothAvailable, sensor } from '../../lib/tindeq'
 import { useSensor } from '../../lib/useSensor'
 import { findPulses, type Pulse, type Sample } from '../../lib/creatine'
@@ -26,6 +27,9 @@ const PRE_S = 3
  */
 export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCapture: (pulses: Pulse[], tempo: Tempo) => void; minLb: number; minS: number; auto: boolean }) {
   const st = useSensor()
+  // Connected but silent for 2 s: say so, so a set is never "recorded" with nothing coming in.
+  useClock(st.status === 'on' ? new Date(0).toISOString() : null)
+  const stale = st.status === 'on' && Date.now() - (st.lastAt || 0) > 2000
   const [armed, setArmed] = useState(false)
   const [last, setLast] = useState<Pulse[] | null>(null)
   const [tempo, setTempo] = useState<Tempo | null>(null)
@@ -96,9 +100,12 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
       <span className="small muted hastip" data-tip={`The Tindeq listens all workout. A set starts on "Max go" or its first assisted rep, and ends by itself ${END_AFTER_S} s after the last one (or "Max stop"). Its assisted reps fill the next heavy set. Record / Stop do the same by hand.`} data-pos="right">Tindeq{auto && st.status === 'on' ? (armed ? ' · set on' : ' · listening') : ''}</span>
       <div className="metrorow">
         {st.status !== 'on'
-          ? <a className="linkish" href="#config" data-tip="Connect the Tindeq under Config → Sensors and machines. It stays connected when you come back here." data-pos="right">not connected · set up in Config</a>
+          ? <><button type="button" className="switch" disabled={st.status === 'connecting'} onClick={() => sensor.connect()} data-tip="Wake the Tindeq (press its button) and close the Tindeq phone app first, then pick it in the list. Reloading the page drops the connection." data-pos="right">{st.status === 'connecting' ? 'Connecting…' : 'Connect'}</button>
+              {st.error && <span className="small err">{st.error}</span>}</>
           : <>
-            <b className="tlb">{st.lb.toFixed(1)} lb</b>
+            {stale
+              ? <b className="err" data-tip="Connected, but no readings are arriving, so nothing can be recorded. Press the Tindeq's button to wake it; if that doesn't help, disconnect in Config and connect again." data-pos="right">no readings</b>
+              : <b className="tlb" data-tip={`${st.hz} readings a second`} data-pos="center">{st.lb.toFixed(1)} lb</b>}
             <button type="button" className="switch" onClick={() => sensor.tare()} data-tip="Zero the reading with the line just taut." data-pos="center">Tare</button>
             <button type="button" className={'switch' + (armed ? ' on' : '')} aria-pressed={armed} onClick={() => (armed ? finish() : arm(Date.now()))}
               data-tip="Backup for when voice isn't on: start and end a set by hand." data-pos="center">{armed ? '■ Stop' : '● Record'}</button>

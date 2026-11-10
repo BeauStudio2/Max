@@ -48,8 +48,11 @@ const DEFAULTS: SensorSettings = { invert: false }
 const KEY = 'max.tindeq'
 const loadSettings = (): SensorSettings => { try { return { invert: !!JSON.parse(localStorage.getItem(KEY) ?? '{}').invert } } catch { return DEFAULTS } }
 
-export interface SensorState { status: 'off' | 'connecting' | 'on'; name: string | null; lb: number; error: string | null; recording: boolean; settings: SensorSettings }
-let state: SensorState = { status: 'off', name: null, lb: 0, error: null, recording: false, settings: loadSettings() }
+export interface SensorState { status: 'off' | 'connecting' | 'on'; name: string | null; lb: number; error: string | null; recording: boolean; settings: SensorSettings
+  /** Clock time of the last reading, and readings per second: a connection that sends nothing shows up as 0. */
+  lastAt: number; hz: number }
+let state: SensorState = { status: 'off', name: null, lb: 0, error: null, recording: false, settings: loadSettings(), lastAt: 0, hz: 0 }
+let count = 0, countFrom = 0
 let dev: Tindeq | null = null
 let buf: Sample[] = []
 let lastPaint = 0
@@ -70,9 +73,12 @@ export const sensor = {
         streams.forEach(f => f(s))
         // The sensor sends ~80 readings a second; repaint the live number about 10 times a second.
         const now = Date.now()
-        if (now - lastPaint > 100) { lastPaint = now; set({ lb: s.at(-1)!.lb }) }
+        count += s.length
+        if (now - countFrom >= 1000) { const hz = Math.round(count * 1000 / Math.max(1, now - countFrom)); count = 0; countFrom = now; set({ hz }) }
+        if (now - lastPaint > 100) { lastPaint = now; set({ lb: s.at(-1)!.lb, lastAt: now }) }
       }, () => { dev = null; set({ status: 'off', name: null, recording: false }) })
-      set({ status: 'on', name: dev.name })
+      countFrom = Date.now(); count = 0
+      set({ status: 'on', name: dev.name, lastAt: 0, hz: 0 })
     } catch (e: any) {
       // Closing the browser's device picker is not an error.
       set({ status: 'off', error: e?.name === 'NotFoundError' ? null : e?.message ?? 'Could not connect' })
