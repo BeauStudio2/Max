@@ -532,7 +532,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
         <td><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td>{isBench ? <CellText value={hits} narrow numeric placeholder="bell" onSave={v => { setHits(v); commit({ hits: v }) }} /> : null}</td>
         <td className="num small muted">{bands.length ? `+${round(ten.perSide, 1)}/s` : ''}</td>
-        <td colSpan={PLATE_COLS.length} className="small muted c-plate">{lower.includes('throw') ? 'reps = bell hits ÷ 7' : isBench ? <span className="inline">string <CellText value={string} narrow numeric onSave={v => { setString(v); commit({ string: v }) }} /> in</span> : ''}</td>
+        <td colSpan={PLATE_COLS.length} className="small muted c-plate">{lower.includes('throw') ? 'reps = bell hits ÷ 7' : ''}</td>
         <td className="c-setup" />
         <ChainCells half={0} big={0} />
         <BandCells bands={bands} onSet={setBand} />
@@ -543,7 +543,6 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
           <div className="morebox">
             <label className="wide">Bands per side<BandGrid bands={bands} onSet={setBand} /></label>
             {bands.length > 0 && <span className="small muted">Lockout {round(ten.perSide, 1)} lb per side, {round(ten.total, 1)} lb total · 0 at chest.</span>}
-            {isBench && <label>Bell string (in)<CellText value={string} narrow numeric onSave={v => { setString(v); commit({ string: v }) }} /></label>}
           </div>
         </td></tr>
       )}
