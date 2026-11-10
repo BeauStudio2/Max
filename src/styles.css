@@ -685,3 +685,13 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .voicecfg tr.vhead td { font-size: 12px; font-weight: 600; color: var(--muted); padding-top: 10px; background: transparent; }
 .voicecfg .vfields select { min-width: 170px; }
 .sheetbar .over { color: var(--warn); }
+
+/* Full-screen rest timer: half opacity, never in the way of clicks or taps. */
+.restoverlay { position: fixed; inset: 0; z-index: 50; pointer-events: none; user-select: none; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  opacity: .5; font-variant-numeric: tabular-nums; font-weight: 800; line-height: .9; color: var(--text); }
+.restoverlay .ro-big { font-size: min(38vw, 72vh); letter-spacing: -.04em; }
+.restoverlay .ro-sub { font-size: min(4vw, 6vh); font-weight: 600; margin-top: 2vh; }
+.restoverlay.soon { color: var(--warn); }
+.restoverlay.lift { color: var(--accent); }
+.restoverlay.lift .ro-big { font-size: min(30vw, 60vh); }
+.restoverlay.over { color: var(--hurt); }

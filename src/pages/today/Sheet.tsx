@@ -8,6 +8,7 @@ import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
 import VoiceBar from './VoiceBar'
+import RestOverlay from './RestOverlay'
 import { cue, cueWord, onCommand, sayLb, saySeconds, speak, voice } from '../../lib/voice'
 import { live, nextPhrases, platePhrases } from './live'
 const cueOn = (k: 'next' | 'plates') => voice.get().settings.cues[k]?.on !== false
@@ -341,6 +342,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
 
   return (
     <section className="card sheetcard">
+      {running && restFrom && restTarget > 0 && <RestOverlay rest={rest} target={restTarget} />}
       <div className="sheetbar">
         <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
