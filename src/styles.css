@@ -545,3 +545,5 @@ tr.supinline td { background: color-mix(in srgb, var(--card) 85%, var(--line)); 
 .supfields label.grow { flex: 1 1 140px; }
 .supfields .cellin.n { width: 56px; }
 .dayorder { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; color: var(--muted); }
+.bandchip.bandsel { appearance: none; -webkit-appearance: none; border: 0; cursor: pointer; text-align: center; text-align-last: center; min-height: 0; width: auto; padding: 3px 8px; line-height: 1.2; }
+.bandchip.bandsel option { color: var(--text); background: var(--card); text-shadow: none; font-weight: 400; }

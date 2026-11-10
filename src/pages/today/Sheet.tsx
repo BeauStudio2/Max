@@ -126,14 +126,17 @@ const BAND_COLORS: [RegExp, string, string][] = [
 export const bandColor = (name: string) => BAND_COLORS.find(([re]) => re.test(name))?.[1] ?? '#888'
 const bandShort = (name: string) => BAND_COLORS.find(([re]) => re.test(name))?.[2] ?? name.replace('Rogue band ', '').slice(0, 4)
 
-interface Cols { bands: string[]; chains: boolean; span: number; addBand: (name: string) => void; allBands: Equipment[] }
-const ColsCtx = createContext<Cols>({ bands: [], chains: false, span: 12, addBand: () => {}, allBands: [] })
+interface Cols { bands: string[]; chains: boolean; span: number; addBand: (name: string) => void; allBands: Equipment[]; mapName: (n: string) => string; swap: (from: string, to: string) => void }
+const ColsCtx = createContext<Cols>({ bands: [], chains: false, span: 12, addBand: () => {}, allBands: [], mapName: n => n, swap: () => {} })
+/** A row's bands with any column colour changes applied. */
+const mapBands = (bands: BandPick[], C: Cols) => { const out: BandPick[] = []; for (const b of bands) { const nm = C.mapName(b.name); const ex = out.find(x => x.name === nm); if (ex) ex.per_side += b.per_side; else out.push({ ...b, name: nm }) } return out }
 
 const withBand = (bands: BandPick[], name: string, n: number) =>
   n > 0 ? (bands.some(b => b.name === name) ? bands.map(b => b.name === name ? { ...b, per_side: n } : b) : [...bands, { name, per_side: n }]) : bands.filter(b => b.name !== name)
 
-function BandCells({ bands, onSet }: { bands: BandPick[] | null; onSet?: (name: string, n: number) => void }) {
+function BandCells({ bands: raw, onSet }: { bands: BandPick[] | null; onSet?: (name: string, n: number) => void }) {
   const C = useContext(ColsCtx)
+  const bands = raw ? mapBands(raw, C) : raw
   return <>{C.bands.map(name => {
     const n = bands?.find(b => b.name === name)?.per_side ?? 0
     const lock = C.allBands.find(b => b.name === name)?.props?.one_band_lockout_lb
@@ -151,8 +154,9 @@ function ChainCells({ half, big, onSet }: { half: number; big: number; onSet?: (
   })}</>
 }
 /** Phone: the same chain and band counts as a grid in the row's drop-down. */
-function BandGrid({ bands, onSet }: { bands: BandPick[]; onSet: (name: string, n: number) => void }) {
+function BandGrid({ bands: raw, onSet }: { bands: BandPick[]; onSet: (name: string, n: number) => void }) {
   const C = useContext(ColsCtx)
+  const bands = mapBands(raw, C)
   return (
     <div className="plategrid bandgrid">
       {C.bands.map(name => {
@@ -232,9 +236,9 @@ function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: 
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, bandMap = {}, onBandMap, S, circuit, onCircuit }: {
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
-  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement; supInterleave?: boolean; running?: boolean
+  speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement; supInterleave?: boolean; running?: boolean; bandMap?: Record<string, string>; onBandMap?: (m: Record<string, string>) => void
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
   const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
@@ -263,10 +267,29 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const mainCount = mainSets.length
   const perMin = L?.fit && minutes && mainCount ? L.fit.ratePct / (minutes / mainCount) : null
   // Band columns: every band used today (logged or planned speed work), plus any added with "+ band".
-  const usedBands = new Set<string>([...done.flatMap(r => bandsOf(r.setup).map(b => b.name)), ...items.flatMap(it => it.band ? ['Rogue band ' + String(it.band).split(' ')[0]] : []), ...extraBands])
-  const bandCols = allBands.map(b => b.name).filter(nm => usedBands.has(nm) || [...usedBands].some(u => nm.startsWith(u)))
+  const mapName = (n: string) => bandMap[n] ?? n
+  const itemBand = (it: any) => allBands.find(b => b.name.startsWith('Rogue band ' + String(it.band).split(' ')[0]))?.name ?? 'Rogue band ' + String(it.band).split(' ')[0]
+  const usedBands = new Set<string>([...done.flatMap(r => bandsOf(r.setup).map(b => b.name)), ...items.filter(it => it.band).map(itemBand), ...extraBands].map(mapName))
+  const bandCols = allBands.map(b => b.name).filter(nm => usedBands.has(nm))
+  // Changing a column's colour: rows planned with the old band follow it, and sets already logged today are rewritten.
+  async function swap(from: string, to: string) {
+    if (from === to) return
+    const next = Object.fromEntries(Object.entries(bandMap).map(([k, v]) => [k, v === from ? to : v]))
+    next[from] = to
+    onBandMap?.(next)
+    setExtraBands(x => x.map(n => (n === from ? to : n)))
+    for (const r of done) {
+      const bb = bandsOf(r.setup)
+      if (!bb.some(b => b.name === from)) continue
+      const merged = mapBands(bb, { mapName: n => (n === from ? to : n) } as Cols)
+      const setup = { ...r.setup, bands: merged }
+      const patch: Partial<SetRow> = { setup }
+      if (r.block === 'primary') { const t = totals(r.weight_lb, { ...setupOf(r), bands: merged }, equipment); patch.total_bottom_lb = t.bottom; patch.total_top_lb = t.top }
+      await api.updateSet(r.id!, patch)
+    }
+  }
   const chains = !!(L && L.plan.bar && L.plan.chains_ok)
-  const cols: Cols = { bands: bandCols, chains, span: 6 + PLATE_COLS.length + 1 + (chains ? 2 : 0) + bandCols.length + 1 + 1 - 1, addBand: nm => setExtraBands(x => [...x, nm]), allBands }
+  const cols: Cols = { bands: bandCols, chains, span: 6 + PLATE_COLS.length + 1 + (chains ? 2 : 0) + bandCols.length + 1 + 1 - 1, addBand: nm => setExtraBands(x => [...x, nm]), allBands, mapName, swap }
   const slotName = (r: SetRow) => { const it = items.find(i => i.name === r.setup?.slot); return it ? speedEx(it) : r.setup?.slot ?? 'Speed' }
 
   return (
@@ -290,7 +313,14 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
               {PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}
               <th className="c-setup" data-tip="Clamps on this set. Adding chains switches to the chain clamps; removing them switches back.">Clamps</th>
               {chains && <><th className="c-chain" data-tip="½ in chains per side">½ ch</th><th className="c-chain" data-tip="⅝ in chains per side">⅝ ch</th></>}
-              {bandCols.map(nm => { const b = allBands.find(x => x.name === nm); return <th key={nm} className="c-band" style={{ ['--band' as any]: bandColor(nm) }} data-tip={`${nm.replace('Rogue band ', '')} band per side · ${b?.props?.one_band_lockout_lb ?? '?'} lb at lockout`}><span className="bandchip">{bandShort(nm)}</span></th> })}
+              {bandCols.map(nm => { const b = allBands.find(x => x.name === nm); return (
+                <th key={nm} className="c-band" style={{ ['--band' as any]: bandColor(nm) }}>
+                  <span className="tipwrap" data-tip={`${nm.replace('Rogue band ', '')} band per side · ${b?.props?.one_band_lockout_lb ?? '?'} lb at lockout. Tap to change this column's colour.`} data-pos="center">
+                    <select className="bandchip bandsel" value={nm} aria-label="Band colour for this column" onChange={e => swap(nm, e.target.value)}>
+                      {allBands.filter(x => x.name === nm || !bandCols.includes(x.name)).map(x => <option key={x.id} value={x.name}>{x.name.replace('Rogue band ', '')}</option>)}
+                    </select>
+                  </span>
+                </th>) })}
               <th className="c-band c-addband"><AddBand compact /></th>
               <th className="c-rest" data-tip="Rest taken before this set (heavy rows), or which heavy set a speed round followed. × deletes a logged set." data-pos="right">Rest</th>
             </tr>
@@ -398,7 +428,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const any = next.chain_half || next.chain_5_8
     setSet({ ...next, clamp: any ? CHAIN_CLAMP : setup.clamp === CHAIN_CLAMP ? straightClamp : setup.clamp })
   }
-  const setBand = (name: string, n: number) => setSet({ ...setup, bands: withBand(setup.bands ?? [], name, Math.max(0, Math.round(n))) })
+  const setBand = (name: string, n: number) => setSet({ ...setup, bands: withBand(mapBands(setup.bands ?? [], C), name, Math.max(0, Math.round(n))) })
   const C = useContext(ColsCtx)
 
   return (
@@ -472,7 +502,7 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
     else if (row.reps !== null) await D.api.addSet({ ...(row as any), exercise_id: D.api.exId(def.ex === 'Deadlift' ? D.main : def.ex)!, block: 'deadlift', set_index: def.idx, assisted: false, failed: false })
   }
   const est = !fly && w && reps ? e1rmFromRpe(w, Number(reps), rpe === '' ? null : Number(rpe)) : null
-  const setBand = (name: string, n: number) => { const bb = withBand(bands, name, Math.max(0, Math.round(n))); setBands(bb); commit({ bands: bb }) }
+  const setBand = (name: string, n: number) => { const bb = withBand(mapBands(bands, C), name, Math.max(0, Math.round(n))); setBands(bb); commit({ bands: bb }) }
   const pstack = stackFor(w === null ? null : w - bar, undefined, null, D.plan.plates_on)
   return (
     <>
@@ -543,7 +573,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
       await api.addSet({ ...row, exercise_id: id, block: 'speed', set_index: n, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
     }
   }
-  const setBand = (nm: string, k: number) => { const bb = withBand(bands, nm, Math.max(0, Math.round(k))); setBands(bb); commit({ bands: bb }) }
+  const setBand = (nm: string, k: number) => { const bb = withBand(mapBands(bands, C), nm, Math.max(0, Math.round(k))); setBands(bb); commit({ bands: bb }) }
 
   return (
     <>
