@@ -426,21 +426,14 @@ ul.mlist li:first-child .mrow { border-top: 0; }
 
 /* hover / focus tooltips */
 [data-tip] { position: relative; }
-[data-tip]:hover::after, [data-tip]:focus-visible::after {
-  content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
-  background: var(--text); color: var(--bg); font-size: 12px; font-weight: 500; line-height: 1.35; white-space: normal;
-  width: max-content; max-width: 260px; text-align: left; text-transform: none; letter-spacing: normal;
-  padding: 6px 9px; border-radius: 6px; pointer-events: none; z-index: 60; box-shadow: 0 2px 10px rgba(0,0,0,.45);
-}
-[data-pos="left"]:hover::after, [data-pos="left"]:focus-visible::after { left: 0; transform: none; }
-[data-pos="right"]:hover::after, [data-pos="right"]:focus-visible::after { left: auto; right: 0; transform: none; }
-[data-pos="below"]:hover::after, [data-pos="below"]:focus-visible::after { bottom: auto; top: calc(100% + 6px); }
-th[data-tip]:hover::after, th [data-tip]:hover::after { bottom: auto; top: calc(100% + 6px); }
+/* The tip itself is drawn by TipLayer, above the header, the tab bar and overlays. */
+.tiplayer { position: fixed; z-index: 1000; display: flex; pointer-events: none; }
+.tiplayer > span { background: var(--text); color: var(--bg); font-size: 12px; font-weight: 500; line-height: 1.35; white-space: normal; text-align: left;
+  padding: 6px 9px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.45); max-width: 100%; }
 .hastip { text-decoration: underline dotted color-mix(in srgb, currentColor 55%, transparent); text-underline-offset: 3px; cursor: help; }
 th[data-tip] { cursor: help; }
 th[data-tip] > :not(.bandchip):not(select), th[data-tip]:not(:has(*)) { text-decoration: underline dotted color-mix(in srgb, currentColor 55%, transparent); text-underline-offset: 3px; }
 .tipwrap { display: inline-block; }
-@media (hover: none) { [data-tip]:hover::after { display: none; } }
 .setup2 { display: flex; gap: 4px; }
 .setup2 select.mini { min-width: 0; flex: 0 1 auto; width: 96px; padding-right: 22px; }
 .setup2 select.mini + select.mini { width: 88px; }

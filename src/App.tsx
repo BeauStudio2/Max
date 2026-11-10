@@ -7,6 +7,7 @@ import Today from './pages/Today'
 import Plan from './pages/Plan'
 import Profile from './pages/Profile'
 import Config from './pages/Config'
+import TipLayer from './TipLayer'
 
 type Tab = 'today' | 'profile' | 'plan' | 'config'
 const TABS: { id: Tab; label: string; coach?: boolean }[] = [
@@ -51,6 +52,7 @@ function Shell() {
 
   return (
     <div className="app">
+      <TipLayer />
       <header className="top">
         <div className="brand">MAX</div>
         {canPick ? (
