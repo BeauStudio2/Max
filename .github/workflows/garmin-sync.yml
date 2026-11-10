@@ -1,0 +1,27 @@
+name: Garmin daily sync
+
+on:
+  schedule:
+    - cron: "23 12 * * *"   # 6:23 am Central (12:23 UTC), after Garmin has the night's sleep and HRV
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Days back to fetch"
+        default: "3"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "garminconnect>=0.2.19"
+      - run: python scripts/garmin_sync.py
+        env:
+          GARMIN_TOKENS: ${{ secrets.GARMIN_TOKENS }}
+          MAX_INGEST_KEY: ${{ secrets.MAX_INGEST_KEY }}
+          MAX_LIFTER: Beau
+          DAYS: ${{ github.event.inputs.days || '3' }}
