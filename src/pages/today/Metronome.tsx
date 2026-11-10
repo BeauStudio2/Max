@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { onCommand } from '../../lib/voice'
 
 const load = (k: string, d: number) => { try { const v = Number(localStorage.getItem(k)); return v > 0 ? v : d } catch { return d } }
 const store = (k: string, v: number) => { try { localStorage.setItem(k, String(v)) } catch { /* private mode: keep it in memory only */ } }
@@ -38,6 +39,8 @@ export default function Metronome() {
     return () => clearInterval(id)
   }, [on])
   useEffect(() => () => { ctx.current?.close() }, [])
+  // Spoken: "Max click" starts or stops it.
+  useEffect(() => onCommand(c => { if (c.kind === 'click') setOn(o => !o) }), [])
 
   const num = (v: string, lo: number, hi: number, d: number) => { const n = Math.round(Number(v)); return n >= lo && n <= hi ? n : d }
   return (

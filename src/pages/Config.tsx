@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
 import Sensors from './config/Sensors'
+import VoiceCfg from './config/Voice'
 import type { Equipment } from '../lib/types'
 import { CellText } from './today/Sheet'
 import People from './People'
@@ -72,6 +73,7 @@ export default function Config() {
 
 
       <Sensors />
+      <VoiceCfg />
 
       {groups.map(([title, test]) => {
         const rows = equipment.filter(test)

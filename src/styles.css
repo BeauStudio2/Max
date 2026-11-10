@@ -654,3 +654,24 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .sensors button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .sensfields { max-width: 620px; margin-top: 10px; }
 .tindeq a.linkish { font-size: 13px; }
+
+/* Voice */
+.voicebar { display: flex; flex-direction: column; }
+.voicebar .heard { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voicecfg h3 { margin: 16px 0 8px; font-size: 15px; }
+.voicecfg .seg { display: inline-flex; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; margin-bottom: 10px; }
+.voicecfg .seg button { background: transparent; border: 0; color: var(--muted); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.voicecfg .seg button.on { background: var(--line); color: var(--text); }
+.voicecfg .vblock { border-left: 2px solid var(--line); padding-left: 12px; margin-bottom: 8px; }
+.voicecfg .vfields { max-width: 640px; }
+.voicecfg .vfields input[type=range] { width: 100%; }
+.voicecfg .vsearch { width: 160px; min-height: 34px; padding: 4px 8px; }
+.voicecfg .vsearch.wide { width: 100%; max-width: 420px; }
+.voicecfg .vtable td { padding: 4px 6px; }
+.voicecfg .vtable tr.sel td { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.voicecfg .vcues { grid-template-columns: auto minmax(0, 1fr) 72px; max-width: 640px; }
+.voicecfg .vcues .switch, .voicebar .switch { min-height: 34px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; }
+.voicecfg .vcues .switch.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.voicecfg .seg button { white-space: nowrap; }
+.voicecfg .sensrow .primary { width: auto; flex: 0 0 auto; padding: 8px 16px; }
+.voicecfg .vcues input { text-align: left; }

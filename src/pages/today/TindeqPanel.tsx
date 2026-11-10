@@ -3,6 +3,8 @@ import { bluetoothAvailable, sensor } from '../../lib/tindeq'
 import { useSensor } from '../../lib/useSensor'
 import { findPulses, type Pulse } from '../../lib/creatine'
 import { metronomeRepSeconds } from './Metronome'
+import { useEffect } from 'react'
+import { cue, onCommand } from '../../lib/voice'
 
 /** Tempo of a recorded set: the metronome's seconds per rep (null if it was off) and the measured time from one spotted rep to the next. */
 export interface Tempo { beat_s: number | null; rep_s: number | null
@@ -20,6 +22,16 @@ export default function TindeqPanel({ onCapture, minLb, minS }: { onCapture: (pu
   const [tempo, setTempo] = useState<Tempo | null>(null)
   const beat = useRef<number | null>(null)
   const recAt = useRef<number>(0)
+
+  // Spoken: "Max record", "Max stop", "Max tare".
+  const ref = useRef({ toggleRec: () => {}, st }); ref.current = { toggleRec, st }
+  useEffect(() => onCommand(c => {
+    const { st, toggleRec } = ref.current
+    if (st.status !== 'on') return
+    if (c.kind === 'tare') { sensor.tare(); cue('ack', 'Tare') }
+    else if (c.kind === 'record' && !st.recording) { toggleRec(); cue('ack', 'Record') }
+    else if (c.kind === 'stop' && st.recording) { toggleRec(); cue('ack', 'Stop') }
+  }), [])
 
   function toggleRec() {
     if (!st.recording) { beat.current = metronomeRepSeconds(); recAt.current = Date.now(); setLast(null); sensor.record(); return }

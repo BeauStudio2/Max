@@ -7,6 +7,8 @@ import { type DeadliftCtl, type PullRowDef } from './Deadlift'
 import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
+import VoiceBar from './VoiceBar'
+import { cue, onCommand } from '../../lib/voice'
 import TindeqPanel, { type Tempo } from './TindeqPanel'
 import { endLevel, fitSession, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
 import { DelBtn, fmt, useClock, type Api } from './shared'
@@ -286,6 +288,22 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   })()
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
 
+  // Spoken cues. The next heavy set's weight on the bar, as a number to say.
+  const nextLb = nextMain?.kind === 'main' && nextMain.p && nextMain.p.weight !== null ? Math.round((nextMain.p.weight + fixedWeight(nextMain.p.setup, equipment)) * 10) / 10 : null
+  const sayLb = (lb: number) => String(lb).replace('.5', ' and a half')
+  // "Rest" once the rest target is reached (once per rest).
+  const restCued = useRef<string | null>(null)
+  useEffect(() => {
+    if (running && restFrom && restTarget > 0 && rest >= restTarget && restCued.current !== restFrom) { restCued.current = restFrom; cue('rest') }
+  }, [rest >= restTarget, restFrom, running])
+  // The next weight, said when a heavy set is logged.
+  const loggedHeavy = useRef(mainSets.length)
+  useEffect(() => {
+    if (mainSets.length > loggedHeavy.current && running && nextLb !== null) cue('next', sayLb(nextLb))
+    loggedHeavy.current = mainSets.length
+  }, [mainSets.length])
+  useEffect(() => onCommand(c => { if (c.kind === 'next') nextLb !== null ? cue('next', sayLb(nextLb)) : cue('next', 'Done') }), [nextLb])
+
   // Circuit time: what you entered, or first to last set of the circuit.
   const autoMin = done.length > 1 ? (Date.parse(done.at(-1)!.created_at!) - Date.parse(done[0].created_at!)) / 60000 : null
   const minutes = circuit ?? (autoMin && autoMin > 1 ? Math.round(autoMin) : null)
@@ -307,6 +325,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
         </label>
         <Metronome />
+        <VoiceBar />
         {spotMode && <TindeqPanel minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
@@ -327,7 +346,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
           <tbody>
             {seq.map(x => {
               const next = x === nextItem
-              if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} />
+              if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} voiceTarget={x === nextMain} />
               if (x.kind === 'pull' && D) return <PullTr key={x.key} D={D} def={x.row} r={x.r} next={next} />
               if (x.kind === 'speed') return <SpeedTr key={x.key} api={api} r={x.r} it={x.it} name={speedEx(x.it)} n={x.n} sets={speedSets(x.it)} next={next} lastMain={lastMain} />
               if (x.kind === 'sup') return <SupportTr key={x.key} slot={x.slot} S={S} api={api} inline next={next} />
@@ -365,8 +384,10 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
 
 /* ---------- main lift row (logged or planned) ---------- */
 
-function MainTr({ L, api, r, p, exerciseId, label, next }: {
+function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   L: Ladder; api: Api; r?: SetRow; p?: Ladder['projected'][number]; exerciseId?: string; label: string; next?: boolean
+  /** The first heavy set not yet done: spoken reps ("Max five") go here. */
+  voiceTarget?: boolean
 }) {
   const { equipment: eq, cfg } = useStore()
   const logged = !!r
@@ -445,6 +466,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     setSpotted(n); setAssist(avg); setTrace(cap.pulses); setTempo(cap.tempo)
     if (r) commit({ spotted: n, assist: avg, trace: cap.pulses, tempo: cap.tempo })
   }, [cap?.id])
+  // Spoken reps ("Max five") log this set when it's the next one to do.
+  const commitRef = useRef(commit); commitRef.current = commit
+  useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps') { const v = String(c.n); setReps(v); commitRef.current({ reps: v }); cue('ack', v) } }) : undefined, [voiceTarget])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
