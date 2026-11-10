@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
-import { e1rm, expectedReps, fitFatigue, platesPerSide, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
+import { ALL_PLATES, e1rm, expectedReps, fitFatigue, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
 import { Num } from './shared'
 
@@ -20,6 +20,15 @@ export interface LadderPlan {
   bar: string | null
   chains_ok: boolean
   load?: string
+  /** Plates allowed this session (sheet's "plates on" row). */
+  plates_on: number[]
+  /** Chains switched on for sets 2+ this session. */
+  chains_on: boolean
+  /** 45s / 25s kept on per side; null = worked out from the lightest working set. */
+  kept_45: number | null
+  kept_25: number | null
+  /** Set 1 weight on the bar (plates); null = calculated. */
+  set1_lb: number | null
 }
 
 export const BAR = 'Ohio Power Bar'
@@ -32,7 +41,7 @@ const geo = (p: LadderPlan) => ({ rom_in: p.rom_in, hang_in: p.hang_in })
 const straightOf = (p: LadderPlan): LoadSetup =>
   p.bar ? { bar: p.bar, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0, ...geo(p) } : { bar: '', clamp: '', chain_half: 0, chain_5_8: 0 }
 const chained = (p: LadderPlan): LoadSetup =>
-  p.bar && p.chains_ok && (p.chain_half || p.chain_5_8)
+  p.bar && p.chains_ok && p.chains_on && (p.chain_half || p.chain_5_8)
     ? { bar: p.bar, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8, ...geo(p) } : straightOf(p)
 
 export function setupOf(r?: SetRow): LoadSetup {
@@ -80,14 +89,15 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
 
   // Projected remaining sets: ideal weights first, then the 45s/25s to keep on (from the lightest working set),
   // then each set's weight nudged one step either way if that saves plate moves.
-  const { projected, kept } = useMemo(() => {
+  const { projected, kept, autoKept } = useMemo(() => {
     const ideal: { idx: number; target: number; setup: LoadSetup; weight: number }[] = []
     let idx = (logged.at(-1)?.set_index ?? 0) + 1
     let target = logged.length === 0 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
     if (target && !stopped) {
       while (idx <= 40 && (floor === null || target >= floor)) {
         const setup = idx === 1 ? straightOf(plan) : chained(plan)
-        const weight = weightFor(target, setup)
+        // Set 1 override is what's on the bar (like the lb column); plates = that less the bar and clamps.
+        const weight = idx === 1 && plan.set1_lb != null ? Math.max(0, plan.set1_lb - totals(0, setup, equipment).bottom!) : weightFor(target, setup)
         if (weight <= 0 && idx > 1) break
         ideal.push({ idx, target, setup, weight })
         target *= 1 - f
@@ -95,26 +105,35 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
       }
     }
     const working = [...logged.map(r => r.weight_lb ?? 0), ...ideal.map(p => p.weight)].filter(w => w > 0)
-    const kept: Kept = keptFor(working.length ? Math.min(...working) : 0)
+    const on = plan.plates_on?.length ? plan.plates_on : ALL_PLATES
+    const auto = keptFor(working.length ? Math.min(...working) : 0, on)
+    const kept: Kept = { n45: plan.kept_45 ?? auto.n45, n25: plan.kept_25 ?? auto.n25, on }
     let prev: number[] | null = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
-    if (!plan.bar) return { projected: ideal.map(p => ({ ...p, stack: null as number[] | null, change: '' })), kept }
+    if (!plan.bar) return { projected: ideal.map(p => ({ ...p, stack: null as number[] | null, change: '' })), kept, autoKept: auto }
     const out = ideal.map(p => {
-      const c = choosePlates(p.weight, plan.step_lb, kept, prev)
+      // An overridden set 1 stays exactly as entered.
+      const c = p.idx === 1 && plan.set1_lb != null ? { weight: p.weight, stack: loadSide(p.weight / 2, kept) } : choosePlates(p.weight, plan.step_lb, kept, prev)
       const weight = c?.weight ?? p.weight
       const stack = c?.stack ?? null
       const change = stack ? changeText(prev, stack) : ''
       if (stack) prev = stack
       return { ...p, weight, stack, change }
     })
-    return { projected: out, kept }
+    return { projected: out, kept, autoKept: auto }
   }, [logged, plan, lastActual, floor, stopped, equipment, cfg])
 
   const nextIdx = (logged.at(-1)?.set_index ?? 0) + 1
   const nextTarget = nextIdx === 1 ? plan.planned_e1rm : lastActual !== null ? lastActual * (1 - f) : null
   const lastStack = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
+  // Volume, as on the sheet: bar total × reps, an assisted rep counting the bar less the assist, a failed rep nothing.
+  const volume = logged.reduce((t, r) => {
+    const load = effectiveLoad(r.total_bottom_lb, r.total_top_lb, cfg) ?? 0, reps = r.reps ?? 0
+    const lost = r.failed ? 1 : 0, helped = r.assisted ? 1 : 0
+    return t + load * Math.max(0, reps - lost - helped) + (load - cfg.assist_lb) * helped
+  }, 0)
   const fit = fitFatigue(actual)
   const straight = straightOf(plan)
-  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight }
+  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume, autoKept }
 }
 
 export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
@@ -135,7 +154,21 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
             <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </label>
         )}
-        {plan.bar && plan.chains_ok && <>
+        {plan.bar && <Num label="Set 1 lb (blank = calc)" value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
+        {plan.bar && <>
+          <label>45s kept/side
+            <select value={plan.kept_45 ?? ''} onChange={e => setPlan({ kept_45: e.target.value === '' ? null : Number(e.target.value) })}>
+              <option value="">auto ({L.autoKept.n45})</option>{[0, 1, 2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}</select>
+          </label>
+          <label>25s kept/side
+            <select value={plan.kept_25 ?? ''} onChange={e => setPlan({ kept_25: e.target.value === '' ? null : Number(e.target.value) })}>
+              <option value="">auto ({L.autoKept.n25})</option>{[0, 1, 2, 3, 4].map(v => <option key={v} value={v}>{v}</option>)}</select>
+          </label>
+        </>}
+        {plan.bar && plan.chains_ok && <label className="toggle">Chains
+          <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
+        </label>}
+        {plan.bar && plan.chains_ok && plan.chains_on && <>
           <label>½ chains/side, sets 2+
             <select value={plan.chain_half} onChange={e => setPlan({ chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
           </label>
@@ -146,6 +179,7 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
           <Num label="Chain hang at bottom (in)" value={plan.hang_in} onSave={v => setPlan({ hang_in: v })} />
         </>}
       </div>
+      {plan.bar && <PlatesOn value={plan.plates_on} onChange={v => setPlan({ plates_on: v })} />}
       {plan.bar && (L.kept.n45 > 0 || L.kept.n25 > 0) && <p className="small">Keep on all session, per side: <b>{stackText([...Array(L.kept.n45).fill(45), ...Array(L.kept.n25).fill(25)])}</b></p>}
       <p className="small muted">
         {carriedFrom ? <>Planned max and fatigue carried from {carriedFrom}. </> : null}
@@ -157,3 +191,17 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
   )
 }
 
+
+/** The sheet's "plates on" row: tap a plate to allow or prohibit it. */
+export function PlatesOn({ value, onChange }: { value: number[] | undefined; onChange: (v: number[]) => void }) {
+  const on = value?.length ? value : ALL_PLATES
+  const flip = (p: number) => {
+    const next = on.includes(p) ? on.filter(x => x !== p) : [...on, p].sort((a, b) => b - a)
+    if (next.length) onChange(next)
+  }
+  return (
+    <div className="plates-on"><span className="small muted">Plates on</span>
+      {ALL_PLATES.map(p => <button key={p} type="button" className={'plate' + (on.includes(p) ? ' on' : '')} aria-pressed={on.includes(p)} onClick={() => flip(p)}>{p}</button>)}
+    </div>
+  )
+}

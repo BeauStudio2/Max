@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
-import { LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
+import { ALL_PLATES, LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
 import SessionSheet, { type Placement } from './today/Sheet'
@@ -138,6 +138,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
     bar: 'bar' in exEquip ? exEquip.bar ?? null : 'Ohio Power Bar',
     chains_ok: exEquip.chains ?? true,
     load: exEquip.load ?? 'bar',
+    plates_on: pick(sp.plates_on, prevPlan.plates_on, st.plates_on) ?? ALL_PLATES,
+    chains_on: pick(sp.chains_on, prevPlan.chains_on) ?? true,
+    kept_45: pick(sp.kept_45) ?? null,
+    kept_25: pick(sp.kept_25) ?? null,
+    set1_lb: pick(sp.set1_lb) ?? null,
   }
 
   const dlWeek = (() => {
@@ -149,8 +154,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const best = st.deadlift_best_conventional_lb as number | undefined
   const dlPlan: DeadliftPlan = {
     planned_top_lb: pick(sp.planned_top_lb, dlDefaultTop(dlWeek, st.deadlift_planned_top_lb ?? (best ? best * 0.825 : null), best)) ?? null,
-    bar_lb: pick(sp.bar_lb) ?? (String(wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
+    bar_lb: pick(sp.bar_lb) ?? (String(wk?.bar ?? wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
     rest_s: pick(sp.rest_s) ?? 180,
+    plates_on: pick(sp.plates_on, st.plates_on) ?? ALL_PLATES,
   }
 
   ladderPlanRef.current = ladderPlan
@@ -188,7 +194,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     await relabel(sets.filter(r => r.block === heavyBlock && r.exercise_id === oldId), name)
     // A different exercise brings its own plan: forget this session's max, fatigue and bar setup so they reload for it.
     await savePlanned({ heavy_exercise: name, planned_e1rm: undefined, fatigue_rate_used_pct: undefined, clamp: undefined,
-      chain_half: undefined, chain_5_8: undefined, rom_in: undefined, hang_in: undefined })
+      chain_half: undefined, chain_5_8: undefined, rom_in: undefined, hang_in: undefined, set1_lb: undefined, kept_45: undefined, kept_25: undefined })
     await load()
   }
   const speedSlotSets = (it: any) => sets.filter(s => s.block === 'speed' && (s.setup?.slot === it.name || (!s.setup?.slot && s.exercise_id === exId(it.name))))
@@ -251,6 +257,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
             </>
           )}
         </div>
+        <SessionStats session={session} sets={sets} volume={L?.volume ?? null} bwDefault={lifter?.bodyweight_lb ?? st.bodyweight_lb ?? null} lifterId={lifter?.id} date={date} />
       </section>
 
       {err && <p className="err">{err}</p>}
@@ -330,6 +337,37 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
         <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)}
           onBlur={() => notes !== (session?.notes ?? '') && save({ notes: notes.trim() || null })} />
       </label>
+    </div>
+  )
+}
+
+/** The sheet's bottom block: duration, calories, volume, recovery from the last session and the earliest next one. */
+function SessionStats({ session, sets, volume, bwDefault, lifterId, date }: { session: Session | null; sets: SetRow[]; volume: number | null; bwDefault: number | null; lifterId?: string; date: string }) {
+  const { cfg } = useStore()
+  const [prev, setPrev] = useState<{ at: string; date: string } | null>(null)
+  useEffect(() => {
+    if (!lifterId) return
+    supabase.from('sessions').select('session_date, started_at, ended_at').eq('lifter_id', lifterId).lt('session_date', date)
+      .order('session_date', { ascending: false }).limit(1)
+      .then(({ data }) => { const r = data?.[0]; setPrev(r ? { at: r.ended_at ?? r.started_at ?? r.session_date + 'T12:00:00', date: r.session_date } : null) })
+  }, [lifterId, date])
+  const reps = sets.reduce((t, s) => t + (s.reps ?? 0), 0)
+  const timed = session?.started_at ? ((session.ended_at ? Date.parse(session.ended_at) : Date.now()) - Date.parse(session.started_at)) / 60000 : null
+  const minutes = timed ?? (reps ? (reps * (cfg.seconds_per_rep ?? 4)) / 60 : null)
+  const bw = session?.bodyweight_lb ?? bwDefault
+  const kcal = minutes && bw ? (cfg.met ?? 6) * (bw / 2.2046) * (minutes / 60) : null
+  const startMs = session?.started_at ? Date.parse(session.started_at) : null
+  const since = prev ? ((startMs ?? Date.now()) - Date.parse(prev.at)) / 3600000 : null
+  const rec = cfg.recovery_h ?? 24
+  const next = new Date((session?.ended_at ? Date.parse(session.ended_at) : startMs ?? Date.now()) + rec * 3600000)
+  if (!minutes && !volume && since === null) return null
+  return (
+    <div className="stats small">
+      {minutes ? <span><b>{Math.round(minutes)}</b> min{timed === null ? ' (est from reps)' : ''}</span> : null}
+      {kcal ? <span><b>{Math.round(kcal)}</b> kcal</span> : null}
+      {volume ? <span><b>{Math.round(volume).toLocaleString()}</b> lb volume</span> : null}
+      {since !== null && since > 0 ? <span className={since < rec ? 'warn' : ''}><b>{Math.round(since)}</b> h since {prev!.date.slice(5).replace('-', '/')}{since < rec ? ` (under ${rec} h)` : ''}</span> : null}
+      {session?.started_at ? <span>next ≥ <b>{next.toLocaleDateString(undefined, { weekday: 'short' })} {next.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</b></span> : null}
     </div>
   )
 }

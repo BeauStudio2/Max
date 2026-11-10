@@ -18,7 +18,7 @@ const LIGHT_BAR = 'Light speed bar'
 const fixedWeight = (s: LoadSetup, eq: Equipment[]) =>
   n0(eq.find(e => e.name === s.bar)?.weight_lb) + n0(eq.find(e => e.name === s.clamp)?.weight_lb)
 /** Plates per side for a total plate weight (both sides): the session's kept-on plates when given, else largest first. */
-const sideText = (plates: number | null, kept?: Kept) => {
+const sideText = (plates: number | null, kept?: Kept, on?: number[]) => {
   if (plates === null || plates < 0) return ''
   if (plates === 0) return '—'
   const stack = kept ? loadSide(plates / 2, kept) : null
@@ -36,7 +36,7 @@ const sideText = (plates: number | null, kept?: Kept) => {
     }
     return out.join('+')
   }
-  return platesPerSide(plates).replace(/(\d+)×([\d.]+)/g, (_, k, p) => Array(Number(k)).fill(p).join('+')).replace(/ \+ /g, '+')
+  return platesPerSide(plates, on ?? kept?.on).replace(/(\d+)×([\d.]+)/g, (_, k, p) => Array(Number(k)).fill(p).join('+')).replace(/ \+ /g, '+')
 }
 /** "25+10+10+10" or "45+2x10+2.5" → pounds per side. */
 const parseSide = (t: string) => {
@@ -278,14 +278,15 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
   const bar = D.plan.bar_lb
   const [w, setW] = useState<number | null>(r?.weight_lb ?? def.weight)
   const [inertia, setInertia] = useState<string>(r?.setup?.inertia ?? '')
+  const [peak, setPeak] = useState<string>(r?.setup?.peak?.toString() ?? '')
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
   const [rpe, setRpe] = useState(r?.rpe?.toString() ?? '')
   useEffect(() => { if (!r) setW(def.weight) }, [def.weight])
-  async function commit(p: { w?: number | null; reps?: string; rpe?: string; inertia?: string }) {
-    const ww = p.w !== undefined ? p.w : w, rp = p.reps ?? reps, rr = p.rpe ?? rpe, ii = p.inertia ?? inertia
+  async function commit(p: { w?: number | null; reps?: string; rpe?: string; inertia?: string; peak?: string }) {
+    const ww = p.w !== undefined ? p.w : w, rp = p.reps ?? reps, rr = p.rpe ?? rpe, ii = p.inertia ?? inertia, pk = p.peak ?? peak
     const weight = fly ? null : ww
     const row: Partial<SetRow> = { weight_lb: weight, total_bottom_lb: weight, total_top_lb: weight, reps: rp === '' ? null : Number(rp), rpe: rr === '' ? null : Number(rr),
-      setup: { ...(r?.setup ?? {}), step: def.step, bar_lb: bar, ...(fly ? { inertia: ii || null } : {}) } }
+      setup: { ...(r?.setup ?? {}), step: def.step, bar_lb: bar, ...(fly ? { inertia: ii || null, peak: pk === '' ? null : Number(pk) } : {}) } }
     if (r) await D.api.updateSet(r.id!, row)
     else if (row.reps !== null) await D.api.addSet({ ...(row as any), exercise_id: D.api.exId(def.ex === 'Deadlift' ? D.main : def.ex)!, block: 'deadlift', set_index: def.idx, assisted: false, failed: false })
   }
@@ -295,11 +296,13 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
       <td className="stick"><span className="tagdot h" />{def.step}</td>
       <td>{fly ? <CellText value={inertia} placeholder="inertia" onSave={v => { setInertia(v); commit({ inertia: v }) }} />
         : <CellNum value={w} onSave={v => { setW(v); commit({ w: v }) }} />}
-        {!fly && <div className="sub2 side-inline">{sideText(w === null ? null : w - bar)}{def.pct ? ` · ${def.pct}%` : ''}</div>}</td>
+        {!fly && <div className="sub2 side-inline">{sideText(w === null ? null : w - bar, undefined, D.plan.plates_on)}{def.pct ? ` · ${def.pct}%` : ''}</div>}</td>
       <td><CellText value={reps} narrow numeric placeholder={String(def.reps)} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td>{def.rpe ? <CellText value={rpe} narrow numeric onSave={v => { setRpe(v); commit({ rpe: v }) }} /> : null}</td>
-      <td className="c-side"><CellText value={fly ? '' : sideText(w === null ? null : w - bar)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; const nw = sd * 2 + bar; setW(nw); commit({ w: nw }) }} /></td>
-      <td className="small muted nowrap c-setup">{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}</td>
+      <td className="c-side"><CellText value={fly ? '' : sideText(w === null ? null : w - bar, undefined, D.plan.plates_on)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; const nw = sd * 2 + bar; setW(nw); commit({ w: nw }) }} /></td>
+      <td className="small muted nowrap c-setup">{fly
+        ? <CellText value={peak} narrow numeric placeholder="peak" onSave={v => { setPeak(v); commit({ peak: v }) }} />
+        : <>{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}{def.setup ? ` · ${def.setup}` : ''}</>}</td>
       <td className="c-exp" /><td className="num"><b>{est ? round(est) : ''}</b></td>
       <td className="num c-rest">{r && <button className="x" onClick={() => D.api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
     </tr>

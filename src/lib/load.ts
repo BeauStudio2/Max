@@ -77,11 +77,11 @@ export function expectedReps(target: number, bottom: number | null, top: number 
 
 const PLATES = [45, 25, 10, 5, 2.5, 1.25]
 /** Plates per side for a total plate weight (both sides), largest first. */
-export function platesPerSide(totalPlates: number | null) {
+export function platesPerSide(totalPlates: number | null, on: number[] = PLATES) {
   if (totalPlates === null || totalPlates <= 0) return totalPlates === 0 ? 'empty bar' : ''
   let side = Math.round((totalPlates / 2) * 100) / 100
   const out: string[] = []
-  for (const p of PLATES) {
+  for (const p of PLATES.filter(x => on.includes(x))) {
     const k = Math.floor(side / p + 1e-9)
     if (k > 0) { out.push(k > 1 ? `${k}×${p}` : `${p}`); side = Math.round((side - k * p) * 100) / 100 }
   }
@@ -113,32 +113,56 @@ export const roundTo = (v: number, step: number) => Math.round(v / step) * step
 
 /* ---------- Plate planning (sheet rule from 11/02: 45s and 25s stay on, run the rest down with 10s and small plates) ---------- */
 
-export interface Kept { n45: number; n25: number }
+export interface Kept { n45: number; n25: number; on?: number[] }
 /** Plates owned per side, beyond the 45s. */
 export const OWNED = { 25: 4, 10: 9, 5: 2, 2.5: 2, 1.25: 2 } as const
+export const ALL_PLATES = [45, 25, 10, 5, 2.5, 1.25]
 
-/** One side of the bar, inner to outer. Null when the owned plates can't make it with these kept plates. */
-export function loadSide(perSide: number, kept: Kept): number[] | null {
-  let rem = Math.round((perSide - 45 * kept.n45 - 25 * kept.n25) * 100) / 100
-  if (rem < -0.01) return null
-  const stack: number[] = [...Array(kept.n45).fill(45), ...Array(kept.n25).fill(25)]
-  // More than the 10s and small plates can make: add 45s outside the kept plates.
-  const smallMax = 10 * OWNED[10] + 5 * OWNED[5] + 2.5 * OWNED[2.5] + 1.25 * OWNED[1.25]
-  while (rem > smallMax + 0.01) { stack.push(45); rem = Math.round((rem - 45) * 100) / 100 }
-  for (const p of [10, 5, 2.5, 1.25] as const) {
-    const k = Math.min(OWNED[p], Math.floor(rem / p + 1e-9))
-    for (let i = 0; i < k; i++) stack.push(p)
-    rem = Math.round((rem - k * p) * 100) / 100
+/** Fewest plates (from these sizes and counts) that make exactly `rem` lb, largest first. Null if none. */
+function solveSide(rem: number, avail: [number, number][]): number[] | null {
+  const target = Math.round(rem * 4)
+  if (target === 0) return []
+  let best: number[] | null = null
+  const go = (i: number, left: number, acc: number[]) => {
+    if (left === 0) { if (!best || acc.length < best.length) best = [...acc]; return }
+    if (i >= avail.length || (best && acc.length >= best.length)) return
+    const [p, n] = avail[i], u = Math.round(p * 4)
+    for (let k = Math.min(n, Math.floor(left / u)); k >= 0; k--) go(i + 1, left - k * u, [...acc, ...Array(k).fill(p)])
   }
-  return rem > 0.01 ? null : stack
+  go(0, target, [])
+  return best
 }
 
-/** Which 45s and 25s to keep on all session: as many as fit the lightest working set. */
-export function keptFor(lightestPlates: number): Kept {
+/** One side of the bar, inner to outer, using only the plates switched on. Null when they can't make it. */
+export function loadSide(perSide: number, kept: Kept): number[] | null {
+  const on = new Set(kept.on ?? ALL_PLATES)
+  const n45 = on.has(45) ? kept.n45 : 0, n25 = on.has(25) ? kept.n25 : 0
+  let rem = Math.round((perSide - 45 * n45 - 25 * n25) * 100) / 100
+  if (rem < -0.01) return null
+  const stack: number[] = [...Array(n45).fill(45), ...Array(n25).fill(25)]
+  const small = ([[10, OWNED[10]], [5, OWNED[5]], [2.5, OWNED[2.5]], [1.25, OWNED[1.25]]] as [number, number][]).filter(([p]) => on.has(p))
+  const smallMax = small.reduce((t, [p, n]) => t + p * n, 0) + (on.has(25) ? 25 * (OWNED[25] - n25) : 0)
+  const solve = (r: number) => solveSide(r, small) ?? (on.has(25) ? solveSide(r, [[25, OWNED[25] - n25], ...small]) : null)
+  // More than the smaller plates can make: add 45s outside the kept plates.
+  if (on.has(45)) while (rem > smallMax + 0.01) { stack.push(45); rem = Math.round((rem - 45) * 100) / 100 }
+  // Prefer 10s and change (fewer moves set to set); spare 25s come in when those can't make it.
+  let sol = solve(rem)
+  // With 10s off, a tall stack of change is worse than another 45: take the fewest plates.
+  if (on.has(45) && !on.has(10)) {
+    for (let r = rem - 45, extra = 1; r > -0.01; r = Math.round((r - 45) * 100) / 100, extra++) {
+      const alt = solve(r)
+      if (alt && (!sol || alt.length + extra < sol.length)) { sol = [...Array(extra).fill(45), ...alt] }
+    }
+  }
+  return sol ? [...stack, ...sol] : null
+}
+
+/** Which 45s and 25s to keep on all session: as many as fit the lightest working set, from the plates switched on. */
+export function keptFor(lightestPlates: number, on: number[] = ALL_PLATES): Kept {
   const side = Math.max(0, lightestPlates / 2)
-  const n45 = Math.floor(side / 45 + 1e-9)
-  const n25 = Math.min(OWNED[25], Math.floor((side - 45 * n45) / 25 + 1e-9))
-  return { n45, n25 }
+  const n45 = on.includes(45) ? Math.floor(side / 45 + 1e-9) : 0
+  const n25 = on.includes(25) ? Math.min(OWNED[25], Math.floor((side - 45 * n45) / 25 + 1e-9)) : 0
+  return { n45, n25, on }
 }
 
 /** Plate moves per side to go from one stack to the next (plates come off the outside first). */
@@ -166,13 +190,17 @@ export function stackText(stack: number[]) {
 
 /** Ideal weight or one step either side, whichever needs the fewest plate moves from the last set (ties go to the ideal). */
 export function choosePlates(ideal: number, step: number, kept: Kept, prev: number[] | null) {
-  const cands = [ideal, ideal - step, ideal + step].filter(w => w >= 0)
-  let best: { weight: number; stack: number[]; moves: number } | null = null
-  for (const w of cands) {
-    const stack = loadSide(w / 2, kept)
-    if (!stack) continue
-    const moves = prev ? plateMoves(prev, stack) : 0
-    if (!best || moves < best.moves) best = { weight: w, stack, moves }
+  // Ideal or one step either side; if the plates switched on can't make any of those, widen up to four steps.
+  for (const reach of [1, 2, 3, 4]) {
+    const cands = [ideal, ...Array.from({ length: reach }, (_, i) => [ideal - (i + 1) * step, ideal + (i + 1) * step]).flat()].filter(w => w >= 0)
+    let best: { weight: number; stack: number[]; moves: number } | null = null
+    for (const w of cands) {
+      const stack = loadSide(w / 2, kept)
+      if (!stack) continue
+      const moves = prev ? plateMoves(prev, stack) : 0
+      if (!best || moves < best.moves) best = { weight: w, stack, moves }
+    }
+    if (best) return best
   }
-  return best
+  return null
 }

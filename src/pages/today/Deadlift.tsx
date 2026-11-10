@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { e1rmFromRpe, platesPerSide, round, roundTo } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
 import { Num, type Api } from './shared'
+import { PlatesOn } from './Ladder'
 
-export interface DeadliftPlan { planned_top_lb: number | null; bar_lb: number; rest_s?: number }
+export interface DeadliftPlan { planned_top_lb: number | null; bar_lb: number; rest_s?: number; plates_on?: number[] }
 
-interface Row { step: string; idx: number; pct: number | null; weight: number | null; reps: number; rpe?: boolean; ex: 'Deadlift' | 'Flywheel deadlift' }
+interface Row { step: string; idx: number; pct: number | null; weight: number | null; reps: number; rpe?: boolean; ex: 'Deadlift' | 'Flywheel deadlift'; setup?: string }
 
 export type DeadliftCtl = ReturnType<typeof useDeadlift>
 export type PullRowDef = Row
@@ -27,7 +28,7 @@ export function useDeadlift({ week, cycle, plan, sets, api, exerciseName, resetK
   warm.forEach(([p, r], i) => rows.push({ step: `warm-up ${i + 1}`, idx: i + 1, pct: p, weight: top ? roundTo((top * p) / 100, 5) : null, reps: r, ex: 'Deadlift' }))
   ;[1, 2, 3].forEach(i => rows.push({ step: `top single ${i}`, idx: 5 + i, pct: null, weight: i === 1 && top ? top : null, reps: 1, rpe: true, ex: 'Deadlift' }))
   if (bo) for (let i = 1; i <= Number(bo[1]); i++)
-    rows.push({ step: `back-off ${i}`, idx: 8 + i, pct: Number(bo[3]), weight: boBase ? roundTo((boBase * Number(bo[3])) / 100, 5) : null, reps: Number(bo[2]), rpe: true, ex: 'Deadlift' })
+    rows.push({ step: `back-off ${i}`, idx: 8 + i, pct: Number(bo[3]), weight: boBase ? roundTo((boBase * Number(bo[3])) / 100, 5) : null, reps: Number(bo[2]), rpe: true, ex: 'Deadlift', setup: wk?.backoff_setup || undefined })
   for (let i = 1; i <= (wk?.flywheel_sets ?? 0); i++)
     rows.push({ step: `flywheel ${i}`, idx: i, pct: null, weight: null, reps: 6, ex: 'Flywheel deadlift' })
   const extra = sets.filter(s => s.setup?.step?.startsWith('extra')).sort((a, b) => a.set_index - b.set_index)
@@ -45,7 +46,7 @@ export function useDeadlift({ week, cycle, plan, sets, api, exerciseName, resetK
 export function DeadliftPlanFields({ D, setPlan, best }: { D: DeadliftCtl; setPlan: (p: Partial<DeadliftPlan>) => void; best?: number }) {
   return (
     <>
-      {D.wk && <p className="small"><b>Week {D.week} of 6: {D.wk.pull}</b> · top: {D.wk.top}{D.wk.backoff ? ` · back-off ${D.wk.backoff}` : ''}</p>}
+      {D.wk && <p className="small"><b>Week {D.week} of 6: {D.wk.pull}</b>{D.wk.setup ? ` · ${D.wk.setup}` : ''} · top: {D.wk.top}{D.wk.backoff ? ` · back-off ${D.wk.backoff}` : ''}</p>}
       <div className="planfields">
         <Num label="Planned top lb" value={D.top} onSave={v => setPlan({ planned_top_lb: v })} />
         <label>Bar
@@ -55,6 +56,7 @@ export function DeadliftPlanFields({ D, setPlan, best }: { D: DeadliftCtl; setPl
         </label>
         <Num label="Rest (s)" value={D.plan.rest_s ?? 180} onSave={v => v && setPlan({ rest_s: v })} />
       </div>
+      <PlatesOn value={D.plan.plates_on} onChange={v => setPlan({ plates_on: v })} />
       <p className="small muted">
         {best ? <>Best conventional {best} (85% {roundTo(best * 0.85, 5)} · 92% {roundTo(best * 0.92, 5)} · 97% {roundTo(best * 0.97, 5)}). </> : null}
         {D.todayMax ? <>Today’s estimate <b>{round(D.todayMax)}</b> from the best top single and its RPE. </> : null}

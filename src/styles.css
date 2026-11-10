@@ -371,3 +371,14 @@ ul.mlist li:first-child .mrow { border-top: 0; }
 .mrow { grid-template-columns: minmax(120px, 1fr) 110px 56px 48px 76px 16px; }
 @media (max-width: 480px) { .mrow { grid-template-columns: 1fr auto 48px 16px; } }
 .detailbox .row.wrap { max-width: 520px; }
+
+/* plates on / chains switch / session stats */
+.plates-on { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+.plates-on .small { margin-right: 4px; }
+.plate { min-width: 38px; padding: 5px 7px; font-size: 14px; border-radius: 999px; border: 1px solid var(--line, #ccc); background: transparent; color: var(--muted, #888); text-decoration: line-through; font-variant-numeric: tabular-nums; cursor: pointer; }
+.plate.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); text-decoration: none; }
+.toggle .switch { display: block; width: 100%; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line, #ccc); background: transparent; cursor: pointer; }
+.toggle .switch.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--muted, #888); }
+.stats b { color: var(--text, inherit); }
+.stats .warn b, .stats .warn { color: var(--warn, #c60); }

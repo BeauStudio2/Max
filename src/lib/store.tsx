@@ -23,7 +23,7 @@ export const useStore = () => {
   return s
 }
 
-const DEFAULT_CFG: Config = { rep_divisor: 30, chain_bottom_ratio: 0.5, chain_top_ratio: 0.5, assist_lb: 7.5 }
+const DEFAULT_CFG: Config = { rep_divisor: 30, chain_bottom_ratio: 0.5, chain_top_ratio: 0.5, assist_lb: 7.5, met: 6, seconds_per_rep: 4, recovery_h: 24 }
 
 export function StoreProvider({ auth, children }: { auth: AuthSession; children: ReactNode }) {
   const [state, setState] = useState<Omit<Store, 'reload' | 'auth'> | null>(null)

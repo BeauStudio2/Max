@@ -107,11 +107,11 @@ export default function Config() {
         <section className="card">
           <h2>Deadlift cycle</h2>
           <div className="tablewrap"><table className="sheet cfg">
-            <thead><tr><th className="stick">Week</th><th>Main pull</th><th>Top single</th><th>Back-off</th><th>Flywheel sets</th></tr></thead>
+            <thead><tr><th className="stick">Week</th><th>Main pull</th><th>Setup</th><th>Bar</th><th>Top single</th><th>Back-off</th><th>Back-off setup</th><th>Flywheel sets</th></tr></thead>
             <tbody>{cycle.map((w, i) => (
               <tr key={w.week}>
                 <td className="stick">{w.week}</td>
-                {(['pull', 'top', 'backoff'] as const).map(k => <td key={k}>{ro ? w[k] ?? '' : <CellText value={w[k] ?? ''} full onSave={v => saveCycle(i, k, v)} />}</td>)}
+                {(['pull', 'setup', 'bar', 'top', 'backoff', 'backoff_setup'] as const).map(k => <td key={k}>{ro ? w[k] ?? '' : <CellText value={w[k] ?? ''} full onSave={v => saveCycle(i, k, v)} />}</td>)}
                 <td>{ro ? w.flywheel_sets ?? '' : <CellText value={w.flywheel_sets == null ? '' : String(w.flywheel_sets)} narrow numeric onSave={v => saveCycle(i, 'flywheel_sets', v)} />}</td>
               </tr>
             ))}</tbody>
