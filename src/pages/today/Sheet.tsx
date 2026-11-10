@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
 import { e1rm, e1rmFromRpe, expectedReps, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
 import type { Equipment, SetRow } from '../../lib/types'
-import { CLAMPS, CHAIN_CLAMP, setupOf, withClamp, type Ladder } from './Ladder'
+import { CLAMPS, CHAIN_CLAMP, setupOf, type Ladder } from './Ladder'
 import { type DeadliftCtl, type PullRowDef } from './Deadlift'
 import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
@@ -138,8 +138,8 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         <table className="sheet">
           <thead>
             <tr>
-              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : 'A · F'}</th><th>Per side</th><th>Setup</th>
-              <th>Exp</th><th>+/−</th><th>e1RM</th><th>%1</th><th>Rest</th>
+              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : 'A · F'}</th><th className="c-side">Per side</th><th className="c-setup">Setup</th>
+              <th className="c-exp">Exp ±</th><th>e1RM</th><th className="c-rest">Rest</th>
             </tr>
           </thead>
           <tbody>
@@ -209,35 +209,61 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     return commit({ setup: s })
   }
   const fixed = fixedWeight(setup, eq)
+  const [more, setMore] = useState(false)
+  const sideCell = <CellText value={sideText(plates, L.kept)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2 }) }} />
+  const setupCell = (
+    <select className="mini setupsel" value={setupValue(setup)} onChange={e => setSet(parseSetupValue(e.target.value, setup))} aria-label="Clamps and chains">
+      {setupOptions(setup).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
+  )
 
   return (
+    <>
     <tr className={(logged ? 'done' : 'plan') + (next ? ' next' : '') + (below ? ' below' : '')}>
-      <td className="stick"><span className="tagdot h" />{label} {idx}</td>
-      <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} /></td>
+      <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
+      <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
+        <div className="sub2 side-inline">{sideText(plates, L.kept)}</div></td>
       <td><CellText value={reps} narrow placeholder={exp !== null ? exp.toFixed(0) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
       </td>
-      <td><CellText value={sideText(plates, L.kept)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2 }) }} /></td>
-      <td className="nowrap">
-        <select className="mini" value={setup.clamp} onChange={e => setSet({ ...setup, clamp: e.target.value })} aria-label="Clamps">
-          {CLAMPS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        <select className="mini" value={setup.chain_half} onChange={e => setSet(withClamp({ ...setup, chain_half: Number(e.target.value) }, L.plan.clamp))} aria-label="Half-inch chains per side">
-          {[0, 1, 2].map(v => <option key={v} value={v}>½×{v}</option>)}
-        </select>
-        <select className="mini" value={setup.chain_5_8} onChange={e => setSet(withClamp({ ...setup, chain_5_8: Number(e.target.value) }, L.plan.clamp))} aria-label="Five-eighths chains per side">
-          {[0, 1, 2].map(v => <option key={v} value={v}>⅝×{v}</option>)}
-        </select>
-      </td>
-      <td className="num">{exp !== null ? exp.toFixed(1) : ''}</td>
-      <td className={'num ' + (diff === null ? '' : diff >= 0 ? 'up' : 'down')}>{diff !== null ? `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}` : ''}</td>
-      <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b></td>
-      <td className="num">{pct !== null && (logged || repsN !== null) ? round(pct) : ''}</td>
-      <td className="num muted">{r?.rest_s ? fmt(r.rest_s) : ''}{logged && <button className="x" onClick={() => api.deleteSet(r!.id!)} aria-label="Delete set">×</button>}</td>
+      <td className="c-side">{sideCell}</td>
+      <td className="c-setup">{setupCell}</td>
+      <td className="num c-exp">{exp !== null ? exp.toFixed(1) : ''}{diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')}>{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
+      <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
+        {pct !== null && (logged || repsN !== null) && <div className="sub2">{round(pct)}%</div>}</td>
+      <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}{logged && <button className="x" onClick={() => api.deleteSet(r!.id!)} aria-label="Delete set">×</button>}</td>
     </tr>
+    {more && (
+      <tr className="morerow"><td className="stick" /><td colSpan={8}>
+        <div className="morebox">
+          <label>Per side{sideCell}</label>
+          <label>Setup{setupCell}</label>
+          {exp !== null && <span className="small muted">Expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
+          {r?.rest_s ? <span className="small muted">Rest {fmt(r.rest_s)}</span> : null}
+          {logged && <button className="ghost small" onClick={() => api.deleteSet(r!.id!)}>Delete set</button>}
+        </div>
+      </td></tr>
+    )}
+    </>
   )
+}
+
+/* Clamps and chains as one choice: straight sets on Rogue or Eleiko, chain sets on the chain clamps. */
+const CHAIN_COMBOS: [number, number][] = [[0, 1], [1, 0], [1, 1], [0, 2], [2, 0], [2, 1], [1, 2], [2, 2]]
+const comboLabel = (h: number, b: number) => [h ? `½×${h}` : '', b ? `⅝×${b}` : ''].filter(Boolean).join(' + ')
+function setupOptions(cur: LoadSetup): [string, string][] {
+  const opts: [string, string][] = CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => [`${v}|0|0`, `${l}, straight`])
+  for (const [h, b] of CHAIN_COMBOS) opts.push([`${CHAIN_CLAMP}|${h}|${b}`, comboLabel(h, b)])
+  const v = setupValue(cur)
+  if (!opts.some(o => o[0] === v)) opts.push([v, `${CLAMPS.find(c => c[0] === cur.clamp)?.[1] ?? cur.clamp}${cur.chain_half || cur.chain_5_8 ? ', ' + comboLabel(cur.chain_half, cur.chain_5_8) : ''}`])
+  return opts
+}
+const setupValue = (s: LoadSetup) => `${s.clamp}|${s.chain_half}|${s.chain_5_8}`
+function parseSetupValue(v: string, cur: LoadSetup): LoadSetup {
+  const [clamp, h, b] = v.split('|')
+  return { ...cur, clamp, chain_half: Number(h), chain_5_8: Number(b) }
 }
 const setupKey = (s: LoadSetup) => `${s.clamp}|${s.chain_half}|${s.chain_5_8}`
 
@@ -264,13 +290,14 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
     <tr className={(r ? 'done' : 'plan') + (next ? ' next' : '')}>
       <td className="stick"><span className="tagdot h" />{def.step}</td>
       <td>{fly ? <CellText value={inertia} placeholder="inertia" onSave={v => { setInertia(v); commit({ inertia: v }) }} />
-        : <CellNum value={w} onSave={v => { setW(v); commit({ w: v }) }} />}</td>
+        : <CellNum value={w} onSave={v => { setW(v); commit({ w: v }) }} />}
+        {!fly && <div className="sub2 side-inline">{sideText(w === null ? null : w - bar)}{def.pct ? ` · ${def.pct}%` : ''}</div>}</td>
       <td><CellText value={reps} narrow numeric placeholder={String(def.reps)} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td>{def.rpe ? <CellText value={rpe} narrow numeric onSave={v => { setRpe(v); commit({ rpe: v }) }} /> : null}</td>
-      <td><CellText value={fly ? '' : sideText(w === null ? null : w - bar)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; const nw = sd * 2 + bar; setW(nw); commit({ w: nw }) }} /></td>
-      <td className="small muted nowrap">{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}</td>
-      <td /><td /><td className="num"><b>{est ? round(est) : ''}</b></td><td />
-      <td className="num">{r && <button className="x" onClick={() => D.api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
+      <td className="c-side"><CellText value={fly ? '' : sideText(w === null ? null : w - bar)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; const nw = sd * 2 + bar; setW(nw); commit({ w: nw }) }} /></td>
+      <td className="small muted nowrap c-setup">{def.pct ? `${def.pct}% · ` : ''}goal {def.reps}</td>
+      <td className="c-exp" /><td className="num"><b>{est ? round(est) : ''}</b></td>
+      <td className="num c-rest">{r && <button className="x" onClick={() => D.api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
     </tr>
   )
 }
@@ -317,17 +344,18 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
   return (
     <>
       <tr className={(r ? 'done' : 'plan') + (next ? ' next' : '') + ' speed'}>
-        <td className="stick"><span className="tagdot s" />{name} {n}</td>
+        <td className="stick" onClick={() => banded && setOpen(o => !o)}><span className="tagdot s" />{name} {n}{banded && <span className="moretoggle">{open ? '▴' : '▾'}</span>}</td>
         <td><CellNum value={load} onSave={v => { setLoad(v); commit({ load: v }) }} /></td>
         <td><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td>{isBench ? <CellText value={hits} narrow numeric placeholder="bell" onSave={v => { setHits(v); commit({ hits: v }) }} /> : null}</td>
-        <td className="small muted">{banded ? `${round(ten.perSide, 1)}/side` : ''}</td>
-        <td>{banded ? <button className="linkish" onClick={() => setOpen(o => !o)}>{bandLabel(bands)} ✎</button> : <span className="small muted">{lower.includes('throw') ? 'reps = bell hits /7' : ''}</span>}</td>
-        <td /><td /><td /><td />
-        <td className="num muted">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}{r && <button className="x" onClick={() => api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
+        <td className="small muted c-side">{banded ? `${round(ten.perSide, 1)}/side` : ''}</td>
+        <td className="c-setup">{banded ? <button className="linkish" onClick={() => setOpen(o => !o)}>{bandLabel(bands)} ✎</button> : <span className="small muted">{lower.includes('throw') ? 'reps = bell hits /7' : ''}</span>}</td>
+        <td className="c-exp" /><td />
+        <td className="num muted c-rest">{r?.setup?.after_heavy ? `after ${r.setup.after_heavy}` : ''}{r && <button className="x" onClick={() => api.deleteSet(r.id!)} aria-label="Delete set">×</button>}</td>
       </tr>
       {open && banded && (
-        <tr className="bandrow"><td className="stick" /><td colSpan={10}>
+        <tr className="bandrow"><td className="stick" /><td colSpan={8}>
+          <p className="small side-inline">{bandLabel(bands)}</p>
           <BandEditor bands={bands} onChange={bb => { setBands(bb); commit({ bands: bb }) }} />
           <p className="small muted">Lockout {round(ten.perSide, 1)} lb per side, {round(ten.total, 1)} lb total · 0 at chest (anchor gap set for zero tension on the safeties).</p>
           {isBench && <label className="inline">Bell string (in) <CellText value={string} narrow numeric onSave={v => { setString(v); commit({ string: v }) }} /></label>}
@@ -366,7 +394,7 @@ function SupportTable({ S, api }: { S: SupportCtl; api: Api }) {
       <h3>Support</h3>
       <div className="tablewrap">
         <table className="sheet">
-          <thead><tr><th className="stick">Exercise</th><th>Start</th><th>Reps</th><th>Each drop</th><th>Final</th><th>Scheme</th><th>Step</th><th>Drops</th><th>Loads</th><th>Note</th><th></th></tr></thead>
+          <thead><tr><th className="stick">Exercise</th><th>Start</th><th>Reps</th><th>Each drop</th><th>Final</th><th className="c-setup">Scheme</th><th className="c-exp">Step</th><th className="c-exp">Drops</th><th className="c-side">Note</th><th className="c-rest"></th></tr></thead>
           <tbody>{S.slots.map(slot => <SupportTr key={slot.key} slot={slot} S={S} api={api} />)}</tbody>
         </table>
       </div>
@@ -424,10 +452,14 @@ function SupportTr({ slot, S, api }: { slot: SupportSlot; S: SupportCtl; api: Ap
   const field = (k: keyof ReturnType<typeof init>, narrow = true, numeric = true) => (
     <CellText value={v[k]} narrow={narrow} numeric={numeric} onSave={x => { const nv = { ...v, [k]: x }; setV(nv); save(nv) }} />
   )
+  const [more, setMore] = useState(false)
+  const scheme = <SchemePicker value={v.scheme} options={schemeOptions} onChange={scheme => { const nv = { ...v, scheme }; setV(nv); save(nv) }} />
+  const note = <CellText value={v.notes} placeholder={d.note ? 'see plan note' : 'note'} wide onSave={x => { const nv = { ...v, notes: x }; setV(nv); save(nv) }} />
   return (
     <>
       <tr className={e ? 'done' : 'plan'}>
         <td className="stick">
+          <span className="moretoggle sup" onClick={() => setMore(m => !m)}>{more ? '▴' : '▾'}</span>
           <select className="exsel" value={v.ex} onChange={ev => { const nv = { ...v, ex: ev.target.value }; setV(nv); save(nv) }}>
             <option value="">choose…</option>
             {exercises.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
@@ -435,14 +467,25 @@ function SupportTr({ slot, S, api }: { slot: SupportSlot; S: SupportCtl; api: Ap
           {slot.setIndex > 1 && <span className="small muted"> set {slot.setIndex}</span>}
           {d.note && <div className="sub2 wrap">{d.note}</div>}
         </td>
-        <td>{field('start')}</td><td>{field('reps')}</td><td>{field('each', false, false)}</td><td>{field('final')}</td>
-        <td><SchemePicker value={v.scheme} options={schemeOptions} onChange={scheme => { const nv = { ...v, scheme }; setV(nv); save(nv) }} /></td>
-        <td>{field('step')}</td><td>{field('drops')}</td>
-        <td className="small muted loads">{loads}</td>
-        <td><CellText value={v.notes} placeholder={d.note ? 'see plan note' : 'note'} wide onSave={x => { const nv = { ...v, notes: x }; setV(nv); save(nv) }} /></td>
-        <td className="nowrap"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex}>+ set</button>
+        <td>{field('start')}</td><td>{field('reps')}</td><td>{field('each', true, false)}</td><td>{field('final')}</td>
+        <td className="c-setup">{scheme}</td>
+        <td className="c-exp">{field('step')}</td><td className="c-exp">{field('drops')}</td>
+        <td className="c-side">{note}</td>
+        <td className="nowrap c-rest"><button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex} title="Another set">+</button>
           <button className="x" onClick={() => S.remove(slot)} aria-label="Remove">×</button></td>
       </tr>
+      {loads && <tr className="loadrow"><td className="stick" /><td colSpan={9} className="small muted">{loads}</td></tr>}
+      {more && (
+        <tr className="morerow"><td className="stick" /><td colSpan={9}>
+          <div className="morebox">
+            <div className="field"><span className="flabel">Scheme</span>{scheme}</div>
+            <label>Step{field('step')}</label><label>Drops{field('drops')}</label>
+            <label className="grow">Note{note}</label>
+            <button className="ghost small" onClick={() => S.addSetFor(slot)} disabled={!v.ex}>+ set</button>
+            <button className="ghost small" onClick={() => S.remove(slot)}>Remove</button>
+          </div>
+        </td></tr>
+      )}
     </>
   )
 }

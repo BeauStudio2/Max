@@ -288,3 +288,49 @@ main { max-width: 1680px; margin: 0 auto; }
 @media (min-width: 1500px) {
   .stack.today { grid-template-columns: 420px minmax(0, 1fr); }
 }
+
+/* ---------- log table fits the screen instead of scrolling sideways ---------- */
+table.sheet { width: 100%; table-layout: auto; }
+table.sheet .cellin { width: 100%; min-width: 56px; }
+table.sheet .cellin.n { min-width: 44px; max-width: 72px; }
+table.sheet .cellin.w { min-width: 110px; }
+table.sheet select.setupsel { width: 100%; min-width: 108px; }
+.moretoggle { display: none; margin-left: 4px; color: var(--muted); font-size: 11px; }
+.side-inline { display: none; }
+tr.morerow { display: none; }
+tr.morerow td, tr.morerow .morebox { background: var(--bg); }
+.morebox { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; padding: 6px 0; }
+.morebox label { min-width: 140px; }
+
+/* Narrow screens: plates per side under the weight; setup, expected reps and rest open from the set name. */
+@media (max-width: 760px) {
+  table.sheet .c-side, table.sheet .c-setup, table.sheet .c-exp, table.sheet .c-rest { display: none; }
+  .side-inline { display: block; }
+  p.side-inline { display: block; }
+  tr.morerow { display: table-row; }
+  .moretoggle { display: inline; }
+  table.sheet td.stick { cursor: pointer; }
+  table.sheet .stick { min-width: 0; max-width: 34vw; white-space: normal; line-height: 1.2; }
+  .sheetcard { padding: 10px 8px; }
+  main { padding: 12px 8px; }
+  table.sheet td { padding: 3px 2px; }
+  table.sheet .cellin { min-width: 50px; padding: 5px 4px; }
+  table.sheet .cellin.n { min-width: 40px; }
+}
+table.sheet select.exsel { width: 100%; min-width: 110px; }
+tr.loadrow td { border-bottom: 1px solid var(--line); padding-top: 0; font-size: 11px; white-space: normal; }
+tr.loadrow + tr td, table.sheet tr:has(+ tr.loadrow) td { border-bottom: 0; }
+.supsheet table.sheet .stick { max-width: 220px; }
+@media (max-width: 760px) {
+  .moretoggle.sup { display: inline-block; float: right; padding: 4px; cursor: pointer; }
+  table.sheet select.exsel { min-width: 0; width: calc(100% - 18px); }
+  .supsheet table.sheet .stick { max-width: 38vw; }
+}
+tr.loadrow td { overflow-wrap: anywhere; word-break: break-all; }
+@media (max-width: 760px) {
+  .supsheet table.sheet .stick { min-width: 118px; }
+  .morebox { max-width: calc(100vw - 150px); }
+  .morebox label, .morebox .field { min-width: 0; flex: 1 1 88px; }
+  .morebox .cellin.w { min-width: 0; }
+  tr.loadrow td.small { max-width: calc(100vw - 150px); }
+}
