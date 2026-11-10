@@ -293,7 +293,8 @@ main { max-width: 1680px; margin: 0 auto; }
 table.sheet { width: 100%; table-layout: auto; }
 table.sheet .cellin { width: 100%; min-width: 56px; }
 table.sheet .cellin.n { min-width: 44px; max-width: 72px; }
-table.sheet .cellin.w { min-width: 110px; }
+table.sheet .cellin.w { min-width: 150px; }
+table.sheet td.c-side { width: 30%; }
 table.sheet select.setupsel { width: 100%; min-width: 108px; }
 .moretoggle { display: none; margin-left: 4px; color: var(--muted); font-size: 11px; }
 .side-inline { display: none; }
@@ -430,3 +431,12 @@ ul.mlist li:first-child .mrow { border-top: 0; }
 }
 th [data-tip]:hover::after { bottom: auto; top: calc(100% + 6px); }
 @media (hover: none) { [data-tip]:hover::after { display: none; } }
+.setup2 { display: flex; gap: 4px; }
+.setup2 select.mini { min-width: 0; flex: 0 1 auto; width: 96px; padding-right: 22px; }
+.setup2 select.mini + select.mini { width: 88px; }
+.morebox .setup2 select.mini { width: auto; flex: 1 1 0; }
+.morebox .setup2 { width: 100%; }
+@media (max-width: 760px) {
+  .morebox label { flex: 1 1 100%; min-width: 0; }
+  .morebox .setup2 select.mini, .morebox .setup2 select.mini + select.mini { width: auto; flex: 1 1 0; }
+}

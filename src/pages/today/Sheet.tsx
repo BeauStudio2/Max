@@ -150,7 +150,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         <table className="sheet">
           <thead>
             <tr>
-              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th><th className="c-side">Per side</th><th className="c-setup">Setup</th>
+              <th className="stick">Set</th><th>lb</th><th>Reps</th><th>{D ? 'RPE' : <span data-tip="A = assisted · F = failed">A · F</span>}</th><th className="c-side">Per side</th><th className="c-setup">Clamps · chains</th>
               <th className="c-exp">Exp ±</th><th>e1RM</th><th className="c-rest">Rest</th>
             </tr>
           </thead>
@@ -232,10 +232,29 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   const hasBar = !!L.plan.bar
   const stored: number[] | null = Array.isArray(r?.setup?.stack) ? r!.setup.stack : null
   const sideCell = !hasBar ? <span className="small muted">{loadNote(L.plan)}</span> : <CellText value={sideText(plates, L.kept, undefined, stored)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2, stack: parseStack(v) }) }} />
+  const straightClamp = L.plan.clamp || CLAMPS[0][0]
   const setupCell = !hasBar ? <span className="small muted">—</span> : (
-    <select className="mini setupsel" value={setupValue(setup)} onChange={e => setSet(parseSetupValue(e.target.value, setup))} aria-label="Clamps and chains">
-      {setupOptions(setup).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-    </select>
+    <div className="setup2">
+      <select className="mini" value={setup.clamp} aria-label="Clamps"
+        onChange={e => setSet({ ...setup, clamp: e.target.value })}>
+        {CLAMPS.map(([v, l]) => <option key={v} value={v}>{v === CHAIN_CLAMP ? 'Chain' : l}</option>)}
+        {!CLAMPS.some(c => c[0] === setup.clamp) && <option value={setup.clamp}>{setup.clamp || 'none'}</option>}
+      </select>
+      {L.plan.chains_ok && (
+        <select className="mini" value={`${setup.chain_half}|${setup.chain_5_8}`} aria-label="Chains"
+          onChange={e => {
+            const [h, b] = e.target.value.split('|').map(Number)
+            // Chains hang from the chain clamps; taking them off goes back to the normal clamps.
+            const clamp = h || b ? CHAIN_CLAMP : setup.clamp === CHAIN_CLAMP ? straightClamp : setup.clamp
+            setSet({ ...setup, chain_half: h, chain_5_8: b, clamp })
+          }}>
+          <option value="0|0">no chains</option>
+          {CHAIN_COMBOS.map(([h, b]) => <option key={`${h}|${b}`} value={`${h}|${b}`}>{comboLabel(h, b)}</option>)}
+          {!CHAIN_COMBOS.some(([h, b]) => h === setup.chain_half && b === setup.chain_5_8) && (setup.chain_half || setup.chain_5_8)
+            ? <option value={`${setup.chain_half}|${setup.chain_5_8}`}>{comboLabel(setup.chain_half, setup.chain_5_8)}</option> : null}
+        </select>
+      )}
+    </div>
   )
 
   return (
@@ -260,7 +279,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
       <tr className="morerow"><td className="stick" /><td colSpan={8}>
         <div className="morebox">
           <label>Per side{sideCell}</label>
-          <label>Setup{setupCell}</label>
+          <label>Clamps · chains{setupCell}</label>
           {exp !== null && <span className="small muted">Goal {goal} · expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
           {r?.rest_s ? <span className="small muted">Rest {fmt(r.rest_s)}</span> : null}
           {logged && <button className="ghost small" onClick={() => api.deleteSet(r!.id!)}>Delete set</button>}
@@ -277,18 +296,6 @@ const loadNote = (p: { bar: string | null; load?: string; implement?: string | n
 /* Clamps and chains as one choice: straight sets on Rogue or Eleiko, chain sets on the chain clamps. */
 const CHAIN_COMBOS: [number, number][] = [[0, 1], [1, 0], [1, 1], [0, 2], [2, 0], [2, 1], [1, 2], [2, 2]]
 const comboLabel = (h: number, b: number) => [h ? `½×${h}` : '', b ? `⅝×${b}` : ''].filter(Boolean).join(' + ')
-function setupOptions(cur: LoadSetup): [string, string][] {
-  const opts: [string, string][] = CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => [`${v}|0|0`, `${l}, straight`])
-  for (const [h, b] of CHAIN_COMBOS) opts.push([`${CHAIN_CLAMP}|${h}|${b}`, comboLabel(h, b)])
-  const v = setupValue(cur)
-  if (!opts.some(o => o[0] === v)) opts.push([v, `${CLAMPS.find(c => c[0] === cur.clamp)?.[1] ?? cur.clamp}${cur.chain_half || cur.chain_5_8 ? ', ' + comboLabel(cur.chain_half, cur.chain_5_8) : ''}`])
-  return opts
-}
-const setupValue = (s: LoadSetup) => `${s.clamp}|${s.chain_half}|${s.chain_5_8}`
-function parseSetupValue(v: string, cur: LoadSetup): LoadSetup {
-  const [clamp, h, b] = v.split('|')
-  return { ...cur, clamp, chain_half: Number(h), chain_5_8: Number(b) }
-}
 const setupKey = (s: LoadSetup) => `${s.clamp}|${s.chain_half}|${s.chain_5_8}`
 
 /* ---------- deadlift row ---------- */
