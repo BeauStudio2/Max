@@ -18,7 +18,7 @@ export function Num({ value, onSave, className, placeholder, label, step }: {
   useEffect(() => setV(value?.toString() ?? ''), [value])
   const input = (
     <input className={label ? undefined : className} inputMode="decimal" value={v} placeholder={placeholder} step={step}
-      onChange={e => setV(e.target.value)}
+      onChange={e => setV(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
       onBlur={() => { const nv = v.trim() === '' ? null : Number(v); if (nv !== (value ?? null) && !Number.isNaN(nv)) onSave(nv) }} />
   )
   return label ? <label className={className}>{label}{input}</label> : input
@@ -30,6 +30,7 @@ export function Text({ value, onSave, className, placeholder, label }: {
   const [v, setV] = useState(value ?? '')
   useEffect(() => setV(value ?? ''), [value])
   const input = <input className={label ? undefined : className} value={v} placeholder={placeholder} onChange={e => setV(e.target.value)}
+    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
     onBlur={() => { const nv = v.trim() || null; if (nv !== (value ?? null)) onSave(nv) }} />
   return label ? <label className={className}>{label}{input}</label> : input
 }

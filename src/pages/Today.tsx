@@ -49,16 +49,21 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const [{ data: h }, { data: p }] = await Promise.all([
       supabase.from('session_summary').select('*').eq('lifter_id', lifterId).eq('primary_lift', lift)
         .lt('session_date', date).order('session_date', { ascending: false }).limit(30),
-      supabase.from('sessions').select('id, session_date, planned, sick, hurt, exclude_reason').eq('lifter_id', lifterId).eq('primary_lift', lift)
-        .lt('session_date', date).order('session_date', { ascending: false }).limit(1),
+      supabase.from('sessions').select('id, session_date, primary_lift, planned, sick, hurt, exclude_reason').eq('lifter_id', lifterId)
+        .lt('session_date', date).order('session_date', { ascending: false }).limit(60),
     ])
     setHistory((h as SummaryRow[]) ?? [])
-    const prev = p?.[0]
+    // The plan carries forward from the last session of the same exercise (a substitute has its own history).
+    const exOf = (x: any) => x?.planned?.heavy_exercise ?? LIFT_EXERCISE[x?.primary_lift ?? lift]
+    const heavyNow = (s as any)?.planned?.heavy_exercise ?? LIFT_EXERCISE[lift]
+    const prev = (p ?? []).find(x => exOf(x) === heavyNow)
+    const heavyId = exercises.find(e => e.name === heavyNow)?.id
     const carried: Record<string, any> = { ...((prev?.planned as Record<string, any>) ?? {}) }
     if (prev && !prev.sick && !prev.hurt?.trim() && !prev.exclude_reason?.trim()) {
       // Same rule as the sheet: a healthy previous session hands on its actual set-1 max and its fitted fatigue rate.
-      const { data: est } = await supabase.from('set_estimates').select('set_index, e1rm_lb')
-        .eq('session_id', prev.id).in('block', ['primary', 'deadlift']).order('set_index')
+      let q = supabase.from('set_estimates').select('set_index, e1rm_lb').eq('session_id', prev.id).in('block', ['primary', 'deadlift'])
+      if (heavyId) q = q.eq('exercise_id', heavyId)
+      const { data: est } = await q.order('set_index')
       const e = (est ?? []).map(r => (r.e1rm_lb === null ? null : Number(r.e1rm_lb)))
       if (e[0]) carried.planned_e1rm = Math.round(e[0])
       const fit = fitFatigue(e)
@@ -79,7 +84,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const { data, error } = await supabase.from('sessions').insert({
       lifter_id: lifterId, session_date: date, primary_lift: lift, template_id: tpl?.id ?? null,
       source: 'app',
-      planned: lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current, ...patch,
+      planned: strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...patch,
     }).select().single()
     if (error) { setErr(error.message); return null }
     setSession(data as Session); return data as Session
@@ -110,12 +115,16 @@ export default function Today({ lifterId }: { lifterId: string }) {
     },
   }
 
-  const valid = history.filter(h => !h.excluded && h.set1_e1rm_lb)
-  const currentMax = valid[0] ? Number(valid[0].set1_e1rm_lb) : null
   const sp = session?.planned ?? {}
+  const heavyDefault = LIFT_EXERCISE[lift]
+  const heavyEx: string = sp.heavy_exercise ?? heavyDefault
+  const isMainEx = heavyEx === heavyDefault
+  const exEquip = exercises.find(e => e.name === heavyEx)?.equipment ?? {}
+  const valid = history.filter(h => !h.excluded && h.set1_e1rm_lb)
+  const currentMax = isMainEx && valid[0] ? Number(valid[0].set1_e1rm_lb) : null
 
   const ladderPlan: LadderPlan = {
-    planned_e1rm: pick(sp.planned_e1rm, prevPlan.planned_e1rm, st.planned_e1rm?.[lift], currentMax) ?? null,
+    planned_e1rm: pick(sp.planned_e1rm, prevPlan.planned_e1rm, isMainEx ? st.planned_e1rm?.[lift] : st.planned_e1rm?.[heavyEx], currentMax) ?? null,
     target_reps: pick(sp.target_reps, prevPlan.target_reps, st.target_reps?.[lift], tpl?.spec?.heavy?.target_reps) ?? 5,
     stop_pct: pick(sp.stop_pct, prevPlan.stop_pct, st.stop_pct?.[lift]) ?? 70,
     fatigue_rate_used_pct: pick(sp.fatigue_rate_used_pct, prevPlan.fatigue_rate_used_pct, st.fatigue_pct?.[lift]) ?? 3,
@@ -126,6 +135,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
     clamp: pick(sp.clamp, prevPlan.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
     rom_in: pick(sp.rom_in, prevPlan.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
     hang_in: pick(sp.hang_in, prevPlan.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? null,
+    bar: 'bar' in exEquip ? exEquip.bar ?? null : 'Ohio Power Bar',
+    chains_ok: exEquip.chains ?? true,
+    load: exEquip.load ?? 'bar',
   }
 
   const dlWeek = (() => {
@@ -143,7 +155,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
   ladderPlanRef.current = ladderPlan
   dlPlanRef.current = dlPlan
-  const savePlan = (base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: { ...base, ...patch } })
+  // The exercise's own equipment (bar, chains, load) is looked up each time, not frozen into the session plan.
+  const strip = ({ bar, chains_ok, load, ...rest }: Record<string, any>) => rest
+  const savePlan = (base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...(session?.planned ?? {}), ...base, ...patch }) })
 
   // Every block is a choice: the day's plan is the default, any other day's block can be picked instead.
   const speedOptions = new Map<string, any>()
@@ -159,13 +173,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const speedFor = speedOptions.get(speedKey) ?? null
   const support = supportOptions.get(supportKey) ?? null
   const savePlanned = (patch: Record<string, any>) =>
-    ensureSession({ planned: { ...(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...(session?.planned ?? {}), ...patch } })
+    ensureSession({ planned: strip({ ...(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), ...(session?.planned ?? {}), ...patch }) })
   const choose = (k: 'speed_choice' | 'support_choice', v: string) => savePlanned({ [k]: v })
 
   // Exercise choices for the heavy block and each speed slot; switching also relabels sets already logged there.
   const heavyBlock = lift === 'deadlift' ? 'deadlift' : 'primary'
-  const heavyDefault = LIFT_EXERCISE[lift]
-  const heavyEx: string = sp.heavy_exercise ?? heavyDefault
   const relabel = async (rows: SetRow[], name: string) => {
     const id = exId(name)
     if (!id) return
@@ -174,7 +186,10 @@ export default function Today({ lifterId }: { lifterId: string }) {
   async function setHeavyEx(name: string) {
     const oldId = exId(heavyEx)
     await relabel(sets.filter(r => r.block === heavyBlock && r.exercise_id === oldId), name)
-    await savePlanned({ heavy_exercise: name })
+    // A different exercise brings its own plan: forget this session's max, fatigue and bar setup so they reload for it.
+    await savePlanned({ heavy_exercise: name, planned_e1rm: undefined, fatigue_rate_used_pct: undefined, clamp: undefined,
+      chain_half: undefined, chain_5_8: undefined, rom_in: undefined, hang_in: undefined })
+    await load()
   }
   const speedSlotSets = (it: any) => sets.filter(s => s.block === 'speed' && (s.setup?.slot === it.name || (!s.setup?.slot && s.exercise_id === exId(it.name))))
   const speedEx = (it: any): string => sp.speed_ex?.[it.name] ?? it.name

@@ -4,7 +4,8 @@ export type Block = 'speed' | 'primary' | 'support' | 'deadlift'
 export interface Profile { id: string; display_name: string | null; role: 'coach' | 'lifter' }
 export interface Lifter { id: string; name: string; user_id: string | null; bodyweight_lb: number | null; settings: Record<string, any> }
 export interface Equipment { id: string; kind: string; name: string; weight_lb: number | null; props: Record<string, any> }
-export interface Exercise { id: string; name: string; category: string; muscle_group: string | null }
+export interface ExerciseEquipment { bar?: string | null; chains?: boolean; load?: 'bar' | 'added' | 'per_hand' | 'stack' | 'bodyweight' }
+export interface Exercise { id: string; name: string; category: string; muscle_group: string | null; equipment?: ExerciseEquipment }
 export interface Template { id: string; weekday: number; name: string; spec: any; active_from: string; lifter_id: string | null }
 
 export interface Session {

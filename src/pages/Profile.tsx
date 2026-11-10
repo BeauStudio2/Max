@@ -10,7 +10,7 @@ interface Point { d: string; v: number; x?: boolean; id?: string; src?: string }
 const DAY = 86400000
 
 export default function Profile({ lifterId }: { lifterId: string }) {
-  const { lifters } = useStore()
+  const { lifters, exercises } = useStore()
   const lifter = lifters.find(l => l.id === lifterId)
   const [catalog, setCatalog] = useState<Metric[]>([])
   const [series, setSeries] = useState<Record<string, Point[]>>({})
@@ -30,7 +30,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
     const sessions = ss.data ?? []
     const ids = sessions.map(s => s.id)
     const est = ids.length
-      ? (await supabase.from('set_estimates').select('session_id, block, set_index, weight_lb, reps, rpe, e1rm_lb, setup').in('session_id', ids).in('block', ['primary', 'deadlift']).order('set_index')).data ?? []
+      ? (await supabase.from('set_estimates').select('session_id, exercise_id, block, set_index, weight_lb, reps, rpe, e1rm_lb, setup').in('session_id', ids).in('block', ['primary', 'deadlift']).order('set_index')).data ?? []
       : []
 
     const out: Record<string, Point[]> = {}
@@ -42,13 +42,16 @@ export default function Profile({ lifterId }: { lifterId: string }) {
       const mine = est.filter(r => r.session_id === s.id)
       if (s.bodyweight_lb && !(out.bodyweight ?? []).some(p => p.d === s.session_date)) push('bodyweight', { d: s.session_date, v: Number(s.bodyweight_lb), src: 'session' })
       if (s.primary_lift === 'deadlift') {
-        const tops = mine.filter(r => String(r.setup?.step ?? '').startsWith('top') && r.weight_lb && r.reps)
+        const dlId = exercises.find(e => e.name === 'Deadlift')?.id
+        const tops = mine.filter(r => String(r.setup?.step ?? '').startsWith('top') && r.weight_lb && r.reps && (!dlId || r.exercise_id === dlId))
         const best = tops.map(r => e1rmFromRpe(Number(r.weight_lb), r.reps, r.rpe === null ? null : Number(r.rpe))).sort((a, b) => b - a)[0]
         if (best) push('e1rm_deadlift', { d: s.session_date, v: best, x })
         continue
       }
       const lift = s.primary_lift
-      const prim = mine.filter(r => r.block === 'primary').map(r => (r.e1rm_lb === null ? null : Number(r.e1rm_lb)))
+      // Only the lift's own exercise counts toward its max and fatigue; substitutes keep their own history.
+      const mainId = exercises.find(e => e.name === (lift === 'bench' ? 'Bench Press' : 'Squat'))?.id
+      const prim = mine.filter(r => r.block === 'primary' && (!mainId || r.exercise_id === mainId)).map(r => (r.e1rm_lb === null ? null : Number(r.e1rm_lb)))
       if (prim[0]) push(`e1rm_${lift}`, { d: s.session_date, v: prim[0], x })
       const fit = fitFatigue(prim)
       if (fit && fit.ratePct > 0) push(`fatigue_${lift}`, { d: s.session_date, v: fit.ratePct, x })

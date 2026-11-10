@@ -210,8 +210,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
   }
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
-  const sideCell = <CellText value={sideText(plates, L.kept)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2 }) }} />
-  const setupCell = (
+  const hasBar = !!L.plan.bar
+  const sideCell = !hasBar ? <span className="small muted">{loadNote(L.plan)}</span> : <CellText value={sideText(plates, L.kept)} wide onSave={v => { const sd = parseSide(v); if (sd === null) return; setPlates(sd * 2); commit({ plates: sd * 2 }) }} />
+  const setupCell = !hasBar ? <span className="small muted">—</span> : (
     <select className="mini setupsel" value={setupValue(setup)} onChange={e => setSet(parseSetupValue(e.target.value, setup))} aria-label="Clamps and chains">
       {setupOptions(setup).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
     </select>
@@ -222,7 +223,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     <tr className={(logged ? 'done' : 'plan') + (next ? ' next' : '') + (below ? ' below' : '')}>
       <td className="stick" onClick={() => setMore(m => !m)}><span className="tagdot h" />{label} {idx}<span className="moretoggle">{more ? '▴' : '▾'}</span></td>
       <td><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl }) }} />
-        <div className="sub2 side-inline">{sideText(plates, L.kept)}</div></td>
+        <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept) : loadNote(L.plan)}</div></td>
       <td><CellText value={reps} narrow placeholder={exp !== null ? exp.toFixed(0) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
@@ -249,6 +250,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     </>
   )
 }
+
+const LOAD_NOTE: Record<string, string> = { added: 'added weight', per_hand: 'per hand', stack: 'machine stack', bodyweight: 'bodyweight +' }
+const loadNote = (p: { bar: string | null; load?: string }) => (p.bar ? '' : LOAD_NOTE[p.load ?? 'added'] ?? 'load')
 
 /* Clamps and chains as one choice: straight sets on Rogue or Eleiko, chain sets on the chain clamps. */
 const CHAIN_COMBOS: [number, number][] = [[0, 1], [1, 0], [1, 1], [0, 2], [2, 0], [2, 1], [1, 2], [2, 2]]

@@ -16,6 +16,10 @@ export interface LadderPlan {
   clamp: string
   rom_in: number | null
   hang_in: number | null
+  /** From the exercise: its bar (null = no bar, lb is the load itself) and whether chains can hang. */
+  bar: string | null
+  chains_ok: boolean
+  load?: string
 }
 
 export const BAR = 'Ohio Power Bar'
@@ -25,14 +29,16 @@ export const CHAIN_CLAMP = 'Chain clamps (pair)'
 export const CLAMPS: [string, string][] = [[ROGUE, 'Rogue'], [ELEIKO, 'Eleiko'], [CHAIN_CLAMP, 'Chain clamp']]
 
 const geo = (p: LadderPlan) => ({ rom_in: p.rom_in, hang_in: p.hang_in })
-const straightOf = (p: LadderPlan): LoadSetup => ({ bar: BAR, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0, ...geo(p) })
+const straightOf = (p: LadderPlan): LoadSetup =>
+  p.bar ? { bar: p.bar, clamp: p.clamp || ROGUE, chain_half: 0, chain_5_8: 0, ...geo(p) } : { bar: '', clamp: '', chain_half: 0, chain_5_8: 0 }
 const chained = (p: LadderPlan): LoadSetup =>
-  p.chain_half || p.chain_5_8 ? { bar: BAR, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8, ...geo(p) } : straightOf(p)
+  p.bar && p.chains_ok && (p.chain_half || p.chain_5_8)
+    ? { bar: p.bar, clamp: CHAIN_CLAMP, chain_half: p.chain_half, chain_5_8: p.chain_5_8, ...geo(p) } : straightOf(p)
 
 export function setupOf(r?: SetRow): LoadSetup {
   const s = r?.setup ?? {}
   const clamp = s.clamp === 'Eleiko' ? ELEIKO : s.clamp === 'chain clamp' ? CHAIN_CLAMP : s.clamp ?? ROGUE
-  return { bar: s.bar ?? BAR, clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0), rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null }
+  return { bar: s.bar === undefined ? BAR : s.bar ?? '', clamp: s.bar === '' || s.bar === null ? (s.clamp ?? '') : clamp, chain_half: Number(s.chain_half ?? 0), chain_5_8: Number(s.chain_5_8 ?? 0), rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null }
 }
 
 /** Chains hang from the chain clamp; with no chains the set goes back to the lifter's normal clamps. */
@@ -91,6 +97,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     const working = [...logged.map(r => r.weight_lb ?? 0), ...ideal.map(p => p.weight)].filter(w => w > 0)
     const kept: Kept = keptFor(working.length ? Math.min(...working) : 0)
     let prev: number[] | null = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
+    if (!plan.bar) return { projected: ideal.map(p => ({ ...p, stack: null as number[] | null, change: '' })), kept }
     const out = ideal.map(p => {
       const c = choosePlates(p.weight, plan.step_lb, kept, prev)
       const weight = c?.weight ?? p.weight
@@ -123,19 +130,23 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
         <Num label="Fatigue %/set" value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
         <Num label="Weight step" value={plan.step_lb} onSave={v => v && setPlan({ step_lb: v })} />
         <Num label="Rest (s)" value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
-        <Num label="Range of motion (in)" value={plan.rom_in} onSave={v => setPlan({ rom_in: v })} />
-        <Num label="Chain hang at bottom (in)" value={plan.hang_in} onSave={v => setPlan({ hang_in: v })} />
-        <label>Clamps (straight sets)
-          <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        </label>
-        <label>½ chains/side, sets 2+
-          <select value={plan.chain_half} onChange={e => setPlan({ chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
-        </label>
-        <label>⅝ chains/side, sets 2+
-          <select value={plan.chain_5_8} onChange={e => setPlan({ chain_5_8: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
-        </label>
+        {plan.bar && (
+          <label>Clamps (straight sets)
+            <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+          </label>
+        )}
+        {plan.bar && plan.chains_ok && <>
+          <label>½ chains/side, sets 2+
+            <select value={plan.chain_half} onChange={e => setPlan({ chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
+          </label>
+          <label>⅝ chains/side, sets 2+
+            <select value={plan.chain_5_8} onChange={e => setPlan({ chain_5_8: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
+          </label>
+          <Num label="Range of motion (in)" value={plan.rom_in} onSave={v => setPlan({ rom_in: v })} />
+          <Num label="Chain hang at bottom (in)" value={plan.hang_in} onSave={v => setPlan({ hang_in: v })} />
+        </>}
       </div>
-      {(L.kept.n45 > 0 || L.kept.n25 > 0) && <p className="small">Keep on all session, per side: <b>{stackText([...Array(L.kept.n45).fill(45), ...Array(L.kept.n25).fill(25)])}</b></p>}
+      {plan.bar && (L.kept.n45 > 0 || L.kept.n25 > 0) && <p className="small">Keep on all session, per side: <b>{stackText([...Array(L.kept.n45).fill(45), ...Array(L.kept.n25).fill(25)])}</b></p>}
       <p className="small muted">
         {carriedFrom ? <>Planned max and fatigue carried from {carriedFrom}. </> : null}
         {currentMax ? <>Current max {round(currentMax)}. </> : null}

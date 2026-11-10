@@ -28,6 +28,8 @@ export default function Config() {
   useEffect(() => { supabase.from('settings').select('*').order('key').then(({ data }) => setSettings(data ?? [])) }, [])
   const done = async (p: PromiseLike<{ error: any }>) => { const { error } = await p; if (error) setErr(error.message); else await reload() }
 
+  const setEquip = (x: any, patch: Record<string, any>) => done(supabase.from('exercises').update({ equipment: { ...(x.equipment ?? {}), ...patch } }).eq('id', x.id))
+
   // Deadlift cycle lives on the Saturday plan.
   const sat = templates.find(t => t.spec?.deadlift_cycle)
   const cycle: any[] = sat?.spec?.deadlift_cycle ?? []
@@ -122,14 +124,26 @@ export default function Config() {
 
       <section className="card">
         <h2>Exercises</h2>
+        <p className="small muted">Each exercise's equipment. Pick any exercise as the main lift on the Log page and the table uses its bar (or none), chains and what its weight means.</p>
         <div className="tablewrap"><table className="sheet cfg">
-          <thead><tr><th className="stick">Exercise</th><th>Category</th><th>Muscle group</th></tr></thead>
+          <thead><tr><th className="stick">Exercise</th><th>Category</th><th>Bar</th><th>Chains</th><th>lb means</th><th>Muscle group</th></tr></thead>
           <tbody>{exercises.map(x => (
             <tr key={x.id}>
               <td className="stick">{x.name}</td>
               <td>{ro ? x.category : (
                 <select className="mini" value={x.category} onChange={e => done(supabase.from('exercises').update({ category: e.target.value }).eq('id', x.id))}>
                   {['primary', 'speed', 'support', 'deadlift'].map(c => <option key={c}>{c}</option>)}
+                </select>)}</td>
+              <td>{ro ? (x.equipment?.bar ?? 'none') : (
+                <select className="mini" value={x.equipment?.bar ?? ''} onChange={e => setEquip(x, { bar: e.target.value || null })}>
+                  <option value="">no bar</option>
+                  {equipment.filter(b => b.kind === 'bar' || b.kind === 'trap_bar').map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+                </select>)}</td>
+              <td>{ro ? (x.equipment?.chains ? 'yes' : 'no') : <input type="checkbox" checked={!!x.equipment?.chains} onChange={e => setEquip(x, { chains: e.target.checked })} />}</td>
+              <td>{ro ? (x.equipment?.load ?? 'bar') : (
+                <select className="mini" value={x.equipment?.load ?? (x.equipment?.bar ? 'bar' : 'added')} onChange={e => setEquip(x, { load: e.target.value as any })}>
+                  <option value="bar">everything on the bar</option><option value="added">added weight</option><option value="per_hand">per hand</option>
+                  <option value="stack">machine stack</option><option value="bodyweight">bodyweight +</option>
                 </select>)}</td>
               <td>{ro ? x.muscle_group ?? '' : <CellText value={x.muscle_group ?? ''} wide onSave={v => done(supabase.from('exercises').update({ muscle_group: v || null }).eq('id', x.id))} />}</td>
             </tr>
