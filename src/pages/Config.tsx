@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
+import Sensors from './config/Sensors'
 import type { Equipment } from '../lib/types'
 import { CellText } from './today/Sheet'
 import People from './People'
@@ -43,7 +44,7 @@ export default function Config() {
     ['Bars and clamps', e => e.kind === 'bar' || e.kind === 'clamp' || e.kind === 'trap_bar' || e.kind === 'other'],
     ['Chains', e => e.kind === 'chain'],
     ['Bands', e => e.kind === 'band'],
-    ['Sensors and machines', e => e.kind === 'sensor' || e.kind === 'spotter'],
+    ['Sensor and machine inventory', e => e.kind === 'sensor' || e.kind === 'spotter'],
   ]
   const propCols: Record<string, [string, string][]> = {
     Chains: [['total_lb', 'Total lb (one chain)'], ['length_in', 'Length in'], ['bottom_lb_per_side', 'Fallback bottom lb'], ['top_lb_per_side', 'Fallback top lb']],
@@ -69,6 +70,8 @@ export default function Config() {
         </table></div>
       </section>
 
+
+      <Sensors />
 
       {groups.map(([title, test]) => {
         const rows = equipment.filter(test)

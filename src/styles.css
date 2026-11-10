@@ -641,3 +641,16 @@ label.o-def, label.o-dyn, label.o-user { color: var(--muted); }
 .okey i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 5px 0 10px; background: currentColor; }
 .okey i:first-child { margin-left: 0; }
 table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color: var(--muted); }
+
+/* Config: Sensors and machines */
+.sensors h3 { margin: 4px 0 8px; font-size: 15px; }
+.sensrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+.sensrow .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.sensrow .dot.on { background: #5fd38d; } .sensrow .dot.connecting { background: var(--warn); }
+.senslb { min-width: 92px; font-size: 22px; font-variant-numeric: tabular-nums; }
+.sensbar { position: relative; flex: 1 1 160px; max-width: 360px; height: 12px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.sensbar i { position: absolute; inset: 0 auto 0 0; background: var(--o-dyn); }
+.sensbar u { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); }
+.sensors button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.sensfields { max-width: 620px; margin-top: 10px; }
+.tindeq a.linkish { font-size: 13px; }

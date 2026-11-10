@@ -40,3 +40,50 @@ export async function connectTindeq(onSamples: (s: Sample[]) => void, onDisconne
     disconnect: () => { send(CMD_STOP).catch(() => {}).finally(() => device.gatt.disconnect()) },
   }
 }
+
+/* ---------- one shared connection for the whole app (set up in Config, used on Log) ---------- */
+
+export interface SensorSettings { invert: boolean; threshold_lb: number; min_rep_s: number }
+const DEFAULTS: SensorSettings = { invert: false, threshold_lb: 3, min_rep_s: 0.25 }
+const KEY = 'max.tindeq'
+const loadSettings = (): SensorSettings => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } } catch { return DEFAULTS } }
+
+export interface SensorState { status: 'off' | 'connecting' | 'on'; name: string | null; lb: number; error: string | null; recording: boolean; settings: SensorSettings }
+let state: SensorState = { status: 'off', name: null, lb: 0, error: null, recording: false, settings: loadSettings() }
+let dev: Tindeq | null = null
+let buf: Sample[] = []
+let lastPaint = 0
+const subs = new Set<() => void>()
+const set = (patch: Partial<SensorState>) => { state = { ...state, ...patch }; subs.forEach(f => f()) }
+
+export const sensor = {
+  get: () => state,
+  subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f) } },
+  async connect() {
+    if (state.status !== 'off') return
+    set({ status: 'connecting', error: null })
+    try {
+      dev = await connectTindeq(samples => {
+        const s = state.settings.invert ? samples.map(x => ({ ...x, lb: -x.lb })) : samples
+        if (state.recording) buf.push(...s)
+        // The sensor sends ~80 readings a second; repaint the live number about 10 times a second.
+        const now = Date.now()
+        if (now - lastPaint > 100) { lastPaint = now; set({ lb: s.at(-1)!.lb }) }
+      }, () => { dev = null; set({ status: 'off', name: null, recording: false }) })
+      set({ status: 'on', name: dev.name })
+    } catch (e: any) {
+      // Closing the browser's device picker is not an error.
+      set({ status: 'off', error: e?.name === 'NotFoundError' ? null : e?.message ?? 'Could not connect' })
+    }
+  },
+  disconnect() { dev?.disconnect() },
+  async tare() { await dev?.tare() },
+  record() { buf = []; set({ recording: true }) },
+  /** Ends the recording and returns its samples (seconds, lb of assist). */
+  stop(): Sample[] { set({ recording: false }); return buf },
+  setSettings(patch: Partial<SensorSettings>) {
+    const settings = { ...state.settings, ...patch }
+    try { localStorage.setItem(KEY, JSON.stringify(settings)) } catch { /* private mode: this visit only */ }
+    set({ settings })
+  },
+}

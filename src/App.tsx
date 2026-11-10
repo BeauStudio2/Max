@@ -39,6 +39,11 @@ function Shell() {
   const [lifterId, setLifterId] = useState<string>(myLifter?.id ?? lifters[0]?.id ?? '')
 
   useEffect(() => { history.replaceState(null, '', '#' + tab) }, [tab])
+  // In-page links such as #config switch tabs.
+  useEffect(() => {
+    const on = () => { const h = location.hash.slice(1) as Tab; if (TABS.some(t => t.id === h)) setTab(h) }
+    window.addEventListener('hashchange', on); return () => window.removeEventListener('hashchange', on)
+  }, [])
 
   const visible = TABS.filter(t => !t.coach || isCoach)
   const canPick = isCoach && lifters.length > 1
