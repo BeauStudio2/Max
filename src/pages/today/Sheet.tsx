@@ -304,7 +304,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             onBlur={e => { const v = e.target.value.trim(); onCircuit(v === '' ? null : Number(v)) }} />
         </label>
         <Metronome />
-        {spotMode && <TindeqPanel onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
+        {spotMode && <TindeqPanel minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
       <div className="tablewrap">

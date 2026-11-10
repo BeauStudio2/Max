@@ -37,6 +37,8 @@ export interface LadderPlan {
   cr?: Partial<Cr>
   /** Auto spotter mode: weights, reps and rest come from the creatine model. */
   spotter: boolean
+  /** Reading a Tindeq recording of a spotter set: pull above this (lb) for at least this long (s) is one spotted rep. */
+  assist_min_lb: number; assist_min_s: number
 }
 
 export const BAR = 'Ohio Power Bar'
@@ -190,6 +192,8 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
         <label className="toggle"><T tip="Auto spotter (S). On: every rep is a maximal effort with the spotter making up the shortfall. Weight is set near your strength at the start of each set, the set ends when creatine is spent, and rest is the time to refill it. Off: the normal rep-target ladder.">Auto spotter</T>
           <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On' : 'Off'}</button>
         </label>
+        {plan.spotter && <Num label="Assist above (lb)" tip="Reading a Tindeq recording: a spotted rep is a stretch of pull above this. Raise it if small tugs get counted; lower it if light assists are missed." origin={src('assist_min_lb')} value={plan.assist_min_lb} onSave={v => v !== null && v >= 0 && setPlan({ assist_min_lb: v })} />}
+        {plan.spotter && <Num label="Shortest rep (s)" tip="Reading a Tindeq recording: pulls shorter than this are ignored as blips." origin={src('assist_min_s')} value={plan.assist_min_s} onSave={v => v !== null && v >= 0 && setPlan({ assist_min_s: v })} />}
         {chainsShown && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chain counts set for this day on the Plan page. Any single set can be changed in its chain columns.">Chains</T>
           <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
         </label>}

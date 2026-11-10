@@ -43,10 +43,10 @@ export async function connectTindeq(onSamples: (s: Sample[]) => void, onDisconne
 
 /* ---------- one shared connection for the whole app (set up in Config, used on Log) ---------- */
 
-export interface SensorSettings { invert: boolean; threshold_lb: number; min_rep_s: number }
-const DEFAULTS: SensorSettings = { invert: false, threshold_lb: 3, min_rep_s: 0.25 }
+export interface SensorSettings { invert: boolean }
+const DEFAULTS: SensorSettings = { invert: false }
 const KEY = 'max.tindeq'
-const loadSettings = (): SensorSettings => { try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } } catch { return DEFAULTS } }
+const loadSettings = (): SensorSettings => { try { return { invert: !!JSON.parse(localStorage.getItem(KEY) ?? '{}').invert } } catch { return DEFAULTS } }
 
 export interface SensorState { status: 'off' | 'connecting' | 'on'; name: string | null; lb: number; error: string | null; recording: boolean; settings: SensorSettings }
 let state: SensorState = { status: 'off', name: null, lb: 0, error: null, recording: false, settings: loadSettings() }

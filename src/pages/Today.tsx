@@ -19,7 +19,7 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
   return roundTo(best * ([0, 0, 0.8, 0.8, 0.85, 0.92][week - 1] ?? 0.85), 5)
 }
 const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
-  chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', clamp: 'clamps', change_plate: 'change plate', max_sets: 'max heavy sets', speed_max: 'max speed sets', support_max: 'max support sets', set1_lb: 'set 1 lb', bar_lb: 'bar',
+  chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', assist_min_lb: 'assist threshold', assist_min_s: 'shortest rep', clamp: 'clamps', change_plate: 'change plate', max_sets: 'max heavy sets', speed_max: 'max speed sets', support_max: 'max support sets', set1_lb: 'set 1 lb', bar_lb: 'bar',
   speed_choice: 'speed', support_choice: 'support', support_ex: 'support exercises', speed_placement: 'interleave 1', speed_offset_s: 'speed start', support_interleave: 'interleave 2', block_order: 'block order' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
@@ -164,6 +164,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     max_sets: pick(sp.max_sets) ?? null,
     set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
     spotter: pick(sp.spotter, f.spotter, H.spotter) ?? false,
+    assist_min_lb: pick(sp.assist_min_lb, f.assist_min_lb, H.assist_min_lb) ?? 3,
+    assist_min_s: pick(sp.assist_min_s, f.assist_min_s, H.assist_min_s) ?? 0.25,
     cr: st.creatine?.[lift],
   }
 
@@ -212,7 +214,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
+  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'assist_min_lb', 'assist_min_s', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 

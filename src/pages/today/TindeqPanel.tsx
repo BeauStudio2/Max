@@ -12,7 +12,7 @@ export const repGap = (p: Pulse[]) => { const g = p.slice(1).map((x, i) => x.sta
  * The Tindeq in the spotter line, on Log: live assist, tare, and Record for a set. Connecting and its settings are in Config.
  * Stopping a recording finds each spotted rep (a pulse of assist) and hands them to the next set in the list.
  */
-export default function TindeqPanel({ onCapture }: { onCapture: (pulses: Pulse[], tempo: Tempo) => void }) {
+export default function TindeqPanel({ onCapture, minLb, minS }: { onCapture: (pulses: Pulse[], tempo: Tempo) => void; minLb: number; minS: number }) {
   const st = useSensor()
   const [last, setLast] = useState<Pulse[] | null>(null)
   const [tempo, setTempo] = useState<Tempo | null>(null)
@@ -20,7 +20,7 @@ export default function TindeqPanel({ onCapture }: { onCapture: (pulses: Pulse[]
 
   function toggleRec() {
     if (!st.recording) { beat.current = metronomeRepSeconds(); setLast(null); sensor.record(); return }
-    const pulses = findPulses(sensor.stop(), st.settings.threshold_lb, st.settings.min_rep_s)
+    const pulses = findPulses(sensor.stop(), minLb, minS)
     // The metronome may be switched on after Record is pressed; take whichever reading has it running.
     const t: Tempo = { beat_s: beat.current ?? metronomeRepSeconds(), rep_s: repGap(pulses) }
     setLast(pulses); setTempo(t); onCapture(pulses, t)
