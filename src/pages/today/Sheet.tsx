@@ -169,16 +169,28 @@ type Planned =
   | { kind: 'speed'; key: string; it: any; n: number }
   | { kind: 'sup'; key: string; slot: SupportSlot }
 
-/** Support interleaved: one support set after each heavy set and its speed round; anything left goes at the end. */
-function withSupport(planned: Planned[], slots: SupportSlot[]): Planned[] {
-  const out: Planned[] = []
+/**
+ * Support interleaved: one support set after each round. A round is a heavy set and the speed round that follows it,
+ * or a speed round on its own (when heavy is finished or done separately). Leftover support goes at the end.
+ * It picks up from what was logged last: a finished round gets its support set before the next round starts.
+ */
+function withSupport(planned: Planned[], slots: SupportSlot[], placement: Placement, lastDone?: SetRow): Planned[] {
+  type K = { kind: 'heavy' | 'speed' | 'sup' | 'other'; n?: number }
+  const kindOf = (p: Planned): K => (p.kind === 'main' || p.kind === 'pull' ? { kind: 'heavy' } : p.kind === 'speed' ? { kind: 'speed', n: p.n } : { kind: 'other' })
+  const startsRound = (p: K, prev: K) => p.kind === 'heavy'
+    || (p.kind === 'speed' && prev.kind === 'speed' && prev.n !== p.n)
+    || (p.kind === 'speed' && prev.kind === 'heavy' && placement !== 'between')
   const left = [...slots]
-  let seenMain = false
+  const out: Planned[] = []
+  const support = () => { if (left.length) { const sl = left.shift()!; out.push({ kind: 'sup', key: 'sup:' + sl.key, slot: sl }) } }
+  let prev: K | null = !lastDone ? null : lastDone.block === 'support' ? { kind: 'sup' } : lastDone.block === 'speed' ? { kind: 'speed', n: lastDone.set_index } : { kind: 'heavy' }
   for (const p of planned) {
-    if ((p.kind === 'main' || p.kind === 'pull') && seenMain && left.length) { const sl = left.shift()!; out.push({ kind: 'sup', key: 'sup:' + sl.key, slot: sl }) }
-    if (p.kind === 'main' || p.kind === 'pull') seenMain = true
+    const k = kindOf(p)
+    if (prev && prev.kind !== 'sup' && startsRound(k, prev)) support()
     out.push(p)
+    prev = k
   }
+  if (prev && prev.kind !== 'sup') support()
   for (const sl of left) out.push({ kind: 'sup', key: 'sup:' + sl.key, slot: sl })
   return out
 }
@@ -188,7 +200,8 @@ function plannedOrder(done: SetRow[], main: Planned[], items: any[], speedSets: 
   for (let i = done.length - 1; i >= 0 && !isMain(done[i]); i--) if (done[i].setup?.slot) since.add(done[i].setup.slot)
   // Between main sets, every main set gets one round of speed, so speed runs as long as the main lift does.
   const mainTotal = done.filter(isMain).length + main.length
-  const target = (it: any) => placement === 'between' ? mainTotal : (it.sets ?? 0)
+  // With no heavy sets at all (e.g. a substitute with no planned max yet), speed keeps the day's own set count.
+  const target = (it: any) => placement === 'between' && mainTotal > 0 ? mainTotal : (it.sets ?? 0)
   const left = items.map(it => ({ it, done: speedSets(it).length, left: Math.max(0, target(it) - speedSets(it).length) }))
   const rounds: Planned[][] = []
   let first = since.size > 0, partial = false
@@ -233,7 +246,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     ? L.projected.map(p => ({ kind: 'main', key: 'h' + p.idx, p }))
     : (D?.rows ?? []).filter(r => !r.existing).map(r => ({ kind: 'pull', key: 'd:' + r.row.step, row: r.row }))
   const planned0 = plannedOrder(done.filter(r => r.block !== 'support'), mainPlanned, items, speedSets, placement)
-  const planned = supInterleave ? withSupport(planned0, S.slots.filter(x => !x.existing)) : planned0
+  const planned = supInterleave ? withSupport(planned0, S.slots.filter(x => !x.existing), placement, done.at(-1)) : planned0
   const lastMain = [...done].reverse().find(isMain)
   // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
   const rest = useClock(running ? lastMain?.created_at : null)
