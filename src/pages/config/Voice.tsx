@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { addLibraryVoice, cachedCount, clearCache, myVoices, prefetch, recognitionAvailable, searchLibrary, speak, voice, type CueKey, type LibVoice } from '../../lib/voice'
 import { useVoice } from '../../lib/useVoice'
+import { useKeys } from '../../lib/keys'
 import { T } from '../today/shared'
 
 const TEST = 'Rest. Two hundred eighty five. Record.'
@@ -15,6 +16,7 @@ const phrases = (rest: string) => {
 /** Config → Voice: how Max sounds, which cues it says, and the wake word for spoken commands. Kept on this laptop. */
 export default function Voice() {
   const v = useVoice(), s = v.settings
+  const hasKey = !!useKeys().find(k => k.id === 'elevenlabs')?.key
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   const [all, setAll] = useState(false)
   const [mine, setMine] = useState<LibVoice[] | null>(null)
@@ -84,9 +86,6 @@ export default function Voice() {
       ) : (
         <div className="vblock">
           <div className="planfields vfields">
-            <label className="grow"><T tip="From elevenlabs.io → your profile → API keys. Kept only in this browser on this laptop, and sent only to ElevenLabs.">API key</T>
-              <input type="password" autoComplete="off" defaultValue={s.elevenKey} onBlur={e => voice.setSettings({ elevenKey: e.target.value.trim() })} placeholder="sk_…" />
-            </label>
             <label><T tip="Multilingual v2 sounds best; Flash is faster and costs half.">Model</T>
               <select value={s.elevenModel} onChange={e => voice.setSettings({ elevenModel: e.target.value })}>
                 <option value="eleven_multilingual_v2">Multilingual v2</option>
@@ -95,7 +94,8 @@ export default function Voice() {
             </label>
           </div>
           <p className="small">In use: <b>{s.elevenVoiceName ?? 'none chosen'}</b></p>
-          {s.elevenKey && (
+          {!hasKey && <p className="small muted">Add your ElevenLabs key under <a className="linkish" href="#keys" onClick={e => { e.preventDefault(); document.getElementById('keys')?.scrollIntoView({ behavior: 'smooth' }) }}>API keys</a> to search voices and speak.</p>}
+          {hasKey && (
             <>
               <div className="sensrow">
                 <button className="ghost small" disabled={!!busy} onClick={() => run('mine', async () => setMine(await myVoices()))}>My voices</button>

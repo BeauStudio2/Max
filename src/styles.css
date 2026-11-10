@@ -675,3 +675,9 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .voicecfg .seg button { white-space: nowrap; }
 .voicecfg .sensrow .primary { width: auto; flex: 0 0 auto; padding: 8px 16px; }
 .voicecfg .vcues input { text-align: left; }
+
+/* API keys */
+.keys input { min-height: 34px; padding: 4px 8px; width: 100%; min-width: 160px; }
+.keys .keyval { font-family: ui-monospace, monospace; font-size: 13px; }
+.keys td { vertical-align: middle; }
+.keys > button.ghost { width: auto; margin-top: 8px; }

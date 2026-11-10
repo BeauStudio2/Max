@@ -1,3 +1,5 @@
+import { apiKeys } from './keys'
+
 /**
  * Max's voice: one-word cues spoken through the laptop speakers, and spoken commands heard through its microphone
  * ("Max record", "Max stop", "Max five"...). Settings live on this laptop only (localStorage), the ElevenLabs key included.
@@ -12,13 +14,13 @@ export interface VoiceSettings {
   engine: 'browser' | 'eleven'
   browserVoice: string | null
   rate: number; pitch: number; volume: number
-  elevenKey: string; elevenVoice: string | null; elevenVoiceName: string | null; elevenModel: string
+  elevenVoice: string | null; elevenVoiceName: string | null; elevenModel: string
   cues: Record<CueKey, { on: boolean; word: string }>
   listen: boolean; wake: string
 }
 const DEFAULTS: VoiceSettings = {
   engine: 'browser', browserVoice: null, rate: 1, pitch: 1, volume: 1,
-  elevenKey: '', elevenVoice: null, elevenVoiceName: null, elevenModel: 'eleven_multilingual_v2',
+  elevenVoice: null, elevenVoiceName: null, elevenModel: 'eleven_multilingual_v2',
   cues: { rest: { on: true, word: 'Rest' }, next: { on: true, word: '' }, ack: { on: true, word: '' } },
   listen: false, wake: 'Max',
 }
@@ -41,13 +43,14 @@ let lastSaid = ''
 let audio: HTMLAudioElement | null = null
 
 async function elevenAudio(text: string, s = state.settings): Promise<Blob> {
-  if (!s.elevenKey || !s.elevenVoice) throw new Error('ElevenLabs needs an API key and a voice (Config → Voice).')
+  const key = apiKeys.get('elevenlabs')
+  if (!key || !s.elevenVoice) throw new Error('ElevenLabs needs an API key (Config → API keys) and a voice (Config → Voice).')
   const url = cacheUrl(s.elevenVoice, s.elevenModel, text)
   const cache = 'caches' in window ? await caches.open(CACHE) : null
   const hit = await cache?.match(url)
   if (hit) return hit.blob()
   const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${s.elevenVoice}?output_format=mp3_44100_128`, {
-    method: 'POST', headers: { 'xi-api-key': s.elevenKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+    method: 'POST', headers: { 'xi-api-key': key, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
     body: JSON.stringify({ text, model_id: s.elevenModel }),
   })
   if (!r.ok) throw new Error(`ElevenLabs: ${r.status} ${(await r.text()).slice(0, 160)}`)
@@ -113,7 +116,7 @@ export async function clearCache() { if ('caches' in window) await caches.delete
 /* ---------- ElevenLabs voice library ---------- */
 
 export interface LibVoice { voice_id: string; name: string; public_owner_id?: string; accent?: string; gender?: string; age?: string; description?: string; preview_url?: string; mine?: boolean }
-const xi = () => ({ 'xi-api-key': state.settings.elevenKey })
+const xi = () => ({ 'xi-api-key': apiKeys.get('elevenlabs') })
 export async function myVoices(): Promise<LibVoice[]> {
   const r = await fetch('https://api.elevenlabs.io/v1/voices', { headers: xi() })
   if (!r.ok) throw new Error(`ElevenLabs: ${r.status} ${(await r.text()).slice(0, 160)}`)
