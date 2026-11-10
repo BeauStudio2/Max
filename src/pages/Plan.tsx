@@ -88,7 +88,7 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
           {!isDl && <>
             <th data-tip="Reps each set is weighted for.">Target reps</th>
             <th data-tip="Stop when a set's estimated max falls below this % of set 1's.">Stop %</th>
-            <th data-tip="Smallest jump in bar weight.">Step lb</th>
+            <th data-tip="The plate that spans lightest to heaviest set; bigger plates stay on all session.">Change plate</th>
             <th data-tip="½ in chains per side on sets 2+.">½ ch</th>
             <th data-tip="⅝ in chains per side on sets 2+.">⅝ ch</th>
             <th data-tip="Chains used on sets 2+ at all.">Chains</th>
@@ -103,7 +103,7 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
           {!isDl && <>
             <td data-l="Target reps">{cell(H.target_reps, v => setHeavy({ target_reps: num(v) }), { numeric: true })}</td>
             <td data-l="Stop %">{cell(H.stop_pct, v => setHeavy({ stop_pct: num(v) }), { numeric: true, placeholder: '70' })}</td>
-            <td data-l="Step lb">{cell(H.step_lb, v => setHeavy({ step_lb: num(v) }), { numeric: true, placeholder: '2.5' })}</td>
+            <td data-l="Change plate">{cell(H.change_plate, v => setHeavy({ change_plate: num(v) }), { numeric: true, placeholder: '10' })}</td>
             <td data-l="½ chains">{cell(H.chain_half, v => setHeavy({ chain_half: num(v) }), { numeric: true })}</td>
             <td data-l="⅝ chains">{cell(H.chain_5_8, v => setHeavy({ chain_5_8: num(v) }), { numeric: true })}</td>
             <td data-l="Chains">{ro ? (H.chains_on === false ? 'off' : 'on') : <input type="checkbox" checked={H.chains_on !== false} onChange={e => setHeavy({ chains_on: e.target.checked })} aria-label="Chains on" />}</td>

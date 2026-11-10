@@ -125,7 +125,11 @@ export const roundTo = (v: number, step: number) => Math.round(v / step) * step
 
 /* ---------- Plate planning (sheet rule from 11/02: 45s and 25s stay on, run the rest down with 10s and small plates) ---------- */
 
-export interface Kept { n45: number; n25: number; on?: number[] }
+/** What stays on the bar all session (per side, inner to outer), the plate size that makes up the span between sets, and the plates allowed. */
+export interface Kept { base: number[]; change: number; on?: number[] }
+/** Older sessions stored kept plates as 45/25 counts. */
+export const keptFromStored = (k: any, change = 10, on?: number[]): Kept | null =>
+  !k ? null : Array.isArray(k.base) ? { base: k.base, change: k.change ?? change, on } : { base: [...Array(k.n45 ?? 0).fill(45), ...Array(k.n25 ?? 0).fill(25)], change, on }
 /** Plates owned per side, beyond the 45s. */
 export const OWNED = { 25: 4, 10: 9, 5: 2, 2.5: 2, 1.25: 2 } as const
 export const ALL_PLATES = [45, 25, 10, 5, 2.5, 1.25]
@@ -145,36 +149,54 @@ function solveSide(rem: number, avail: [number, number][]): number[] | null {
   return best
 }
 
-/** One side of the bar, inner to outer, using only the plates switched on. Null when they can't make it. */
+const ownedOf = (p: number) => (p === 45 ? Infinity : (OWNED as Record<number, number>)[p] ?? 0)
+const r2 = (x: number) => Math.round(x * 100) / 100
+
+/**
+ * One side of the bar, inner to outer: the kept stack, then change plates for the span above the lightest set,
+ * then smaller plates on the outside for the fine steps. Only plates switched on. Null when they can't make it.
+ */
 export function loadSide(perSide: number, kept: Kept): number[] | null {
-  const on = new Set(kept.on ?? ALL_PLATES)
-  const n45 = on.has(45) ? kept.n45 : 0, n25 = on.has(25) ? kept.n25 : 0
-  let rem = Math.round((perSide - 45 * n45 - 25 * n25) * 100) / 100
-  if (rem < -0.01) return null
-  const stack: number[] = [...Array(n45).fill(45), ...Array(n25).fill(25)]
-  const small = ([[10, OWNED[10]], [5, OWNED[5]], [2.5, OWNED[2.5]], [1.25, OWNED[1.25]]] as [number, number][]).filter(([p]) => on.has(p))
-  const smallMax = small.reduce((t, [p, n]) => t + p * n, 0) + (on.has(25) ? 25 * (OWNED[25] - n25) : 0)
-  const solve = (r: number) => solveSide(r, small) ?? (on.has(25) ? solveSide(r, [[25, OWNED[25] - n25], ...small]) : null)
-  // More than the smaller plates can make: add 45s outside the kept plates.
-  if (on.has(45)) while (rem > smallMax + 0.01) { stack.push(45); rem = Math.round((rem - 45) * 100) / 100 }
-  // Prefer 10s and change (fewer moves set to set); spare 25s come in when those can't make it.
-  let sol = solve(rem)
-  // With 10s off, a tall stack of change is worse than another 45: take the fewest plates.
-  if (on.has(45) && !on.has(10)) {
-    for (let r = rem - 45, extra = 1; r > -0.01; r = Math.round((r - 45) * 100) / 100, extra++) {
-      const alt = solve(r)
-      if (alt && (!sol || alt.length + extra < sol.length)) { sol = [...Array(extra).fill(45), ...alt] }
+  const on = (kept.on ?? ALL_PLATES).filter(p => ALL_PLATES.includes(p))
+  const used = (st: number[], p: number) => st.filter(x => x === p).length
+  const fine = on.filter(p => p < kept.change)
+  const tryFrom = (inner: number[]): number[] | null => {
+    const rem = r2(perSide - inner.reduce((t, x) => t + x, 0))
+    if (rem < -0.01) return null
+    const c = kept.change
+    const cLeft = on.includes(c) ? ownedOf(c) - used(inner, c) : 0
+    for (let k = Math.min(cLeft, Math.floor(rem / c + 1e-9)); k >= 0; k--) {
+      const f = solveSide(r2(rem - k * c), fine.map(p => [p, ownedOf(p) - used(inner, p)] as [number, number]))
+      if (f) return [...inner, ...Array(k).fill(c), ...f]
     }
+    return null
   }
-  return sol ? [...stack, ...sol] : null
+  // Kept stack + change plates + fine plates. If the span is more than the change plates can cover, big plates go on outside the kept ones.
+  let inner = [...kept.base]
+  const big = on.filter(p => p > kept.change).sort((a, b) => b - a)
+  for (let guard = 0; guard < 12; guard++) {
+    const got = tryFrom(inner)
+    if (got) return got
+    const add = big.find(p => used(inner, p) < ownedOf(p) && r2(perSide - inner.reduce((t, x) => t + x, 0) - p) >= -0.01)
+    if (!add) break
+    inner = [...inner, add]
+  }
+  // Lighter than the kept stack (e.g. a weight typed by hand): build it from scratch, largest plates first.
+  return solveSide(perSide, on.slice().sort((a, b) => b - a).map(p => [p, p === 45 ? 20 : ownedOf(p)] as [number, number]))
 }
 
-/** Which 45s and 25s to keep on all session: as many as fit the lightest working set, from the plates switched on. */
-export function keptFor(lightestPlates: number, on: number[] = ALL_PLATES): Kept {
-  const side = Math.max(0, lightestPlates / 2)
-  const n45 = on.includes(45) ? Math.floor(side / 45 + 1e-9) : 0
-  const n25 = on.includes(25) ? Math.min(OWNED[25], Math.floor((side - 45 * n45) / 25 + 1e-9)) : 0
-  return { n45, n25, on }
+/**
+ * What stays on the bar all session: the lightest working set built from the biggest plates switched on,
+ * down to the change plate. Every heavier set adds change plates; only plates smaller than the change plate come and go.
+ */
+export function keptFor(lightestPlates: number, on: number[] = ALL_PLATES, change = 10): Kept {
+  let side = Math.max(0, lightestPlates / 2)
+  const base: number[] = []
+  for (const p of on.filter(x => x >= change).sort((a, b) => b - a)) {
+    let k = 0
+    while (side >= p - 1e-9 && k < ownedOf(p)) { base.push(p); side = r2(side - p); k++ }
+  }
+  return { base, change, on }
 }
 
 /** Plate moves per side to go from one stack to the next (plates come off the outside first). */

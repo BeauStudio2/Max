@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
-import { ALL_PLATES, e1rm, expectedReps, fitFatigue, round, roundTo, totals, effectiveLoad, keptFor, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
+import { ALL_PLATES, e1rm, expectedReps, fitFatigue, round, roundTo, totals, effectiveLoad, keptFor, keptFromStored, loadSide, choosePlates, changeText, stackText, type LoadSetup, type Kept } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
 import { Num, T } from './shared'
 
@@ -26,9 +26,10 @@ export interface LadderPlan {
   plates_on: number[]
   /** Chains switched on for sets 2+ this session. */
   chains_on: boolean
-  /** 45s / 25s kept on per side; null = worked out from the lightest working set. */
-  kept_45: number | null
-  kept_25: number | null
+  /** The plate that makes up the span from the lightest set to the heaviest (10s by default). */
+  change_plate: number
+  /** Most heavy sets to do today; null = as many as the ladder plans. */
+  max_sets: number | null
   /** Set 1 weight on the bar (plates); null = calculated. */
   set1_lb: number | null
   /** Spotter in use: rep goals round up instead of down. */
@@ -93,12 +94,12 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
 
   // Projected remaining sets: ideal weights first, then the 45s/25s to keep on (from the lightest working set),
   // then each set's weight nudged one step either way if that saves plate moves.
-  const { projected, kept, autoKept } = useMemo(() => {
+  const { projected, kept } = useMemo(() => {
     const ideal: { idx: number; target: number; setup: LoadSetup; weight: number }[] = []
     let idx = (logged.at(-1)?.set_index ?? 0) + 1
     let target = lastActual !== null ? lastActual * (1 - f) : plan.planned_e1rm
     if (target && !stopped) {
-      while (idx <= 40 && (floor === null || target >= floor)) {
+      while (idx <= 40 && (floor === null || target >= floor) && (plan.max_sets == null || idx <= plan.max_sets)) {
         const setup = idx === 1 ? straightOf(plan) : chained(plan)
         // Set 1 override is what's on the bar (like the lb column); plates = that less the bar and clamps.
         const weight = idx === 1 && plan.set1_lb != null ? Math.max(0, plan.set1_lb - totals(0, setup, equipment).bottom!) : weightFor(target, setup)
@@ -110,14 +111,13 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     }
     const working = [...logged.map(r => r.weight_lb ?? 0), ...ideal.map(p => p.weight)].filter(w => w > 0)
     const on = plan.plates_on?.length ? plan.plates_on : ALL_PLATES
-    const auto = keptFor(working.length ? Math.min(...working) : 0, on)
-    // Once a set is logged the kept plates are fixed for the session (what's physically on the bar), so later edits
-    // to reps or plan don't re-describe sets already lifted.
-    const locked = logged.find(r => r.setup?.kept)?.setup?.kept as { n45: number; n25: number } | undefined
-    const kept: Kept = { n45: plan.kept_45 ?? locked?.n45 ?? auto.n45, n25: plan.kept_25 ?? locked?.n25 ?? auto.n25, on }
+    const change = on.includes(plan.change_plate) ? plan.change_plate : ([...on].sort((x, y) => x - y).find(p => p >= plan.change_plate) ?? 10)
+    // Once a set is logged the kept stack is fixed for the session (it's what's physically on the bar).
+    const locked = keptFromStored(logged.find(r => r.setup?.kept)?.setup?.kept, change, on)
+    const kept: Kept = locked ?? keptFor(working.length ? Math.min(...working) : 0, on, change)
     const lastLogged = logged.at(-1)
     let prev: number[] | null = Array.isArray(lastLogged?.setup?.stack) ? lastLogged!.setup.stack : lastLogged?.weight_lb != null ? loadSide(lastLogged.weight_lb / 2, kept) : null
-    if (!plan.bar) return { projected: ideal.map(p => ({ ...p, stack: null as number[] | null, change: '' })), kept, autoKept: auto }
+    if (!plan.bar) return { projected: ideal.map(p => ({ ...p, stack: null as number[] | null, change: '' })), kept }
     const out = ideal.map(p => {
       // An overridden set 1 stays exactly as entered.
       const c = p.idx === 1 && plan.set1_lb != null ? { weight: p.weight, stack: loadSide(p.weight / 2, kept) } : choosePlates(p.weight, plan.step_lb, kept, prev)
@@ -127,7 +127,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
       if (stack) prev = stack
       return { ...p, weight, stack, change }
     })
-    return { projected: out, kept, autoKept: auto }
+    return { projected: out, kept }
   }, [logged, plan, lastActual, floor, stopped, equipment, cfg])
 
   const nextIdx = (logged.at(-1)?.set_index ?? 0) + 1
@@ -141,13 +141,17 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   }, 0)
   const fit = fitFatigue(actual)
   const straight = straightOf(plan)
-  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume, autoKept }
+  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume }
 }
 
-export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
+export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGeometry }: {
   L: Ladder; setPlan: (p: Partial<LadderPlan>) => void; carriedFrom?: string; currentMax: number | null
+  /** Range of motion and leader-line hang for this lift, from Profile. */
+  lifterGeometry?: { rom_in?: number | null; hang_in?: number | null }
 }) {
   const plan = L.plan
+  const on = plan.plates_on?.length ? plan.plates_on : ALL_PLATES
+  const chainsShown = plan.bar && plan.chains_ok
   return (
     <>
       <div className="planfields">
@@ -155,43 +159,52 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax }: {
         <Num label="Target reps" tip="Reps each set is weighted for. Weights come from target max ÷ (1 + reps/30)." value={plan.target_reps} onSave={v => v && setPlan({ target_reps: v })} />
         <Num label="Stop below %" tip="The session ends when a set's estimated max falls below this % of set 1's." value={plan.stop_pct} onSave={v => v !== null && setPlan({ stop_pct: v })} />
         <Num label="Fatigue %/set" tip="How much the estimated max drops each set. Each planned set targets the last set's actual less this %." value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
-        <Num label="Weight step" tip="Smallest jump in bar weight. Planned weights round to this." value={plan.step_lb} onSave={v => v && setPlan({ step_lb: v })} />
+        <Num label="Max sets (blank = all)" tip="Cap on heavy sets today, whatever the stop line says. Blank: the ladder runs to the stop line." value={plan.max_sets} onSave={v => setPlan({ max_sets: v })} />
         <Num label="Rest (s)" tip="Target rest between heavy sets. The Rest timer above the table turns green when it's reached." value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
+        {plan.bar && <Num label="Set 1 lb (blank = calc)" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
         {plan.bar && (
           <label><T tip="Clamps used on sets without chains. Chain sets always use the chain clamps.">Clamps (straight sets)</T>
             <select value={plan.clamp} onChange={e => setPlan({ clamp: e.target.value })}>{CLAMPS.filter(c => c[0] !== CHAIN_CLAMP).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </label>
         )}
-        {plan.bar && <Num label="Set 1 lb (blank = calc)" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
-        {plan.bar && <>
-          <label><T tip="45s left on the bar all session (fewer plate changes). Auto picks as many as the lightest set allows; locked once set 1 is logged.">45s kept/side</T>
-            <select value={plan.kept_45 ?? ''} onChange={e => setPlan({ kept_45: e.target.value === '' ? null : Number(e.target.value) })}>
-              <option value="">auto ({L.autoKept.n45})</option>{[0, 1, 2, 3, 4, 5].map(v => <option key={v} value={v}>{v}</option>)}</select>
+        {plan.bar && (
+          <label><T tip="The plate that covers the span from your lightest set to your heaviest. Everything bigger stays on all session; only plates smaller than this come and go for fine steps.">Change plate</T>
+            <select value={plan.change_plate} onChange={e => setPlan({ change_plate: Number(e.target.value) })}>
+              {on.filter(p => p > Math.min(...on)).map(p => <option key={p} value={p}>{p} lb</option>)}
+              {!on.includes(plan.change_plate) && <option value={plan.change_plate}>{plan.change_plate} lb (off)</option>}
+            </select>
           </label>
-          <label><T tip="25s left on the bar all session, inside the change plates. Auto fits them to the lightest set.">25s kept/side</T>
-            <select value={plan.kept_25 ?? ''} onChange={e => setPlan({ kept_25: e.target.value === '' ? null : Number(e.target.value) })}>
-              <option value="">auto ({L.autoKept.n25})</option>{[0, 1, 2, 3, 4].map(v => <option key={v} value={v}>{v}</option>)}</select>
-          </label>
-        </>}
+        )}
         <label className="toggle"><T tip="Rep goals round down normally; with a spotter on hand they round up, since the last rep can be helped.">Spotter</T>
           <button type="button" className={'switch' + (plan.spotter ? ' on' : '')} aria-pressed={plan.spotter} onClick={() => setPlan({ spotter: !plan.spotter })}>{plan.spotter ? 'On · goals round up' : 'Off · goals round down'}</button>
         </label>
-        {plan.bar && plan.chains_ok && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chains below.">Chains</T>
+        {chainsShown && <label className="toggle"><T tip="Off: every set straight, no chains. On: sets 2+ use the chains below.">Chains</T>
           <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
         </label>}
-        {plan.bar && plan.chains_ok && plan.chains_on && <>
+        {chainsShown && plan.chains_on && <>
           <label><T tip="Number of ½ in chains per side on sets 2 and up.">½ chains/side, sets 2+</T>
             <select value={plan.chain_half} onChange={e => setPlan({ chain_half: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
           </label>
           <label><T tip="Number of ⅝ in chains per side on sets 2 and up.">⅝ chains/side, sets 2+</T>
             <select value={plan.chain_5_8} onChange={e => setPlan({ chain_5_8: Number(e.target.value) })}>{[0, 1, 2].map(v => <option key={v}>{v}</option>)}</select>
           </label>
-          <Num label="Range of motion (in)" tip="Bar travel, bottom to lockout. More chain lifts off the floor as the bar rises; this sets how much." value={plan.rom_in} onSave={v => setPlan({ rom_in: v })} />
-          <Num label="Chain hang at bottom (in)" tip="Length of chain off the floor at the bottom of the rep." value={plan.hang_in} onSave={v => setPlan({ hang_in: v })} />
         </>}
       </div>
       {plan.bar && <PlatesOn value={plan.plates_on} onChange={v => setPlan({ plates_on: v })} />}
-      {plan.bar && (L.kept.n45 > 0 || L.kept.n25 > 0) && <p className="small">Keep on all session, per side: <b>{stackText([...Array(L.kept.n45).fill(45), ...Array(L.kept.n25).fill(25)])}</b></p>}
+      {plan.bar && L.kept.base.length > 0 && (
+        <p className="small">
+          <T tip="Built from the lightest working set with the biggest plates that are on. Locked once set 1 is logged.">Keep on all session</T>, per side: <b>{stackText(L.kept.base)}</b>
+          {' · '}span in <b>{L.kept.change}s</b>{on.some(p => p < L.kept.change) ? <>, fine steps in {on.filter(p => p < L.kept.change).join(' / ')}</> : null}
+          {' · '}weight step {plan.step_lb} lb
+        </p>
+      )}
+      {chainsShown && plan.chains_on && (plan.chain_half || plan.chain_5_8) ? (
+        <p className="small muted">
+          Chain load uses your range of motion{lifterGeometry?.rom_in ? <> (<b>{lifterGeometry.rom_in} in</b>)</> : ' (not set)'}
+          {lifterGeometry?.hang_in ? <> and leader-line hang (<b>{lifterGeometry.hang_in} in</b>)</> : null} from Profile.
+          {!lifterGeometry?.rom_in && ' Set it on Profile → this lift → Settings; until then the chain\'s fixed bottom/top weights are used.'}
+        </p>
+      ) : null}
       <p className="small muted">
         {carriedFrom ? <>Planned max and fatigue carried from {carriedFrom}. </> : null}
         {currentMax ? <>Current max {round(currentMax)}. </> : null}

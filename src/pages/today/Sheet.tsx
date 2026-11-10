@@ -202,9 +202,10 @@ function buildSequence({ heavy, speedRounds, support, placement, supInterleave }
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, onPlannedMax, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, placement, supInterleave = false, running = false, onPlannedMax, speedMax = {}, supportMax = {}, S, circuit, onCircuit }: {
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; placement: Placement; supInterleave?: boolean; running?: boolean; onPlannedMax?: (v: number | null) => void
+  speedMax?: Record<string, number>; supportMax?: Record<string, number>
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
   const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
@@ -212,6 +213,16 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const allBands = useMemo(() => equipment.filter(e => e.kind === 'band').sort((a, b) => n0(a.props?.one_band_lockout_lb) - n0(b.props?.one_band_lockout_lb)), [equipment])
   const items: any[] = speed?.items ?? []
   const allSpeed = items.flatMap(it => speedSets(it))
+  // Support capped per exercise: logged sets always show; unlogged ones only up to that exercise's max sets.
+  const supSlots = (() => {
+    const seen: Record<string, number> = {}
+    return S.slots.filter(x => {
+      const nm = x.slot ?? ''
+      const cap = supportMax[nm]
+      seen[nm] = (seen[nm] ?? 0) + 1
+      return x.existing || cap == null || seen[nm] <= cap
+    })
+  })()
   const mainSets = L ? L.logged : (D?.rows.map(r => r.existing).filter(Boolean) as SetRow[]) ?? []
   // A support set only counts as done once it has reps; one with just a start weight typed is still to do.
   const supIsDone = (x: SupportSlot) => !!x.existing && x.existing.reps != null
@@ -227,7 +238,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   for (const it of items) {
     const logged = [...speedSets(it)].sort((a, b) => a.set_index - b.set_index)
     const planned = placement === 'between' && heavyCount > 0 && !heavyUnplanned ? heavyCount : (it.sets ?? 0)
-    const rounds = Math.max(planned, logged.at(-1)?.set_index ?? 0)
+    // A max-sets cap trims the planned rounds; sets already logged always stay.
+    const cap = speedMax[it.name]
+    const rounds = Math.max(cap != null ? Math.min(planned, cap) : planned, logged.at(-1)?.set_index ?? 0)
     for (let n = 1; n <= rounds; n++) {
       const here = logged.filter(x => x.set_index === n)
       const round = (speedRounds[n - 1] ??= [])
@@ -235,7 +248,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       here.forEach((r, j) => round.push({ kind: 'speed', key: r.id ?? `s:${it.name}:${n}:${j}`, it, n, r }))
     }
   }
-  const support: Item[] = S.slots.map(slot => ({ kind: 'sup', key: 'sup:' + slot.key, slot }))
+  const support: Item[] = supSlots.map(slot => ({ kind: 'sup', key: 'sup:' + slot.key, slot }))
   const seq = [...(heavyUnplanned ? [{ kind: 'noplan' as const, key: 'noplan' }] : []), ...buildSequence({ heavy, speedRounds: speedRounds.filter(Boolean), support, placement, supInterleave })]
   const isDoneItem = (x: Item) => (x.kind === 'sup' ? supIsDone(x.slot) : x.kind === 'noplan' ? true : !!x.r)
   const nextItem = seq.find(x => !isDoneItem(x))
@@ -307,7 +320,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
 
       {supInterleave
         ? <button className="ghost small" onClick={() => S.addExercise()} data-tip="Add a support exercise; it joins the interleaved list." data-pos="left">+ Add support exercise</button>
-        : <SupportTable S={S} api={api} />}
+        : <SupportTable S={S} api={api} slots={supSlots} />}
     </section>
   )
 }
@@ -352,7 +365,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const tt = totals(pl, s, eq)
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
       setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [],
-        stack, kept: r?.setup?.kept ?? (L.plan.bar ? { n45: L.kept.n45, n25: L.kept.n25 } : null) } }
+        stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null) } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
@@ -375,7 +388,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     const next = withCount(stack, plate, n), pl = next.reduce((t, x) => t + x, 0) * 2
     setManual(next); setPlates(pl); commit({ plates: pl, stack: next })
   }
-  const keptN = { 45: L.kept.n45, 25: L.kept.n25 }
+  const keptN = countsOf(L.kept.base)
   const straightClamp = L.plan.clamp || CLAMPS[0][0]
   const setupCell = !hasBar ? <span className="small muted">—</span> : (
     <select className="mini" value={setup.clamp} aria-label="Clamps" onChange={e => setSet({ ...setup, clamp: e.target.value })}>
@@ -565,14 +578,14 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
 
 /* ---------- support table ---------- */
 
-function SupportTable({ S, api }: { S: SupportCtl; api: Api }) {
+function SupportTable({ S, api, slots }: { S: SupportCtl; api: Api; slots?: SupportSlot[] }) {
   return (
     <div className="supsheet">
       <h3><span className="hastip" data-tip="Accessory work. Log the start weight and reps at that weight; drops follow the scheme." data-pos="left">Support</span></h3>
       <div className="tablewrap">
         <table className="sheet">
           <thead><tr><th className="stick" data-tip="Pick from the library; the plan's default is preselected." data-pos="left">Exercise</th><th data-tip="Starting weight (the first, heaviest load).">Start</th><th data-tip="Reps at the start weight.">Reps</th><th data-tip="Reps at each drop, e.g. 3+3+3 for a run-the-rack.">Each drop</th><th data-tip="Reps at the last drop.">Final</th><th className="c-setup" data-tip="F = to failure · TF = technical failure · DS×n = n drops · ST = strip set · RP = rest-pause · RTR = run the rack. Tap the scheme for details.">Scheme</th><th className="c-exp" data-tip="Weight removed at each drop.">Step</th><th className="c-exp" data-tip="Number of drops after the start weight.">Drops</th><th className="c-side">Note</th><th className="c-rest"></th></tr></thead>
-          <tbody>{S.slots.map(slot => <SupportTr key={slot.key} slot={slot} S={S} api={api} />)}</tbody>
+          <tbody>{(slots ?? S.slots).map(slot => <SupportTr key={slot.key} slot={slot} S={S} api={api} />)}</tbody>
         </table>
       </div>
       <button className="ghost small" onClick={() => S.addExercise()} data-tip="Add a support exercise not in today's plan" data-pos="left">+ Add exercise</button>

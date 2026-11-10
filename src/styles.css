@@ -576,3 +576,12 @@ tr.supinline td.stick { white-space: normal; }
 .supfields label.exfield { flex: 0 1 200px; }
 .supfields label.exfield select { width: 100%; min-width: 0; }
 @media (max-width: 760px) { tr.supinline:not(.open) .supfields .opt { display: none; } }
+/* Plan panel: max sets per exercise */
+.caps { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.caprow { display: flex; align-items: flex-end; gap: 10px; margin: 6px 0; }
+.caprow .exrow { flex: 1 1 auto; margin: 0; }
+.caprow > label:last-child { flex: 0 0 96px; }
+.caprow .capname { flex: 1 1 auto; font-size: 14px; padding-bottom: 10px; }
+.caps { max-width: 620px; }
+.caprow { display: grid; grid-template-columns: minmax(0, 1fr) 88px; align-items: end; gap: 10px; }
+.caprow .capname { padding-bottom: 12px; }

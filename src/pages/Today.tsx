@@ -19,7 +19,7 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
   return roundTo(best * ([0, 0, 0.8, 0.8, 0.85, 0.92][week - 1] ?? 0.85), 5)
 }
 const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
-  chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', clamp: 'clamps', kept_45: '45s kept', kept_25: '25s kept', set1_lb: 'set 1 lb', bar_lb: 'bar',
+  chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', clamp: 'clamps', change_plate: 'change plate', max_sets: 'max heavy sets', speed_max: 'max speed sets', support_max: 'max support sets', set1_lb: 'set 1 lb', bar_lb: 'bar',
   speed_choice: 'speed', support_choice: 'support', speed_placement: 'speed order', speed_offset_s: 'speed start', support_interleave: 'support order' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
@@ -144,22 +144,24 @@ export default function Today({ lifterId }: { lifterId: string }) {
     target_reps: pick(sp.target_reps, f.target_reps, H.target_reps, st.target_reps?.[lift]) ?? 5,
     stop_pct: pick(sp.stop_pct, f.stop_pct, H.stop_pct, st.stop_pct?.[lift]) ?? 70,
     fatigue_rate_used_pct: pick(sp.fatigue_rate_used_pct, f.fatigue_rate_used_pct, prevPlan.fatigue_rate_used_pct, st.fatigue_pct?.[lift]) ?? 3,
-    step_lb: pick(sp.step_lb, f.step_lb, H.step_lb) ?? 2.5,
     rest_s: pick(sp.rest_s, f.rest_s, H.rest_s, st.rest_s) ?? 100,
     chain_half: pick(sp.chain_half, f.chain_half, H.chain_half, st.chain_setup?.[lift]?.chain_half) ?? 0,
     chain_5_8: pick(sp.chain_5_8, f.chain_5_8, H.chain_5_8, st.chain_setup?.[lift]?.chain_5_8) ?? 1,
     clamp: pick(sp.clamp, f.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
-    rom_in: pick(sp.rom_in, f.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
-    hang_in: pick(sp.hang_in, f.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? null,
+    // Chain geometry is the lifter's (Profile): range of motion, and the hang at the bottom only when chains run from a leader line.
+    rom_in: pick(f.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
+    hang_in: pick(f.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? (st.chain_geometry?.[lift]?.rom_in ? 0 : null),
     // No equipment set on the exercise: only the main barbell lifts get a bar; anything else is a plain load.
     bar: 'bar' in exEquip ? exEquip.bar ?? null : (exercises.find(e => e.name === heavyEx)?.category === 'primary' || isMainEx ? 'Ohio Power Bar' : null),
     chains_ok: exEquip.chains ?? isMainEx,
     load: exEquip.load ?? (isMainEx ? 'bar' : 'added'),
     implement: exEquip.bar ? null : exEquip.implement ?? null,
     plates_on: pick(sp.plates_on, f.plates_on, H.plates_on, st.plates_on) ?? ALL_PLATES,
+    // Smallest jump the plates that are on can make: two of the smallest plate.
+    step_lb: 2 * Math.min(...((pick(sp.plates_on, f.plates_on, H.plates_on, st.plates_on) as number[] | undefined)?.length ? pick(sp.plates_on, f.plates_on, H.plates_on, st.plates_on) as number[] : ALL_PLATES)),
     chains_on: pick(sp.chains_on, f.chains_on, H.chains_on) ?? true,
-    kept_45: pick(sp.kept_45, f.kept_45) ?? null,
-    kept_25: pick(sp.kept_25, f.kept_25) ?? null,
+    change_plate: pick(sp.change_plate, f.change_plate, H.change_plate) ?? 10,
+    max_sets: pick(sp.max_sets) ?? null,
     set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
     spotter: pick(sp.spotter, f.spotter, H.spotter) ?? false,
   }
@@ -194,7 +196,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'kept_45', 'kept_25', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s', 'support_interleave']
+  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'speed_placement', 'speed_offset_s', 'support_interleave']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
@@ -227,7 +229,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     await relabel(sets.filter(r => r.block === heavyBlock && r.exercise_id === oldId), name)
     // A different exercise brings its own plan: forget this session's max, fatigue and bar setup so they reload for it.
     await savePlanned({ heavy_exercise: name, planned_e1rm: undefined, fatigue_rate_used_pct: undefined, clamp: undefined,
-      chain_half: undefined, chain_5_8: undefined, rom_in: undefined, hang_in: undefined, set1_lb: undefined, kept_45: undefined, kept_25: undefined })
+      chain_half: undefined, chain_5_8: undefined, set1_lb: undefined, max_sets: undefined })
     await load()
   }
   const speedSlotSets = (it: any) => sets.filter(s => s.block === 'speed' && (s.setup?.slot === it.name || (!s.setup?.slot && s.exercise_id === exId(it.name))))
@@ -240,10 +242,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const L = useLadder(ladderPlan, sets.filter(s => s.block === 'primary'))
   const placement: Placement = pick(sp.speed_placement, frozen.speed_placement, spec.speed_placement) ?? 'between'
   const supInter: boolean = pick(sp.support_interleave, frozen.support_interleave, spec.support_interleave) ?? false
-  const offsetS: number = sp.speed_offset_s ?? 20
+  // Per-exercise caps for today (blank = as planned): speed by plan item, support by exercise slot.
+  const speedMax: Record<string, number> = sp.speed_max ?? {}
+  const supportMax: Record<string, number> = sp.support_max ?? {}
+  const clean = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== ''))
   const D = useDeadlift({ week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
   const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey,
     { hidden: (sp.support_hidden as string[] | undefined) ?? [], setHidden: h => { savePlanned({ support_hidden: h }) } })
+  const supportNames = [...new Set(S.slots.map(x => x.slot ?? '').filter(n => n && !n.startsWith('extra:')))]
   const [planOpen, setPlanOpen] = useState(false)
 
   return (
@@ -314,7 +320,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
             <ExercisePicker label="Main exercise" value={heavyEx} onChange={setHeavyEx} className="exrow" />
             {lift === 'deadlift'
               ? <DeadliftPlanFields D={D} setPlan={savePlan(dlPlan)} best={best} />
-              : <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} />}
+              : <LadderPlanFields L={L} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} lifterGeometry={st.chain_geometry?.[lift]} />}
             {edited.length > 0 && (
               <p className="small edited">
                 <T tip="These were changed on this session, so they no longer follow the Plan page. Everything else still does.">Edited for this session</T>: {edited.map(k => KEY_LABEL[k] ?? k).join(', ')}
@@ -322,19 +328,21 @@ export default function Today({ lifterId }: { lifterId: string }) {
               </p>
             )}
             {past && snap && <p className="small muted">Past session: shows the plan as it stood when its first set was logged. Plan page edits don't change it.</p>}
-            {speedFor?.items?.map((it: any, i: number) => (
-              <ExercisePicker key={it.name} label={`Speed exercise ${i + 1}`} value={speedEx(it)} onChange={n => setSpeedEx(it, n)} className="exrow" />
-            ))}
-            {speedFor?.items?.length ? (
-              <div className="planfields">
-                <label><T tip="Between: one round of speed after each heavy set. All first / all after: every speed set in a block.">Speed sets</T>
-                  <select value={placement} onChange={e => savePlanned({ speed_placement: e.target.value })}>
-                    <option value="between">Between main sets</option>
-                    <option value="first">All first</option>
-                    <option value="after">All after</option>
-                  </select>
-                </label>
-                <Num label="Speed starts (s into rest)" tip="How many seconds after a heavy set the speed round begins." value={offsetS} onSave={v => v !== null && savePlanned({ speed_offset_s: v })} />
+            {(speedFor?.items?.length || S.slots.length) ? (
+              <div className="caps">
+                <p className="small"><T tip="Most sets of each exercise today. Blank: as planned. 0: skip it today. Capped rows just aren't listed; clear the box and they come back.">Max sets</T> <span className="muted">(blank = as planned, 0 = skip)</span></p>
+                {speedFor?.items?.map((it: any, i: number) => (
+                  <div key={it.name} className="caprow">
+                    <ExercisePicker label={`Speed ${i + 1}`} value={speedEx(it)} onChange={n => setSpeedEx(it, n)} className="exrow" />
+                    <Num label="Max sets" value={speedMax[it.name] ?? null} onSave={v => savePlanned({ speed_max: clean({ ...speedMax, [it.name]: v }) })} />
+                  </div>
+                ))}
+                {supportNames.map(nm => (
+                  <div key={nm} className="caprow">
+                    <span className="capname">{nm}</span>
+                    <Num label="Max sets" value={supportMax[nm] ?? null} onSave={v => savePlanned({ support_max: clean({ ...supportMax, [nm]: v }) })} />
+                  </div>
+                ))}
               </div>
             ) : null}
           </div>
@@ -343,7 +351,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} supInterleave={supInter} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} placement={placement} supInterleave={supInter} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 
