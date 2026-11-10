@@ -5,7 +5,9 @@ import { findPulses, type Pulse } from '../../lib/creatine'
 import { metronomeRepSeconds } from './Metronome'
 
 /** Tempo of a recorded set: the metronome's seconds per rep (null if it was off) and the measured time from one spotted rep to the next. */
-export interface Tempo { beat_s: number | null; rep_s: number | null }
+export interface Tempo { beat_s: number | null; rep_s: number | null
+  /** Clock time Record was pressed, and when the last spotted rep ended (Stop time if there were none). */
+  rec_at?: string; ended_at?: string }
 export const repGap = (p: Pulse[]) => { const g = p.slice(1).map((x, i) => x.start - p[i].start).sort((a, b) => a - b); return g.length ? g[Math.floor(g.length / 2)] : null }
 
 /**
@@ -17,12 +19,17 @@ export default function TindeqPanel({ onCapture, minLb, minS }: { onCapture: (pu
   const [last, setLast] = useState<Pulse[] | null>(null)
   const [tempo, setTempo] = useState<Tempo | null>(null)
   const beat = useRef<number | null>(null)
+  const recAt = useRef<number>(0)
 
   function toggleRec() {
-    if (!st.recording) { beat.current = metronomeRepSeconds(); setLast(null); sensor.record(); return }
-    const pulses = findPulses(sensor.stop(), minLb, minS)
+    if (!st.recording) { beat.current = metronomeRepSeconds(); recAt.current = Date.now(); setLast(null); sensor.record(); return }
+    const samples = sensor.stop(), now = Date.now()
+    const pulses = findPulses(samples, minLb, minS)
+    // The last rep ended this long before the newest reading (readings stream until Stop), so rest is counted from then, not from Stop.
+    const lp = pulses.at(-1), lastT = samples.at(-1)?.t
+    const endedMs = lp && lastT != null ? now - Math.max(0, lastT - (lp.start + lp.dur)) * 1000 : now
     // The metronome may be switched on after Record is pressed; take whichever reading has it running.
-    const t: Tempo = { beat_s: beat.current ?? metronomeRepSeconds(), rep_s: repGap(pulses) }
+    const t: Tempo = { beat_s: beat.current ?? metronomeRepSeconds(), rep_s: repGap(pulses), rec_at: new Date(recAt.current).toISOString(), ended_at: new Date(endedMs).toISOString() }
     setLast(pulses); setTempo(t); onCapture(pulses, t)
   }
 

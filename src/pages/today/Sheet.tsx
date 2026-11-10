@@ -252,10 +252,13 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const isDoneItem = (x: Item) => (x.kind === 'sup' ? supIsDone(x.slot) : x.kind === 'noplan' ? true : !!x.r)
   const nextItem = seq.find(x => !isDoneItem(x))
   const lastMain = [...done].reverse().find(isMain)
-  // The rest timer only runs while the workout clock is running (after Start workout, before Finish).
-  const rest = useClock(running ? lastMain?.created_at : null)
   // Auto spotter: rest is the time for creatine to refill from where the last set ended to the recovery target.
   const [capture, setCapture] = useState<{ id: number; pulses: Pulse[]; tempo: Tempo } | null>(null)
+  // Rest runs from the end of the last rep: the Tindeq's last spotted rep when it recorded the set (even before the reps are typed), else when the set was logged.
+  // It only runs while the workout clock is running (after Start workout, before Finish).
+  const lastEnd = lastMain?.setup?.spot?.tempo?.ended_at ?? lastMain?.created_at
+  const restFrom = capture?.tempo.ended_at && (!lastEnd || capture.tempo.ended_at > lastEnd) ? capture.tempo.ended_at : lastEnd
+  const rest = useClock(running ? restFrom : null)
   const spotMode = !!L?.plan.spotter
   const lastSpot = lastMain?.setup?.spot?.on ? lastMain : null
   const crRest = (() => {
@@ -297,7 +300,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   return (
     <section className="card sheetcard">
       <div className="sheetbar">
-        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : lastMain ? `${fmt(rest)} / ${fmt(restTarget)}` : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
+        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? `${fmt(rest)} / ${fmt(restTarget)}` : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
@@ -423,7 +426,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next }: {
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
       await api.addSet({ ...row, exercise_id: exerciseId, block: 'primary', set_index: idx,
-        rest_s: last?.created_at ? Math.round((Date.now() - Date.parse(last.created_at)) / 1000) : null,
+        // Rest before this set: from the end of the last one to the start of this one, measured by the Tindeq where it recorded them.
+        rest_s: (() => { const from = last?.setup?.spot?.tempo?.ended_at ?? last?.created_at, to = (tempo ?? row.setup.spot?.tempo)?.rec_at
+          return from ? Math.round(((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000) : null })(),
         setup: { ...row.setup, target_e1rm: target ?? null } })
     }
   }
