@@ -498,17 +498,14 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
   const [load, setLoad] = useState<number | null>(r?.weight_lb ?? prev?.weight_lb ?? it.load_lb ?? (isBench ? n0(eq.find(e => e.name === LIGHT_BAR)?.weight_lb) || 5 : null))
   const [bands, setBands] = useState<BandPick[]>(defBands)
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
-  const [hits, setHits] = useState(r?.setup?.bell_hits?.toString() ?? '')
-  const [string, setString] = useState(src.string_in?.toString() ?? '')
   const [open, setOpen] = useState(false)
   const ten = bandTension(bands, eq)
 
-  async function commit(p: { load?: number | null; bands?: BandPick[]; reps?: string; hits?: string; string?: string }) {
-    const bb = p.bands ?? bands, rp = p.reps ?? reps, hh = p.hits ?? hits, ss = p.string ?? string
+  async function commit(p: { load?: number | null; bands?: BandPick[]; reps?: string }) {
+    const bb = p.bands ?? bands, rp = p.reps ?? reps
     const tt = bandTension(bb, eq)
     const setup: Record<string, any> = { ...(r?.setup ?? {}), slot: it.name, bands: bb, lockout_per_side_lb: tt.perSide, lockout_lb: tt.total, chest_lb: 0 }
-    if (isBench) Object.assign(setup, { bar: LIGHT_BAR, bell_hits: hh === '' ? null : Number(hh), string_in: ss === '' ? null : Number(ss) })
-    if (lower.includes('throw')) setup.bell_reps_of = 7
+    if (isBench) setup.bar = LIGHT_BAR
     delete setup.band
     const row = { weight_lb: p.load !== undefined ? p.load : load, reps: rp === '' ? null : Number(rp), setup }
     if (r) await api.updateSet(r.id!, row)
@@ -530,9 +527,9 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain }: {
           {bands.length > 0 && <div className="sub2 side-inline">{bandLabel(bands)}</div>}</td>
         <td className="c-exp" />
         <td><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
-        <td>{isBench ? <CellText value={hits} narrow numeric placeholder="bell" onSave={v => { setHits(v); commit({ hits: v }) }} /> : null}</td>
+        <td />
         <td className="num small muted">{bands.length ? `+${round(ten.perSide, 1)}/s` : ''}</td>
-        <td colSpan={PLATE_COLS.length} className="small muted c-plate">{lower.includes('throw') ? 'reps = bell hits ÷ 7' : ''}</td>
+        <td colSpan={PLATE_COLS.length} className="c-plate" />
         <td className="c-setup" />
         <ChainCells half={0} big={0} />
         <BandCells bands={bands} onSet={setBand} />
