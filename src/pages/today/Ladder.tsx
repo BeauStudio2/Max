@@ -14,6 +14,8 @@ export interface LadderPlan {
   fatigue_rep_pct?: number | null
   step_lb: number
   rest_s: number
+  /** Seconds allowed for each speed set done between heavy sets (added to the rest target). */
+  speed_set_s?: number
   chain_half: number
   chain_5_8: number
   clamp: string
@@ -224,6 +226,7 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
         <Num label="Fatigue %/rep" tip="How much the estimated max falls for each rep done. After a set, the next one aims at that set's result less this % for every rep in it; planned sets count the target reps." origin={src('fatigue_rep_pct')} value={Math.round(perRep(plan) * 100) / 100} onSave={v => v !== null && v >= 0 && setPlan({ fatigue_rep_pct: v })} />
         <Num label="Max sets" placeholder="all" tip="Cap on heavy sets today, whatever the stop line says. Blank: the ladder runs to the stop line." origin={src('max_sets')} value={plan.max_sets} onSave={v => setPlan({ max_sets: v })} />
         <Num label="Rest (s)" tip="Target rest between heavy sets. The Rest timer above the table turns green when it's reached." origin={src('rest_s')} value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
+        <Num label="Speed set (s)" tip="When speed sets are done between heavy sets, the rest timer allows this many seconds more for each one, so there is time to do them before the next heavy set." origin={src('speed_set_s')} value={plan.speed_set_s ?? 25} onSave={v => v !== null && v >= 0 && setPlan({ speed_set_s: v })} />
         {plan.bar && <Num label="Set 1 lb" placeholder="calc" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." origin={src('set1_lb')} value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}
         {plan.bar && (
           <label><T tip="Clamps used on sets without chains. Chain sets always use the chain clamps.">Clamps</T>

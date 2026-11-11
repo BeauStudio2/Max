@@ -183,6 +183,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     // Fatigue is planned per rep: the estimated max falls this % for every rep done. Until one is set (session → lifter), it's the per-set rate spread over the target reps.
     fatigue_rep_pct: pick(sp.fatigue_rep_pct, f.fatigue_rep_pct, st.fatigue_rep_pct?.[lift]) as number | undefined,
     rest_s: pick(sp.rest_s, f.rest_s, H.rest_s, st.rest_s) ?? 100,
+    // Seconds a speed set takes when it is done between heavy sets: the rest timer allows this much more for each one.
+    speed_set_s: pick(sp.speed_set_s, f.speed_set_s, H.speed_set_s, st.speed_set_s) ?? 25,
     // Chains are the lifter's (Profile → chain setup): the shared day plan only fills in for a lifter who has none.
     chain_half: pick(sp.chain_half, f.chain_half, st.chain_setup?.[lift]?.chain_half, H.chain_half) ?? 0,
     chain_5_8: pick(sp.chain_5_8, f.chain_5_8, st.chain_setup?.[lift]?.chain_5_8, H.chain_5_8) ?? 0,
@@ -335,7 +337,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['probes_on', 'probe_skip', 'fatigue_rep_pct', 'target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'assist_min_lb', 'assist_min_s', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
+  const PROGRAM_KEYS = ['probes_on', 'probe_skip', 'fatigue_rep_pct', 'target_reps', 'stop_pct', 'step_lb', 'rest_s', 'speed_set_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'assist_min_lb', 'assist_min_s', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
@@ -525,7 +527,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
       </section>
 
       {shown !== `${lifterId}|${date}|${lift}` ? <section className="card"><p className="small muted">Loading…</p></section> : <SessionSheet key={lifterId + date + lift + supportKey + cleared} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
-        heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
+        heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s} speedSetS={lift === 'deadlift' ? 25 : ladderPlan.speed_set_s}
         speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={running} onPlatesOn={v => (lift === 'deadlift' ? savePlan(dlPlan) : savePlan(ladderPlan))({ plates_on: v })} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} probes={probes} onSkipProbe={(idx: number) => savePlanned({ probe_skip: { ...(sp.probe_skip ?? {}), [idx]: true } })} onObs={setObs} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />}

@@ -218,13 +218,15 @@ function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: bo
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, onAutoFit, onPlatesOn, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, probes = {}, onSkipProbe, onObs, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speedSetS = 25, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, onAutoFit, onPlatesOn, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, probes = {}, onSkipProbe, onObs, S, circuit, onCircuit }: {
   /** Test sets for today (by set number), skipping one, and the session's sets handed up for learning. */
   probes?: Record<number, Probe>; onSkipProbe?: (idx: number) => void; onObs?: (obs: SetObs[]) => void
   /** S switched on or off on sets not yet done, kept on the session so it survives leaving Log. */
   spotRows?: Record<string, boolean>; onSpotRow?: (idx: number, on: boolean) => void
   speedBands?: Record<string, BandPick[]>; onSpeedBands?: (exercise: string, bands: BandPick[]) => void
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
+  /** Seconds the rest timer allows for each speed set done between heavy sets. */
+  speedSetS?: number
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; order: Block[]; joins: boolean[]; running?: boolean; onPlannedMax?: (v: number | null) => void
   speedMax?: Record<string, number>; supportMax?: Record<string, number>; onApplyFit?: (patch: Record<string, number>) => void
   /** Switch plates on or off for this session (the plate column headings). */
@@ -284,10 +286,12 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   // Rest runs from the end of the last rep: the Tindeq's last spotted rep when it recorded the set (even before the reps are typed), else when the set was logged.
   // It only runs while the workout clock is running (after Start workout, before Finish).
   const lastEnd = lastMain?.setup?.spot?.tempo?.ended_at ?? (lastMain?.setup as any)?.ended_at ?? lastMain?.created_at
-  const restFrom = capture?.tempo.ended_at && (!lastEnd || capture.tempo.ended_at > lastEnd) ? capture.tempo.ended_at : lastEnd
-  const rest = useClock(running ? restFrom : null)
   // The Tindeq panel shows whenever any heavy set today is a spotter set (S from the plan, or switched on for one set).
   const spotMode = !!L && (L.plan.spotter || Object.values(spotRows).some(Boolean) || L.logged.some(r => r.setup?.spot?.on))
+  // The rest clock restarts only for a heavy set: when it was logged, or from its last rep when a sensor timed that set. A Tindeq reading
+  // before the reps are typed counts only on a spotter day; speed and support sets never move it.
+  const restFrom = spotMode && capture?.tempo.ended_at && (!lastEnd || capture.tempo.ended_at > lastEnd) ? capture.tempo.ended_at : lastEnd
+  const rest = useClock(running ? restFrom : null)
   const lastSpot = lastMain?.setup?.spot?.on ? lastMain : null
   const crRest = (() => {
     if (!L || !lastSpot) return null
@@ -302,7 +306,11 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   // A test set has a deliberate short or long rest before it; otherwise the plan's rest (or the creatine refill after a spotter set).
   const nextMainIdx = (() => { const n = seq.find(x => x.kind === 'main' && !x.r) as Extract<Item, { kind: 'main' }> | undefined; return n?.p?.idx ?? null })()
   const nextProbe = nextMainIdx !== null && lastMain ? probes[nextMainIdx] : undefined
-  const restTarget = nextProbe ? nextProbe.rest_s : crRest ? crRest.seconds : restS
+  // Speed sets done between heavy sets need their own time: the target grows by the allowance for each speed set in the round.
+  const speedBetween = withHeavy('speed') && lastMain ? (speedRounds[Math.max(0, Math.min(mainSets.length, speedRounds.length) - 1)] ?? []).length : 0
+  const speedAllow = speedBetween * speedSetS
+  const restBase = nextProbe ? nextProbe.rest_s : crRest ? crRest.seconds : restS
+  const restTarget = restBase + speedAllow
   // What today's spotter sets say about the model, against the numbers in use.
   const fit = (() => {
     if (!L) return null
@@ -391,7 +399,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     <section className="card sheetcard" ref={cardRef}>
       {running && restFrom && restTarget > 0 && <RestOverlay rest={rest} target={restTarget} />}
       <div className="sheetbar" ref={barRef}>
-        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span>{nextProbe && <span className="probetag" data-tip={`Test rest: deliberately ${nextProbe.variant} (${fmt(nextProbe.rest_s)} instead of ${fmt(restS)}) so Max can learn how fast you recover. Lift when it's up. Skip it with the × on the set's row.`} data-pos="left">test · {nextProbe.variant}</span>}<b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
+        <div><span className="small muted hastip" data-tip={`Time since the last heavy set / the rest target${speedAllow ? `: ${fmt(restBase)} rest + ${fmt(speedAllow)} for ${speedBetween} speed set${speedBetween > 1 ? 's' : ''} in between` : ''}. Only a heavy set restarts it. Turns green when it's time.`} data-pos="left">Rest</span>{nextProbe && <span className="probetag" data-tip={`Test rest: deliberately ${nextProbe.variant} (${fmt(nextProbe.rest_s)} instead of ${fmt(restS)}) so Max can learn how fast you recover. Lift when it's up. Skip it with the × on the set's row.`} data-pos="left">test · {nextProbe.variant}</span>}<b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
@@ -547,8 +555,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
         // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
         setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
           force: (() => { const tr = (patch.trace !== undefined ? patch.trace : trace) ?? []; return !(patch.sp ?? sp) && tr.length ? { n: tr.length, mean_lb: Math.round((tr.reduce((t, x) => t + x.mean, 0) / tr.length) * 10) / 10, peak_lb: Math.round(Math.max(...tr.map(x => x.peak)) * 10) / 10 } : null })(),
-          ended_at: bar ? new Date(bar.ended_ms).toISOString() : null,
-          bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', unrack_dropped: !!bar.unrack, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
+          ended_at: bar && bar.reps.length === row.reps ? new Date(bar.ended_ms).toISOString() : null,
+          bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', unrack_dropped: !!bar.unrack, agrees: bar.reps.length === row.reps, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
       if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) } })))
       // The phone's raw readings over the set (the last two minutes), whether or not it read the reps right.
       if (saved?.id && saved.session_id) { const raw = imu.raw(120); if (raw) recordObservations([{ session_id: saved.session_id, set_id: saved.id, source: 'inertiometer' as const, metric: 'raw_accel', value: raw.n, data: { ...raw, typed_reps: row.reps, sensor_reps: bar?.reps.length ?? null } }]) }
@@ -648,7 +656,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
         {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}
-        {r?.setup?.bar_speed && <div className="sub2 barspeed" data-tip={`Bar speed from the phone: ${r.setup.bar_speed.n} reps seen. Average speed up per rep: ${r.setup.bar_speed.reps.map((x: any) => x.mean_mps.toFixed(2)).join(', ')} m/s.`} data-pos="right">{r.setup.bar_speed.first_mps.toFixed(2)} m/s {r.setup.bar_speed.n > 1 ? `· −${Math.max(0, Math.round(r.setup.bar_speed.loss_pct))}%` : ''}</div>}
+        {r?.setup?.bar_speed && r.setup.bar_speed.agrees !== false && r.setup.bar_speed.n === r.reps && <div className="sub2 barspeed" data-tip={`Bar speed from the phone: ${r.setup.bar_speed.n} reps seen. Average speed up per rep: ${r.setup.bar_speed.reps.map((x: any) => x.mean_mps.toFixed(2)).join(', ')} m/s.`} data-pos="right">{r.setup.bar_speed.first_mps.toFixed(2)} m/s {r.setup.bar_speed.n > 1 ? `· −${Math.max(0, Math.round(r.setup.bar_speed.loss_pct))}%` : ''}</div>}
         {isLow && <div className="sub2 lowset" data-tip="Low set: under half the reps Max expected at this weight. It's kept as logged, but the next sets are planned from the last good set, not this one." data-pos="right">low</div>}
         {pastStop && <div className="sub2 muted" data-tip="Past the stop line (or the max sets). Max would stop here; this row is open so another set can still be logged." data-pos="right">past stop</div>}</td>
       {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} origin={mine.includes('plates') ? 'o-user' : 'o-dyn'} />
@@ -790,15 +798,14 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands, au
       const bar = imu.take()
       const raw = bar ? bar.reps.map(x => { const rom = x.raw_rom_m ?? x.rom_m, k = rom / x.rom_m; return { mean_mps: rom / x.dur_s, peak_mps: x.peak_mps * k, rom_m: rom, dur_s: x.dur_s } }) : []
       const r3 = (x: number) => Math.round(x * 1000) / 1000
-      if (bar && raw.length) Object.assign(setup, { ended_at: new Date(bar.ended_ms).toISOString(),
-        bar_speed: { n: raw.length, best_mps: r3(Math.max(...raw.map(x => x.mean_mps))), peak_mps: r3(Math.max(...raw.map(x => x.peak_mps))), first_mps: r3(raw[0].mean_mps), last_mps: r3(raw.at(-1)!.mean_mps), rom_from: 'sensor', unrack_dropped: !!bar.unrack,
+      if (bar && raw.length) Object.assign(setup, {
+        bar_speed: { n: raw.length, best_mps: r3(Math.max(...raw.map(x => x.mean_mps))), peak_mps: r3(Math.max(...raw.map(x => x.peak_mps))), first_mps: r3(raw[0].mean_mps), last_mps: r3(raw.at(-1)!.mean_mps), rom_from: 'sensor', unrack_dropped: !!bar.unrack, agrees: raw.length === row.reps,
           reps: raw.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) })) } })
       const saved = await api.addSet({ ...row, exercise_id: id, block: 'speed', set_index: n, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
       onBands?.(name, bb)
       if (saved?.id && saved.session_id && bar) {
         recordObservations(raw.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) } })))
-        camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: n }, { from: bar.ended_ms - (bar.ended - bar.started + 8) * 1000, to: Math.min(bar.at, bar.ended_ms + 6000) })
-      } else if (saved?.id && saved.session_id) camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: n })
+      }
       if (saved?.id && saved.session_id) { const rw = imu.raw(90); if (rw) recordObservations([{ session_id: saved.session_id, set_id: saved.id, source: 'inertiometer' as const, metric: 'raw_accel', value: rw.n, data: { ...rw, typed_reps: row.reps, sensor_reps: bar?.reps.length ?? null } }]) }
     }
   }
@@ -816,7 +823,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands, au
         <td className="c-exp" />
         <td className="o-user ph-def"><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td />
-        <td className="num">{bs?.best_mps ? <div className="barspeed" data-tip="From the phone on the bar: the fastest rep's average speed up, and the highest speed reached." data-pos="center">{bs.best_mps.toFixed(2)} m/s{bs.peak_mps ? ` · peak ${bs.peak_mps.toFixed(2)}` : ''}</div> : null}</td>
+        <td className="num">{bs?.best_mps && (bs as any).agrees !== false ? <div className="barspeed" data-tip="From the phone on the bar: the fastest rep's average speed up, and the highest speed reached." data-pos="center">{bs.best_mps.toFixed(2)} m/s{bs.peak_mps ? ` · peak ${bs.peak_mps.toFixed(2)}` : ''}</div> : null}</td>
         <td colSpan={PLATE_COLS.length} className="c-plate" />
         <td className="c-setup" />
         <ChainCells half={0} big={0} />
