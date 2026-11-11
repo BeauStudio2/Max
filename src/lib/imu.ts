@@ -8,7 +8,9 @@
  * replaced by the corrected ones when the bar comes to rest.
  */
 export interface ImuSample { t: number; a: number }                       // seconds, m/s²
-export interface BarRep { mean_mps: number; peak_mps: number; rom_m: number; dur_s: number; at: number }
+export interface BarRep { mean_mps: number; peak_mps: number; rom_m: number; dur_s: number; at: number
+  /** Travel as the sensor read it, before it was set to the lifter's known range of motion. */
+  raw_rom_m?: number }
 export interface BarSet { reps: BarRep[]; started: number; ended: number }
 
 export interface ImuOptions {
@@ -121,4 +123,18 @@ export function summarize(reps: BarRep[]) {
   if (!reps.length) return null
   const first = reps[0].mean_mps, last = reps[reps.length - 1].mean_mps, best = Math.max(...reps.map(r => r.mean_mps))
   return { n: reps.length, first_mps: first, last_mps: last, best_mps: best, loss_pct: best > 0 ? (1 - last / best) * 100 : 0, rom_m: reps.reduce((t, r) => t + r.rom_m, 0) / reps.length }
+}
+
+/**
+ * Scale reps to the lifter's known range of motion. The time a rep takes is measured well; the distance, summed from
+ * acceleration, is not (it can read 20% out). So a full rep's speed is the known distance over its measured time.
+ * A rep that travelled well short of the others (a partial or failed rep) keeps its share of the distance.
+ */
+export function calibrate(reps: BarRep[], rom_m: number | null): BarRep[] {
+  if (!rom_m || !reps.length) return reps
+  const raw = reps.map(r => r.raw_rom_m ?? r.rom_m), mid = [...raw].sort((a, b) => a - b)[Math.floor(raw.length / 2)]
+  return reps.map((r, i) => {
+    const rom = raw[i] >= 0.7 * mid ? rom_m : rom_m * (raw[i] / mid), k = rom / raw[i]
+    return { ...r, raw_rom_m: raw[i], rom_m: rom, mean_mps: rom / r.dur_s, peak_mps: (r.peak_mps * k) / ((r.raw_rom_m ? r.rom_m / r.raw_rom_m : 1)) }
+  })
 }

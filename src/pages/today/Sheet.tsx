@@ -375,6 +375,8 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const mainCount = mainSets.length
   const perMin = L?.fit && minutes && mainCount ? L.fit.ratePct / (minutes / mainCount) : null
   // Band columns: every band used today (logged or planned speed work), plus any added with "+ band".
+  // The phone on the bar scales its speeds to this lift's range of motion from the profile.
+  useEffect(() => { imu.setRom(L?.plan.rom_in ? L.plan.rom_in * 0.0254 : null) }, [L?.plan.rom_in])
   const chains = !!(L && L.plan.bar && L.plan.chains_ok)
   // Columns after the set name: lb, Exp, Reps, A·F, e1RM, plates, clamps, chains, bands, rest, delete.
   const cols: Cols = { chains, span: 5 + PLATE_COLS.length + 1 + (chains ? 2 : 0) + 1 + 1 + 1, allBands }
@@ -539,8 +541,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
           return from ? Math.round(((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000) : null })(),
         // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
         setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
-          bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) })) } : null } })
-      if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) } })))
+          bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
+      if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) } })))
       // Film of the set from the laptop camera: the exact set when a sensor timed it, otherwise the last stretch before logging.
       if (saved?.id && saved.session_id) {
         const tm = tempo ?? row.setup.spot?.tempo

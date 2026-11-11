@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { supabase } from '../supabase'
-import { BarTracker, summarize, type BarRep, type BarSet } from './imu'
+import { BarTracker, calibrate, summarize, type BarRep, type BarSet } from './imu'
 
 type Batch = { s: [number, number][]; hz?: number }
 const local = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('max-imu') : null
@@ -56,9 +56,11 @@ const set = (p: Partial<ImuState>) => { state = { ...state, ...p }; subs.forEach
 const repSubs = new Set<(r: BarRep, n: number) => void>()
 const setSubs = new Set<(s: BarSet) => void>()
 
+/** The lifter's range of motion for the lift on screen (m), if known: speeds are scaled to it. */
+let rom: number | null = null
 const tracker = new BarTracker({
-  rep: (r, n) => { set({ reps: tracker.reps }); repSubs.forEach(f => f(r, n)) },
-  set: s => { set({ reps: [], lastSet: { ...s, at: Date.now(), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
+  rep: (r, n) => { set({ reps: calibrate(tracker.reps, rom) }); repSubs.forEach(f => f(r, n)) },
+  set: s0 => { const s = { ...s0, reps: calibrate(s0.reps, rom) }; set({ reps: [], lastSet: { ...s, at: Date.now(), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 function ingest(b: Batch) {
@@ -66,7 +68,7 @@ function ingest(b: Batch) {
   for (const [t, a] of b.s) tracker.push({ t, a: state.flip ? -a : a })
   count += b.s.length
   if (now - countFrom >= 1000) { const hz = Math.round((count * 1000) / Math.max(1, now - countFrom)); count = 0; countFrom = now; set({ hz }) }
-  if (now - lastPaint > 100) { lastPaint = now; set({ lastAt: now, velocity: tracker.velocity, reps: tracker.reps }) }
+  if (now - lastPaint > 100) { lastPaint = now; set({ lastAt: now, velocity: tracker.velocity, reps: calibrate(tracker.reps, rom) }) }
 }
 
 export const imu = {
@@ -80,6 +82,7 @@ export const imu = {
     join(ingest)
   },
   onRep: (f: (r: BarRep, n: number) => void) => { repSubs.add(f); return () => { repSubs.delete(f) } },
+  setRom(m: number | null) { rom = m && m > 0.05 ? m : null },
   /** Called when a set ends, while logging sets by itself is on. */
   onSet: (f: (s: BarSet) => void) => { setSubs.add(f); return () => { setSubs.delete(f) } },
   setAutolog(autolog: boolean) { try { localStorage.setItem(AUTO, autolog ? '1' : '0') } catch { /* this visit only */ } set({ autolog }) },
