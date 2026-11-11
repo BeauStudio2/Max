@@ -173,9 +173,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
     chain_half: pick(sp.chain_half, f.chain_half, st.chain_setup?.[lift]?.chain_half, H.chain_half) ?? 0,
     chain_5_8: pick(sp.chain_5_8, f.chain_5_8, st.chain_setup?.[lift]?.chain_5_8, H.chain_5_8) ?? 0,
     clamp: pick(sp.clamp, f.clamp, st.default_clamp) ?? 'Rogue aluminum clamps (pair)',
-    // Chain geometry is the lifter's (Profile): range of motion, and the hang at the bottom only when chains run from a leader line.
+    // Chain geometry is the lifter's (Profile): range of motion, and how much chain hangs off the floor at the bottom. Until the hang is entered, the chains' measured weights are used.
     rom_in: pick(f.rom_in, st.chain_geometry?.[lift]?.rom_in) ?? null,
-    hang_in: pick(f.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? (st.chain_geometry?.[lift]?.rom_in ? 0 : null),
+    hang_in: pick(f.hang_in, st.chain_geometry?.[lift]?.hang_in) ?? null,
     // No equipment set on the exercise: only the main barbell lifts get a bar; anything else is a plain load.
     bar: 'bar' in exEquip ? exEquip.bar ?? null : (exercises.find(e => e.name === heavyEx)?.category === 'primary' || isMainEx ? 'Ohio Power Bar' : null),
     chains_ok: exEquip.chains ?? isMainEx,

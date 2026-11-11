@@ -257,8 +257,8 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
       {chainsShown && plan.chains_on && (plan.chain_half || plan.chain_5_8) ? (
         <p className="small muted">
           Chain load uses your range of motion{lifterGeometry?.rom_in ? <> (<b>{lifterGeometry.rom_in} in</b>)</> : ' (not set)'}
-          {lifterGeometry?.hang_in ? <> and leader-line hang (<b>{lifterGeometry.hang_in} in</b>)</> : null} from Profile.
-          {!lifterGeometry?.rom_in && ' Set it on Profile → this lift → Settings; until then the chain\'s fixed bottom/top weights are used.'}
+          {lifterGeometry?.hang_in != null ? <> and the chain off the floor at the bottom (<b>{lifterGeometry.hang_in} in</b>)</> : null} from Profile.
+          {(!lifterGeometry?.rom_in || lifterGeometry?.hang_in == null) && ' Until both are set on Profile → this lift → Settings, the chain\'s fixed bottom/top weights are used.'}
         </p>
       ) : null}
       <p className="small muted">
