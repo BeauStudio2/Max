@@ -60,9 +60,15 @@ export default function Today({ lifterId }: { lifterId: string }) {
   }
 
   const loadSeq = useRef(0)
+  /** Which person, day and lift the data on screen belongs to (null while a switch is loading). */
+  const [shown, setShown] = useState<string | null>(null)
+  const shownRef = useRef<string | null>(null)
   // Only the latest load may write: changing the date changes the lift a moment later, and the first (stale) load must not win.
   async function load() {
     const my = ++loadSeq.current, stale = () => my !== loadSeq.current
+    const want = `${lifterId}|${date}|${lift}`
+    // Switching person, day or lift: take the old sheet off screen at once, so nothing typed, spoken or sensed lands on the wrong one.
+    if (shownRef.current !== want) { shownRef.current = null; setShown(null); setSession(null); setSets([]) }
     setErr(null)
     const { data: s, error } = await supabase.from('sessions').select('*')
       .eq('lifter_id', lifterId).eq('session_date', date).eq('primary_lift', lift).maybeSingle()
@@ -105,6 +111,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     } else if (prev) carried.from = prev.session_date + ' (excluded: its planned values)'
     if (stale()) return
     setPrevPlan(carried)
+    shownRef.current = want; setShown(want)
   }
   useEffect(() => { if (lifterId) load() }, [lifterId, date, lift])
 
@@ -513,11 +520,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
         )}
       </section>
 
-      <SessionSheet key={date + lift + supportKey + cleared} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
+      {shown !== `${lifterId}|${date}|${lift}` ? <section className="card"><p className="small muted">Loading…</p></section> : <SessionSheet key={lifterId + date + lift + supportKey + cleared} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
         speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={running} onPlatesOn={v => (lift === 'deadlift' ? savePlan(dlPlan) : savePlan(ladderPlan))({ plates_on: v })} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} probes={probes} onSkipProbe={(idx: number) => savePlanned({ probe_skip: { ...(sp.probe_skip ?? {}), [idx]: true } })} onObs={setObs} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
-        onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
+        onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />}
 
     </div>
   )
