@@ -10,16 +10,17 @@ import { BarTracker, summarize, type BarRep, type BarSet } from './imu'
 
 type Batch = { s: [number, number][]; hz?: number }
 const local = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('max-imu') : null
-let channel: ReturnType<typeof supabase.channel> | null = null
+let joining: Promise<ReturnType<typeof supabase.channel>> | null = null
 let joined = false
-async function join(onBatch?: (b: Batch) => void) {
-  if (channel) return channel
-  const { data } = await supabase.auth.getUser()
-  const ch = supabase.channel(`imu:${data.user?.id ?? 'anon'}`, { config: { broadcast: { self: false, ack: false } } })
-  if (onBatch) ch.on('broadcast', { event: 's' }, ({ payload }) => onBatch(payload as Batch))
-  ch.subscribe(status => { joined = status === 'SUBSCRIBED' })
-  channel = ch
-  return ch
+/** Join the account's channel once. (Readings arrive ten times a second, so every caller must share the one join.) */
+function join(onBatch?: (b: Batch) => void) {
+  return (joining ??= (async () => {
+    const { data } = await supabase.auth.getSession()
+    const ch = supabase.channel(`imu:${data.session?.user.id ?? 'anon'}`, { config: { broadcast: { self: false, ack: false } } })
+    if (onBatch) ch.on('broadcast', { event: 's' }, ({ payload }) => onBatch(payload as Batch))
+    ch.subscribe(status => { joined = status === 'SUBSCRIBED' })
+    return ch
+  })())
 }
 
 /* ---------- phone side ---------- */
