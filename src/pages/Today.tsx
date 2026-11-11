@@ -351,7 +351,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const speedKey: string = sp.speed_choice ?? (lift === planLift ? spec.speed?.lift : pairedSpeed) ?? 'none'
   const supportKey: string = sp.support_choice ?? spec.support?.group ?? 'none'
   // A past session shows the speed and support it was planned with, not today's versions.
-  const speedFor = (past && snap?.spec?.speed?.lift === speedKey ? snap.spec.speed : null) ?? (spec.speed?.lift === speedKey ? spec.speed : null) ?? speedOptions.get(speedKey) ?? null
+  const speedFrozen = past && snap?.spec?.speed?.lift === speedKey ? snap.spec.speed : null
+  const speedPlan = (spec.speed?.lift === speedKey ? spec.speed : null) ?? speedOptions.get(speedKey) ?? null
+  // The lifter's own load and reps for a speed exercise (settings.speed_defaults) replace the shared day plan's.
+  const speedOwn: Record<string, { load_lb?: number; reps?: number }> = st.speed_defaults ?? {}
+  const speedFor = speedFrozen ?? (speedPlan ? { ...speedPlan, items: (speedPlan.items ?? []).map((it: any) => ({ ...it, ...(speedOwn[it.name] ?? {}) })) } : null)
   const support = (past && snap?.spec?.support?.group === supportKey ? snap.spec.support : null) ?? (spec.support?.group === supportKey ? spec.support : null) ?? supportOptions.get(supportKey) ?? null
   const savePlanned = (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
   const choose = (k: 'speed_choice' | 'support_choice', v: string) => savePlanned({ [k]: v })
