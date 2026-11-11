@@ -92,15 +92,25 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     return Math.round(((load - pulses[0].mean) / strengthAt(Pk, cr)) * strengthAt(P0, cr) * 10) / 10
   }
   const actual = logged.map(r => r.setup?.spot?.mode === 'all' ? spotE1rm(r) : e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted, r.failed, cfg))
-  // Target estimated max for each logged set: set 1 = planned max; after that, the previous set's actual less one set of fatigue.
-  const targets: (number | null)[] = logged.map((r, i) => {
-    // A set saved without reps has no result: the next set aims from the last set that has one (or the planned max).
-    const prev = actual.slice(0, i).filter((a): a is number => a !== null).at(-1)
-    return prev === undefined ? plan.planned_e1rm : prev * (1 - f)
+  // Target estimated max for each logged set: set 1 = planned max; after that, the last good set's actual less one fatigue step per set since.
+  // A set is "low" when its reps came in under half of what its target predicted (a misload, a miss, a set cut short). A low set, like
+  // a set saved without reps, doesn't steer what follows: the next sets keep aiming from the last good set.
+  const targets: (number | null)[] = []
+  const low: boolean[] = []
+  let base: number | null = plan.planned_e1rm, steps = 0
+  logged.forEach((r, i) => {
+    const target = base === null ? null : base * (1 - f) ** steps
+    targets.push(target)
+    const exp = target !== null && r.setup?.spot?.mode !== 'all' ? expectedReps(target, r.total_bottom_lb, r.total_top_lb, cfg) : null
+    const isLow = r.reps !== null && exp !== null && exp >= 2 && r.reps < exp / 2
+    low.push(isLow)
+    if (actual[i] !== null && !isLow) { base = actual[i]; steps = 1 } else steps += 1
   })
-  const set1 = actual.find(a => a !== null) ?? plan.planned_e1rm
+  const nextTarget0: number | null = base === null ? null : base * (1 - f) ** steps
+  const good = actual.filter((a, i): a is number => a !== null && !low[i])
+  const set1 = good[0] ?? plan.planned_e1rm
   const floor = set1 ? (set1 * plan.stop_pct) / 100 : null
-  const lastActual = actual.filter((a): a is number => a !== null).at(-1) ?? null
+  const lastActual = good.at(-1) ?? null
   const stopped = logged.length > 0 && floor !== null && lastActual !== null && lastActual < floor
 
   // Auto spotter: rep 1 is set at a fraction of strength at the start of the set (creatine at the recovery target after set 1).
@@ -122,18 +132,25 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const { projected, kept } = useMemo(() => {
     const ideal: { idx: number; target: number; setup: LoadSetup; weight: number }[] = []
     let idx = (logged.at(-1)?.set_index ?? 0) + 1
-    let target = lastActual !== null ? lastActual * (1 - f) : plan.planned_e1rm
+    let target = nextTarget0
+    const row = (idx: number, target: number) => {
+      const setup = idx === 1 ? straightOf(plan) : chained(plan)
+      // Set 1 override is what's on the bar (like the lb column); plates = that less the bar and clamps.
+      const weight = idx === 1 && plan.set1_lb != null ? Math.max(0, plan.set1_lb - totals(0, setup, equipment).bottom!) : weightFor(target, setup, idx)
+      return { idx, target, setup, weight }
+    }
     if (target && !stopped) {
       while (idx <= 40 && (floor === null || target >= floor) && (plan.max_sets == null || idx <= plan.max_sets)) {
-        const setup = idx === 1 ? straightOf(plan) : chained(plan)
-        // Set 1 override is what's on the bar (like the lb column); plates = that less the bar and clamps.
-        const weight = idx === 1 && plan.set1_lb != null ? Math.max(0, plan.set1_lb - totals(0, setup, equipment).bottom!) : weightFor(target, setup, idx)
-        if (weight <= 0 && idx > 1) break
-        ideal.push({ idx, target, setup, weight })
+        const r = row(idx, target)
+        if (r.weight <= 0 && idx > 1) break
+        ideal.push(r)
         target *= 1 - f
         idx++
       }
     }
+    // The sheet never runs out: past the stop line or the max sets there is still one open row, planned from the last good set
+    // less the fatigue steps since, so another set can always be logged by hand.
+    if (!ideal.length && nextTarget0) ideal.push(row((logged.at(-1)?.set_index ?? 0) + 1, nextTarget0))
     const working = [...logged.map(r => r.weight_lb ?? 0), ...ideal.map(p => p.weight)].filter(w => w > 0)
     const on = plan.plates_on?.length ? plan.plates_on : ALL_PLATES
     const change = on.includes(plan.change_plate) ? plan.change_plate : ([...on].sort((x, y) => x - y).find(p => p >= plan.change_plate) ?? 10)
@@ -153,10 +170,10 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
       return { ...p, weight, stack, change }
     })
     return { projected: out, kept }
-  }, [logged, plan, lastActual, floor, stopped, equipment, cfg])
+  }, [logged, plan, nextTarget0, floor, stopped, equipment, cfg])
 
   const nextIdx = (logged.at(-1)?.set_index ?? 0) + 1
-  const nextTarget = lastActual !== null ? lastActual * (1 - f) : plan.planned_e1rm
+  const nextTarget = nextTarget0
   const lastStack = logged.at(-1)?.weight_lb != null ? loadSide(logged.at(-1)!.weight_lb! / 2, kept) : null
   // Volume, as on the sheet: bar total × reps, an assisted rep counting the bar less the assist, a failed rep nothing.
   const volume = logged.reduce((t, r) => {
@@ -166,7 +183,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   }, 0)
   const fit = fitFatigue(actual)
   const straight = straightOf(plan)
-  return { plan, logged, actual, targets, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume, cr, spotBasis: basis }
+  return { plan, logged, actual, targets, low, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume, cr, spotBasis: basis }
 }
 
 export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGeometry, src = () => undefined }: {

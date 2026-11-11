@@ -167,8 +167,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     change_plate: pick(sp.change_plate, f.change_plate, H.change_plate) ?? 10,
     max_sets: pick(sp.max_sets) ?? null,
     set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
-    // S on every set from set 2 by default on bench; set 1 is always a normal set.
-    spotter: pick(sp.spotter, f.spotter, H.spotter) ?? lift === 'bench',
+    // Auto spotter is off until switched on in the plan panel; set 1 is a normal set either way.
+    spotter: pick(sp.spotter, f.spotter, H.spotter) ?? false,
     // S switched on or off on single sets: these decide how each of those sets is planned; Auto spotter is only the default.
     spot_rows: (sp.spot_rows as Record<string, boolean> | undefined) ?? {},
     assist_min_lb: pick(sp.assist_min_lb, f.assist_min_lb, H.assist_min_lb) ?? 3,

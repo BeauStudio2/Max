@@ -475,6 +475,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   // Spotter set: Max's rep count is every rep until creatine is spent, all of them done with the spotter helping as needed.
   const goal = pred ? pred.unaided + pred.spotted : exp !== null ? repGoal(exp, false) : null
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
+  const isLow = !!r && L.low[L.logged.indexOf(r)]
+  const pastStop = !r && !!target && ((L.floor !== null && target < L.floor) || (L.plan.max_sets != null && idx > L.plan.max_sets))
   const below = L.floor !== null && est !== null && est < L.floor
 
   async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null; touch?: string }) {
@@ -569,7 +571,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
         <button className={'flag s' + (sp ? ' on' : '')} data-tip="Spotter set: Max sets the reps and the spotter helps on every rep as needed. Reps = all reps done." aria-label="Spotter set" aria-pressed={sp} onClick={() => { setSp(!sp); if (r) commit({ sp: !sp }); else spotCtx.set?.(idx, !sp) }}>S</button>
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
-        {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}</td>
+        {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}
+        {isLow && <div className="sub2 lowset" data-tip="Low set: under half the reps Max expected at this weight. It's kept as logged, but the next sets are planned from the last good set, not this one." data-pos="right">low</div>}
+        {pastStop && <div className="sub2 muted" data-tip="Past the stop line (or the max sets). Max would stop here; this row is open so another set can still be logged." data-pos="right">past stop</div>}</td>
       {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} origin={mine.includes('plates') ? 'o-user' : 'o-dyn'} />
         : <td colSpan={PLATE_COLS.length} className="c-plate small muted">{loadNote(L.plan)}</td>}
       <td className={'c-setup ' + org('clamp', 'o-def')}>{setupCell}</td>

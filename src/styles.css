@@ -697,3 +697,4 @@ th.c-plate .platehd { all: unset; cursor: pointer; display: block; width: 100%; 
 th.c-plate .platehd:hover { background: var(--line); }
 th.c-plate .platehd:focus-visible { outline: 2px solid var(--accent); }
 th.c-plate.off .platehd { text-decoration: line-through; opacity: .45; }
+.lowset { color: var(--warn); font-weight: 600; }
