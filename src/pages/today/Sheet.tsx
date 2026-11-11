@@ -507,12 +507,6 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
     if (!r && target) { const w = L.weightFor(target, s, idx, sp); setPlates(w); return commit({ setup: s, plates: w, touch }) }
     return commit({ setup: s, touch })
   }
-  // S switched on or off on one set: its weight follows (spotter weight or ladder weight), unless the weight was typed by hand.
-  const firstSp = useRef(true)
-  useEffect(() => {
-    if (firstSp.current) { firstSp.current = false; return }
-    if (!r && target && idx > 1 && !mine.includes('lb') && !mine.includes('plates')) setPlates(L.weightFor(target, setup, idx, sp))
-  }, [sp])
   // A set recorded on the Tindeq fills this row's average assist (the next set to do, with S on).
   const cap = useContext(CaptureCtx)
   useEffect(() => {

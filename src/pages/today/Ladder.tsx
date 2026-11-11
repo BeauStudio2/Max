@@ -37,6 +37,8 @@ export interface LadderPlan {
   cr?: Partial<Cr>
   /** Auto spotter mode: weights, reps and rest come from the creatine model. */
   spotter: boolean
+  /** S switched on or off on single sets (by set number); a set not listed follows Auto spotter (never set 1). */
+  spot_rows?: Record<string, boolean>
   /** Reading a Tindeq recording of a spotter set: pull above this (lb) for at least this long (s) is one spotted rep. */
   assist_min_lb: number; assist_min_s: number
 }
@@ -105,7 +107,8 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   // The target max comes from the last measured set, which was taken at that set's own starting level.
   // This lifter's fitted numbers for this lift (Profile settings) override the Config defaults.
   const basis = logged.length ? startLevel(logged.at(-1)!.set_index, cr) : 1
-  const weightFor = (target: number, s: LoadSetup, idx = 2, spot = plan.spotter && idx > 1) => {
+  const spotFor = (idx: number) => plan.spot_rows?.[idx] ?? (plan.spotter && idx > 1)
+  const weightFor = (target: number, s: LoadSetup, idx = 2, spot = spotFor(idx)) => {
     const needed = spot
       ? cr.start * target * (strengthAt(startLevel(idx, cr), cr) / strengthAt(idx <= 1 ? 1 : basis, cr))
       : target / (1 + plan.target_reps / cfg.rep_divisor)

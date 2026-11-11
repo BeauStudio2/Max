@@ -169,6 +169,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
     // S on every set from set 2 by default on bench; set 1 is always a normal set.
     spotter: pick(sp.spotter, f.spotter, H.spotter) ?? lift === 'bench',
+    // S switched on or off on single sets: these decide how each of those sets is planned; Auto spotter is only the default.
+    spot_rows: (sp.spot_rows as Record<string, boolean> | undefined) ?? {},
     assist_min_lb: pick(sp.assist_min_lb, f.assist_min_lb, H.assist_min_lb) ?? 3,
     assist_min_s: pick(sp.assist_min_s, f.assist_min_s, H.assist_min_s) ?? 0.25,
     cr: st.creatine?.[lift],
