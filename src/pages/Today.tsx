@@ -108,6 +108,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
       if (!s) return null
       // The first logged set freezes the plan as it stood, so later Plan edits don't rewrite this session once it's past.
       if (!(s.planned as any)?.snap) s = await freeze(s) ?? s
+      // Logging a set after Finish (pressed early, or by mistake) reopens the workout so the clocks keep running.
+      if (s.started_at && s.ended_at) s = await ensureSession({ ended_at: null }) ?? s
       const { data, error } = await supabase.from('sets').insert({ ...row, session_id: s.id }).select().single()
       if (error) { setErr(error.message); return null }
       setSets(prev => [...prev, data as SetRow]); return data as SetRow
@@ -225,6 +227,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const { error } = await supabase.from('lifters').update({ settings: { ...st, creatine, creatine_log: nextLog } }).eq('id', lifter.id)
     if (error) setErr(error.message); else await reload()
   }
+  // The workout clock runs from Start workout to Finish. A set logged after Finish means the workout carried on, so the clock (and rest timer) keep running.
+  const running = !!session?.started_at && (!session?.ended_at || sets.some(x => !!x.created_at && x.created_at > session.ended_at!))
   async function applyFit(patch: Record<string, number>) {
     if (!lifter) return
     const creatine = { ...(st.creatine ?? {}), [lift]: { ...(st.creatine?.[lift] ?? {}), ...patch } }
@@ -410,7 +414,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={running} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 
