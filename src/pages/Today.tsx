@@ -431,7 +431,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
               <DelBtn label="Reset" text="Reset" tip="Clears start and finish times. Logged sets are kept." onConfirm={() => ensureSession({ started_at: null, ended_at: null })} />
             </>
           )}
-          {session?.id && !LOCKED.includes(session.id) && <DelBtn label="Clear day" text="Clear day" tip="Deletes everything logged for this lift on this day (sets, notes, times, sensor readings, film) and starts the day blank. It cannot be undone." onConfirm={clearDay} />}
+          {session?.id && !LOCKED.includes(session.id)
+            ? <DelBtn label="Clear day" text="Clear day" tip="Deletes everything logged for this lift on this day (sets, notes, times, sensor readings, film) and starts the day blank. It cannot be undone." onConfirm={clearDay} />
+            : <button type="button" className="ghost small del" disabled data-pos="right" data-tip={session?.id ? 'This session was corrected by hand and is protected: it cannot be cleared from here.' : 'Nothing is saved for this lift on this day yet, so there is nothing to clear.'}>Clear day</button>}
         </div>
         <SessionStats session={session} sets={sets} volume={L?.volume ?? null} bwDefault={lifter?.bodyweight_lb ?? st.bodyweight_lb ?? null} lifterId={lifter?.id} date={date} />
       </section>
