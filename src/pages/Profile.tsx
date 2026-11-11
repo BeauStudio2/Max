@@ -194,7 +194,7 @@ function LiftCard({ lift, lifterId, series, metric, reload }: {
   const fields = lift === 'deadlift'
     ? [field('Best conventional (lb)', 'deadlift_best_conventional_lb'), field('Week-1 top single (lb)', 'deadlift_planned_top_lb')]
     : [field('Planned max', `planned_e1rm.${lift}`),
-       field('Fatigue %/set', `fatigue_pct.${lift}`), field('Range of motion (in)', `chain_geometry.${lift}.rom_in`), field('Leader-line hang (in, blank = none)', `chain_geometry.${lift}.hang_in`)]
+       field('Fatigue %/rep', `fatigue_rep_pct.${lift}`), field('Range of motion (in)', `chain_geometry.${lift}.rom_in`), field('Leader-line hang (in, blank = none)', `chain_geometry.${lift}.hang_in`)]
 
   return (
     <div className="liftcard">

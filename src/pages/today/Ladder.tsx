@@ -10,6 +10,8 @@ export interface LadderPlan {
   target_reps: number
   stop_pct: number
   fatigue_rate_used_pct: number
+  /** % the estimated max falls per rep done. When unset, the per-set rate above spread over the target reps. */
+  fatigue_rep_pct?: number | null
   step_lb: number
   rest_s: number
   chain_half: number
@@ -76,9 +78,16 @@ export const setupLabel = (s: LoadSetup) => {
 export type Ladder = ReturnType<typeof useLadder>
 
 /** All of the ladder's math: targets, stop line, the projected sets with plate choices. */
+/** The plan's fatigue per rep, in %. */
+export const perRep = (plan: { fatigue_rep_pct?: number | null; fatigue_rate_used_pct: number; target_reps: number }) =>
+  plan.fatigue_rep_pct ?? plan.fatigue_rate_used_pct / Math.max(1, plan.target_reps)
+
 export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const { equipment, cfg } = useStore()
-  const f = plan.fatigue_rate_used_pct / 100
+  // Fatigue is counted per rep: a set of n reps takes (1 − fr)^n off the estimated max. A planned set is taken at the target reps.
+  const fr = perRep(plan) / 100
+  const after = (reps: number | null | undefined) => (1 - fr) ** (reps ?? plan.target_reps)
+  const stepPlan = after(plan.target_reps)
   const logged = useMemo(() => [...sets].sort((a, b) => a.set_index - b.set_index), [sets])
   const cr = { ...crOf(cfg), ...(plan.cr ?? {}) }
   // A spotter set (every rep assisted as needed) says nothing about the max from its rep count. Its estimate comes from the Tindeq:
@@ -97,16 +106,18 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   // a set saved without reps, doesn't steer what follows: the next sets keep aiming from the last good set.
   const targets: (number | null)[] = []
   const low: boolean[] = []
-  let base: number | null = plan.planned_e1rm, steps = 0
+  // `cur` is the estimated max going into each set: a good set resets it to what that set measured; every set then takes its reps off it.
+  let cur: number | null = plan.planned_e1rm
   logged.forEach((r, i) => {
-    const target = base === null ? null : base * (1 - f) ** steps
+    const target = cur
     targets.push(target)
     const exp = target !== null && r.setup?.spot?.mode !== 'all' ? expectedReps(target, r.total_bottom_lb, r.total_top_lb, cfg) : null
     const isLow = r.reps !== null && exp !== null && exp >= 2 && r.reps < exp / 2
     low.push(isLow)
-    if (actual[i] !== null && !isLow) { base = actual[i]; steps = 1 } else steps += 1
+    if (actual[i] !== null && !isLow) cur = actual[i]
+    if (cur !== null) cur *= after(r.reps)
   })
-  const nextTarget0: number | null = base === null ? null : base * (1 - f) ** steps
+  const nextTarget0: number | null = cur
   const good = actual.filter((a, i): a is number => a !== null && !low[i])
   const set1 = good[0] ?? plan.planned_e1rm
   const floor = set1 ? (set1 * plan.stop_pct) / 100 : null
@@ -144,7 +155,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
         const r = row(idx, target)
         if (r.weight <= 0 && idx > 1) break
         ideal.push(r)
-        target *= 1 - f
+        target *= stepPlan
         idx++
       }
     }
@@ -182,8 +193,16 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     return t + load * Math.max(0, reps - lost - helped) + (load - cfg.assist_lb) * helped
   }, 0)
   const fit = fitFatigue(actual)
+  // Tonight's measured fatigue per rep: the fall from the first good set to the last, spread over the reps done in between.
+  const fitRep = (() => {
+    const g = logged.map((r, i) => ({ r, a: actual[i], ok: actual[i] !== null && !low[i] })).filter(x => x.ok)
+    if (g.length < 3) return null
+    const i0 = logged.indexOf(g[0].r), i1 = logged.indexOf(g.at(-1)!.r)
+    const reps = logged.slice(i0, i1).reduce((t, r) => t + (r.reps ?? 0), 0)
+    return reps > 0 && g.at(-1)!.a! < g[0].a! ? (1 - (g.at(-1)!.a! / g[0].a!) ** (1 / reps)) * 100 : null
+  })()
   const straight = straightOf(plan)
-  return { plan, logged, actual, targets, low, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, straight, volume, cr, spotBasis: basis }
+  return { plan, logged, actual, targets, low, set1, floor, stopped, lastActual, weightFor, projected, kept, nextIdx, nextTarget, lastStack, fit, fitRep, straight, volume, cr, spotBasis: basis }
 }
 
 export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGeometry, src = () => undefined }: {
@@ -202,7 +221,7 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
         <Num label="Planned max" tip="Estimated 1-rep max set 1 aims at. Carries from the last healthy session of this exercise." origin={src('planned_e1rm')} value={plan.planned_e1rm} onSave={v => setPlan({ planned_e1rm: v })} />
         <Num label="Target reps" tip="Reps each set is weighted for. Weights come from target max ÷ (1 + reps/30)." origin={src('target_reps')} value={plan.target_reps} onSave={v => v && setPlan({ target_reps: v })} />
         <Num label="Stop below %" tip="The session ends when a set's estimated max falls below this % of set 1's." origin={src('stop_pct')} value={plan.stop_pct} onSave={v => v !== null && setPlan({ stop_pct: v })} />
-        <Num label="Fatigue %/set" tip="How much the estimated max drops each set. Each planned set targets the last set's actual less this %." origin={src('fatigue_rate_used_pct')} value={plan.fatigue_rate_used_pct} onSave={v => v !== null && setPlan({ fatigue_rate_used_pct: v })} />
+        <Num label="Fatigue %/rep" tip="How much the estimated max falls for each rep done. After a set, the next one aims at that set's result less this % for every rep in it; planned sets count the target reps." origin={src('fatigue_rep_pct')} value={Math.round(perRep(plan) * 100) / 100} onSave={v => v !== null && v >= 0 && setPlan({ fatigue_rep_pct: v })} />
         <Num label="Max sets" placeholder="all" tip="Cap on heavy sets today, whatever the stop line says. Blank: the ladder runs to the stop line." origin={src('max_sets')} value={plan.max_sets} onSave={v => setPlan({ max_sets: v })} />
         <Num label="Rest (s)" tip="Target rest between heavy sets. The Rest timer above the table turns green when it's reached." origin={src('rest_s')} value={plan.rest_s} onSave={v => v && setPlan({ rest_s: v })} />
         {plan.bar && <Num label="Set 1 lb" placeholder="calc" tip="Override set 1's weight on the bar. Blank works it out from the planned max and target reps." origin={src('set1_lb')} value={plan.set1_lb} onSave={v => setPlan({ set1_lb: v })} />}

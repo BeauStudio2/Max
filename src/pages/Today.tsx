@@ -2,6 +2,7 @@ import { crOf, fitQualifies, learn, type CrLogEntry } from '../lib/creatine'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
+import { perRep } from './today/Ladder'
 import { ALL_PLATES, LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
@@ -19,7 +20,7 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
   if (!best) return null
   return roundTo(best * ([0, 0, 0.8, 0.8, 0.85, 0.92][week - 1] ?? 0.85), 5)
 }
-const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
+const KEY_LABEL: Record<string, string> = { fatigue_rep_pct: 'fatigue per rep', target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
   chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', assist_min_lb: 'assist threshold', assist_min_s: 'shortest rep', clamp: 'clamps', change_plate: 'change plate', max_sets: 'max heavy sets', speed_max: 'max speed sets', support_max: 'max support sets', set1_lb: 'set 1 lb', bar_lb: 'bar',
   speed_choice: 'speed', support_choice: 'support', support_ex: 'support exercises', speed_placement: 'interleave 1', speed_offset_s: 'speed start', support_interleave: 'interleave 2', block_order: 'block order' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
@@ -147,6 +148,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     target_reps: pick(sp.target_reps, f.target_reps, H.target_reps, st.target_reps?.[lift]) ?? 5,
     stop_pct: pick(sp.stop_pct, f.stop_pct, H.stop_pct, st.stop_pct?.[lift]) ?? 70,
     fatigue_rate_used_pct: pick(sp.fatigue_rate_used_pct, f.fatigue_rate_used_pct, prevPlan.fatigue_rate_used_pct, st.fatigue_pct?.[lift]) ?? 3,
+    // Fatigue is planned per rep: the estimated max falls this % for every rep done. Until one is set (session → lifter), it's the per-set rate spread over the target reps.
+    fatigue_rep_pct: pick(sp.fatigue_rep_pct, f.fatigue_rep_pct, st.fatigue_rep_pct?.[lift]) as number | undefined,
     rest_s: pick(sp.rest_s, f.rest_s, H.rest_s, st.rest_s) ?? 100,
     // Chains are the lifter's (Profile → chain setup): the shared day plan only fills in for a lifter who has none.
     chain_half: pick(sp.chain_half, f.chain_half, st.chain_setup?.[lift]?.chain_half, H.chain_half) ?? 0,
@@ -180,7 +183,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const planSrc = (k: string): 'def' | 'dyn' | 'user' => {
     if (sp[k] !== undefined && sp[k] !== null) return 'user'
     if (k === 'planned_e1rm') return ladderPlan.planned_e1rm !== null && ladderPlan.planned_e1rm === (isMainEx ? st.planned_e1rm?.[lift] : st.planned_e1rm?.[heavyEx]) && prevPlan.planned_e1rm == null ? 'def' : 'dyn'
-    if (k === 'fatigue_rate_used_pct') return prevPlan.fatigue_rate_used_pct != null && f.fatigue_rate_used_pct == null ? 'dyn' : 'def'
+    if (k === 'fatigue_rep_pct') return st.fatigue_rep_pct?.[lift] != null || f.fatigue_rep_pct != null ? 'def' : 'dyn'
     return 'def'
   }
 
@@ -249,7 +252,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'assist_min_lb', 'assist_min_s', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
+  const PROGRAM_KEYS = ['fatigue_rep_pct', 'target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'assist_min_lb', 'assist_min_s', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
@@ -374,7 +377,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
           <h2 style={{ margin: 0 }}>Plan · {lift}{lift === 'deadlift' && dlWeek ? ` week ${dlWeek}` : ''}</h2>
           <span className="small muted">{lift === 'deadlift'
             ? `top ${dlPlan.planned_top_lb ?? '—'} · bar ${dlPlan.bar_lb} · rest ${dlPlan.rest_s}s`
-            : `${ladderPlan.planned_e1rm ? `max ${round(ladderPlan.planned_e1rm)} · ` : ''}${ladderPlan.target_reps} reps · stop ${ladderPlan.stop_pct}% · ${ladderPlan.fatigue_rate_used_pct}%/set`} {planOpen ? '▴' : '▾'}</span>
+            : `${ladderPlan.planned_e1rm ? `max ${round(ladderPlan.planned_e1rm)} · ` : ''}${ladderPlan.target_reps} reps · stop ${ladderPlan.stop_pct}% · ${perRep(ladderPlan).toFixed(2)}%/rep`} {planOpen ? '▴' : '▾'}</span>
         </button>
         {planOpen && (
           <div className="planbody">

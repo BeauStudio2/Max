@@ -1,3 +1,4 @@
+import { perRep } from './Ladder'
 import { ALL_PLATES } from '../../lib/load'
 import { useRef, Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
@@ -416,7 +417,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       )}
       <p className="small muted sheetfoot">
         <span className="okey"><i className="o-def" />from the plan <i className="o-dyn" />worked out by Max <i className="o-user" />set by you</span>
-        {L?.fit ? `Fatigue ${L.fit.ratePct.toFixed(2)}%/set` : ''}{perMin ? ` · ${perMin.toFixed(2)}%/min over ${minutes} min, ${mainCount} sets` : ''}
+        {L?.fitRep != null ? `Fatigue today ${L.fitRep.toFixed(2)}%/rep (planning with ${perRep(L.plan).toFixed(2)})` : ''}{perMin ? ` · ${perMin.toFixed(2)}%/min over ${minutes} min, ${mainCount} sets` : ''}
         {D?.todayMax ? `Deadlift estimate ${round(D.todayMax)}.` : ''}
       </p>
 
