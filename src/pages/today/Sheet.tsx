@@ -283,7 +283,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const [capture, setCapture] = useState<{ id: number; pulses: Pulse[]; tempo: Tempo } | null>(null)
   // Rest runs from the end of the last rep: the Tindeq's last spotted rep when it recorded the set (even before the reps are typed), else when the set was logged.
   // It only runs while the workout clock is running (after Start workout, before Finish).
-  const lastEnd = lastMain?.setup?.spot?.tempo?.ended_at ?? lastMain?.created_at
+  const lastEnd = lastMain?.setup?.spot?.tempo?.ended_at ?? (lastMain?.setup as any)?.ended_at ?? lastMain?.created_at
   const restFrom = capture?.tempo.ended_at && (!lastEnd || capture.tempo.ended_at > lastEnd) ? capture.tempo.ended_at : lastEnd
   const rest = useClock(running ? restFrom : null)
   // The Tindeq panel shows whenever any heavy set today is a spotter set (S from the plan, or switched on for one set).
@@ -332,6 +332,11 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     set(); const ro = new ResizeObserver(set); ro.observe(bar); return () => ro.disconnect()
   }, [])
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
+  // The phone on the bar logs into the next heavy or speed set in the order on the sheet (support has no bar).
+  const nextBar = seq.find(x => (x.kind === 'main' || x.kind === 'speed') && !x.r)
+  // Squats can have long breaths between reps, so the bar has to rest longer there before the set counts as over.
+  const barGap = nextBar?.kind === 'main' && /squat/i.test(liftLabel) ? 12 : 6
+  useEffect(() => { imu.setGap(barGap) }, [barGap])
 
   // Spoken cues: "Ten seconds" before rest is up, "Lift" when it is, "Overtime" a minute later. Each once per rest.
   const said = useRef<{ from: string | null; warn?: boolean; lift?: boolean; over?: boolean }>({ from: null })
@@ -422,9 +427,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
           <tbody>
             {seq.map(x => {
               const next = x === nextItem
-              if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} voiceTarget={x === nextMain} autoBar={running} />
+              if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} voiceTarget={x === nextMain} autoBar={running && x === nextBar} />
               if (x.kind === 'pull' && D) return <PullTr key={x.key} D={D} def={x.row} r={x.r} next={next} />
-              if (x.kind === 'speed') return <SpeedTr key={x.key} api={api} r={x.r} it={x.it} name={speedEx(x.it)} n={x.n} sets={speedSets(x.it)} next={next} lastMain={lastMain} saved={speedBands[speedEx(x.it)]} onBands={onSpeedBands} />
+              if (x.kind === 'speed') return <SpeedTr key={x.key} api={api} r={x.r} it={x.it} name={speedEx(x.it)} n={x.n} sets={speedSets(x.it)} next={next} lastMain={lastMain} saved={speedBands[speedEx(x.it)]} onBands={onSpeedBands} autoBar={running && x === nextBar} />
               if (x.kind === 'sup') return <SupportTr key={x.key} slot={x.slot} S={S} api={api} inline next={next} />
               if (x.kind === 'noplan') return (
                 <tr key={x.key} className="noplan"><td className="stick"><span className="tagdot h" />{liftLabel}</td>
@@ -542,12 +547,13 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
         // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
         setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
           force: (() => { const tr = (patch.trace !== undefined ? patch.trace : trace) ?? []; return !(patch.sp ?? sp) && tr.length ? { n: tr.length, mean_lb: Math.round((tr.reduce((t, x) => t + x.mean, 0) / tr.length) * 10) / 10, peak_lb: Math.round(Math.max(...tr.map(x => x.peak)) * 10) / 10 } : null })(),
+          ended_at: bar ? new Date(bar.ended_ms).toISOString() : null,
           bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', unrack_dropped: !!bar.unrack, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
       if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) } })))
       // Film of the set from the laptop camera: the exact set when a sensor timed it, otherwise the last stretch before logging.
       if (saved?.id && saved.session_id) {
         const tm = tempo ?? row.setup.spot?.tempo
-        const win = bar ? { from: bar.at - (bar.ended - bar.started + 6 + 8) * 1000, to: bar.at + 2000 }
+        const win = bar ? { from: bar.ended_ms - (bar.ended - bar.started + 8) * 1000, to: Math.min(bar.at, bar.ended_ms + 6000) }
           : tm?.rec_at && tm?.ended_at ? { from: Date.parse(tm.rec_at) - 5000, to: Date.parse(tm.ended_at) + 5000 } : undefined
         camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: idx }, win)
       }
@@ -577,7 +583,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps') { const v = String(c.n); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
   // The phone on the bar logs this set by itself when it sees the set end: its rep count goes in, and its speeds are saved with it.
   const tinRef = useRef({ trace, sp }); tinRef.current = { trace, sp }
-  useEffect(() => voiceTarget && autoBar && !r ? imu.onSet(s => {
+  useEffect(() => autoBar && !r ? imu.onSet(s => {
     const v = String(s.reps.length); setReps(v); cue('ack', v)
     setTimeout(() => {
       // The Tindeq feels the unrack as a pull too: when the phone left the unrack out and the Tindeq has exactly one pull more, its first goes as well.
@@ -588,7 +594,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
         else commitRef.current({ reps: v, trace: t2 })
       } else commitRef.current({ reps: v })
     }, 350)
-  }) : undefined, [voiceTarget, autoBar, !r])
+  }) : undefined, [autoBar, !r])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
@@ -742,8 +748,10 @@ function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetR
 
 /* ---------- speed row ---------- */
 
-function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands }: {
+function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands, autoBar }: {
   api: Api; r?: SetRow; it: any; name: string; n: number; sets: SetRow[]; next?: boolean; lastMain?: SetRow
+  /** The workout is running and this is the next set on the sheet, so a set the phone on the bar sees is logged here by itself. */
+  autoBar?: boolean
   /** The bands this lifter last used on this exercise (Profile), and where to save a change. */
   saved?: BandPick[]; onBands?: (exercise: string, bands: BandPick[]) => void
 }) {
@@ -775,10 +783,26 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands }: 
       if (!id) return
       if (lastMain) Object.assign(setup, { after_heavy: lastMain.block === 'primary' ? lastMain.set_index : null, after_main: `${lastMain.block}:${lastMain.set_index}`,
         after_heavy_s: lastMain.created_at ? Math.round((Date.now() - Date.parse(lastMain.created_at)) / 1000) : null })
-      await api.addSet({ ...row, exercise_id: id, block: 'speed', set_index: n, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
+      // Bar speed from the phone on the bar. Speed work has its own travel, so the readings are kept as the sensor measured them
+      // (not scaled to the heavy lift's range of motion).
+      const bar = imu.take()
+      const raw = bar ? bar.reps.map(x => { const rom = x.raw_rom_m ?? x.rom_m, k = rom / x.rom_m; return { mean_mps: rom / x.dur_s, peak_mps: x.peak_mps * k, rom_m: rom, dur_s: x.dur_s } }) : []
+      const r3 = (x: number) => Math.round(x * 1000) / 1000
+      if (bar && raw.length) Object.assign(setup, { ended_at: new Date(bar.ended_ms).toISOString(),
+        bar_speed: { n: raw.length, best_mps: r3(Math.max(...raw.map(x => x.mean_mps))), peak_mps: r3(Math.max(...raw.map(x => x.peak_mps))), first_mps: r3(raw[0].mean_mps), last_mps: r3(raw.at(-1)!.mean_mps), rom_from: 'sensor', unrack_dropped: !!bar.unrack,
+          reps: raw.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) })) } })
+      const saved = await api.addSet({ ...row, exercise_id: id, block: 'speed', set_index: n, total_bottom_lb: null, total_top_lb: null, assisted: false, failed: false })
       onBands?.(name, bb)
+      if (saved?.id && saved.session_id && bar) {
+        recordObservations(raw.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) } })))
+        camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: n }, { from: bar.ended_ms - (bar.ended - bar.started + 8) * 1000, to: Math.min(bar.at, bar.ended_ms + 6000) })
+      } else if (saved?.id && saved.session_id) camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: n })
     }
   }
+  // The phone on the bar logs this set by itself when it is the next one on the sheet.
+  const commitRef = useRef(commit); commitRef.current = commit
+  useEffect(() => autoBar && !r ? imu.onSet(s => { const v = String(s.reps.length); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) }) : undefined, [autoBar, !r])
+  const bs = r?.setup?.bar_speed as { best_mps?: number; peak_mps?: number } | undefined
 
   return (
     <>
@@ -789,7 +813,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands }: 
         <td className="c-exp" />
         <td className="o-user ph-def"><CellText value={reps} narrow numeric placeholder={it.reps ? String(it.reps) : ''} onSave={v => { setReps(v); commit({ reps: v }) }} /></td>
         <td />
-        <td />
+        <td className="num">{bs?.best_mps ? <div className="barspeed" data-tip="From the phone on the bar: the fastest rep's average speed up, and the highest speed reached." data-pos="center">{bs.best_mps.toFixed(2)} m/s{bs.peak_mps ? ` · peak ${bs.peak_mps.toFixed(2)}` : ''}</div> : null}</td>
         <td colSpan={PLATE_COLS.length} className="c-plate" />
         <td className="c-setup" />
         <ChainCells half={0} big={0} />

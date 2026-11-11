@@ -13,7 +13,9 @@ export interface BarRep { mean_mps: number; peak_mps: number; rom_m: number; dur
   raw_rom_m?: number }
 export interface BarSet { reps: BarRep[]; started: number; ended: number
   /** The set began with the bar being lifted off the hooks, which was left out of the reps. */
-  unrack?: boolean }
+  unrack?: boolean
+  /** When the set was declared over, on the same clock as `ended` (the last rep): the gap between them is how long ago the lifting stopped. */
+  closed?: number }
 
 export interface ImuOptions {
   /** The bar counts as still when acceleration stays inside ± this (m/s²)... */
@@ -110,11 +112,12 @@ export class BarTracker {
     this.live = []; this.moving = false; this.velocity = 0; this.t = []; this.a = []; this.v = []
   }
   private endSet(t: number) {
-    const s = { reps: this.set, started: this.setStart, ended: this.lastRepAt }
+    const s = { reps: this.set, started: this.setStart, ended: this.lastRepAt, closed: t }
     this.set = []; this.lastRepAt = -Infinity
     if (s.reps.length) this.on.set?.(s)
-    void t
   }
+  /** How long the bar must go without a rep before the set is over (s). */
+  setGap(s: number) { this.o = { ...this.o, set_gap_s: s } }
   /** End the set now (for example on "Max stop"). */
   flush() { if (this.moving) this.endMovement(); if (this.set.length) this.endSet(this.last?.t ?? 0) }
   private reset() { this.moving = false; this.stillSince = null; this.live = []; this.t = []; this.a = []; this.v = []; this.velocity = 0 }

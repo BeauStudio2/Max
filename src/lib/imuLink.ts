@@ -52,7 +52,7 @@ export interface ImuState {
   /** Reps in the set under way. */
   reps: BarRep[]
   /** The last finished set, and whether a logged set has already taken it. */
-  lastSet: (BarSet & { at: number; taken: boolean }) | null
+  lastSet: (BarSet & { at: number; ended_ms: number; taken: boolean }) | null
   flip: boolean
   /** Log a heavy set by itself when the bar sensor sees one end. */
   autolog: boolean
@@ -69,7 +69,7 @@ let rom: number | null = null
 const clean = (reps: BarRep[]) => calibrate(dropUnrack(reps, rom).reps, rom)
 const tracker = new BarTracker({
   rep: (r, n) => { set({ reps: clean(tracker.reps) }); repSubs.forEach(f => f(r, n)) },
-  set: s0 => { const u = dropUnrack(s0.reps, rom), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
+  set: s0 => { const u = dropUnrack(s0.reps, rom), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 function ingest(b: Batch) {
@@ -92,13 +92,15 @@ export const imu = {
   },
   onRep: (f: (r: BarRep, n: number) => void) => { repSubs.add(f); return () => { repSubs.delete(f) } },
   setRom(m: number | null) { rom = m && m > 0.05 ? m : null },
+  /** Seconds without a rep that end a set: longer for lifts with long pauses between reps. */
+  setGap(s: number) { tracker.setGap(s) },
   /** Called when a set ends, while logging sets by itself is on. */
   onSet: (f: (s: BarSet) => void) => { setSubs.add(f); return () => { setSubs.delete(f) } },
   setAutolog(autolog: boolean) { try { localStorage.setItem(AUTO, autolog ? '1' : '0') } catch { /* this visit only */ } set({ autolog }) },
   /** End the set now instead of waiting for the bar to sit still. */
   endSet() { tracker.flush() },
   /** The last finished set, once, for the heavy set being logged (only if it finished in the last few minutes). */
-  take(): (BarSet & { at: number }) | null {
+  take(): (BarSet & { at: number; ended_ms: number }) | null {
     tracker.flush()
     const s = state.lastSet
     if (!s || s.taken || Date.now() - s.at > 4 * 60_000) return null
