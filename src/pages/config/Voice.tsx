@@ -32,17 +32,19 @@ export default function Voice() {
   const [saving, setSaving] = useState<{ done: number; of: number } | null>(null)
   const [preview, setPreview] = useState<HTMLAudioElement | null>(null)
 
+  const run = async (label: string, f: () => Promise<void>) => { setBusy(label); setErr(null); try { await f() } catch (e: any) { setErr(e?.message ?? String(e)) } finally { setBusy(null) } }
   useEffect(() => {
     const load = () => setVoices(window.speechSynthesis?.getVoices() ?? [])
     load(); window.speechSynthesis?.addEventListener('voiceschanged', load)
     return () => window.speechSynthesis?.removeEventListener('voiceschanged', load)
   }, [])
   useEffect(() => { recordedCounts().then(setCached) }, [s.elevenVoice, !!saving, v.speaking])
+  // With a key on this laptop, the list of voices to choose from opens by itself.
+  useEffect(() => { if (hasKey && s.engine === 'eleven' && mine === null && !busy) run('mine', async () => setMine(await myVoices())) }, [hasKey, s.engine])
 
   // English voices plus Russian ones (a Russian voice reading English has the accent); "all" shows every voice installed.
   const shown = voices.filter(x => all || x.lang.startsWith('en') || x.lang.startsWith('ru'))
     .sort((a, b) => Number(b.lang.startsWith('ru')) - Number(a.lang.startsWith('ru')) || Number(/natural|online/i.test(b.name)) - Number(/natural|online/i.test(a.name)) || a.name.localeCompare(b.name))
-  const run = async (label: string, f: () => Promise<void>) => { setBusy(label); setErr(null); try { await f() } catch (e: any) { setErr(e?.message ?? String(e)) } finally { setBusy(null) } }
   const play = (url?: string) => { if (!url) return; preview?.pause(); const a = new Audio(url); setPreview(a); a.play().catch(() => {}) }
   const setCue = (k: CueKey, p: Partial<{ on: boolean; word: string }>) => voice.setSettings({ cues: { ...s.cues, [k]: { ...s.cues[k], ...p } } })
   const pick = (x: LibVoice, id = x.voice_id) => voice.setSettings({ engine: 'eleven', elevenVoice: id, elevenVoiceName: x.name })
@@ -97,12 +99,12 @@ export default function Voice() {
               </select>
             </label>
           </div>
-          <p className="small">In use: <b>{s.elevenVoiceName ?? 'none chosen'}</b></p>
-          {!hasKey && <p className="small muted">Add your ElevenLabs key under <a className="linkish" href="#keys" onClick={e => { e.preventDefault(); document.getElementById('keys')?.scrollIntoView({ behavior: 'smooth' }) }}>API keys</a> to search voices and speak.</p>}
+          <p className="small">In use: <b>{s.elevenVoiceName ?? 'none chosen'}</b>{hasKey ? '. To change it, press Use on another voice in the list below.' : ''}</p>
+          {!hasKey && <p className="small">This browser has no ElevenLabs key, so the voice can't be changed from here. Add the key under <a className="linkish" href="#keys" onClick={e => { e.preventDefault(); document.getElementById('keys')?.scrollIntoView({ behavior: 'smooth' }) }}>API keys</a> (it is kept on each laptop separately). The current voice still plays from its saved recordings.</p>}
           {hasKey && (
             <>
               <div className="sensrow">
-                <button className="ghost small" disabled={!!busy} onClick={() => run('mine', async () => setMine(await myVoices()))}>My voices</button>
+                <button className="ghost small" disabled={!!busy} onClick={() => run('mine', async () => setMine(await myVoices()))}>{mine ? 'Refresh my voices' : 'My voices'}</button>
                 <span className="small muted">or search the voice library:</span>
                 <input className="vsearch" value={q.search} onChange={e => setQ({ ...q, search: e.target.value })} placeholder="russian" />
                 <select className="mini inline" value={q.gender} onChange={e => setQ({ ...q, gender: e.target.value })}><option value="female">female</option><option value="male">male</option><option value="">any</option></select>
