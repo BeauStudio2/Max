@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom'
 import { fmt } from './shared'
 
 /**
- * The rest timer across the whole screen at half opacity, readable from across the gym. It ignores the mouse and touch,
+ * The rest timer across the whole screen at 10% opacity, readable from across the gym. It ignores the mouse and touch,
  * so everything underneath stays usable. Counts down to the rest target, then up from zero.
  */
 export default function RestOverlay({ rest, target }: { rest: number; target: number }) {
