@@ -8,6 +8,7 @@ import Plan from './pages/Plan'
 import Profile from './pages/Profile'
 import Config from './pages/Config'
 import TipLayer from './TipLayer'
+import Phone from './pages/Phone'
 
 type Tab = 'today' | 'profile' | 'plan' | 'config'
 const TABS: { id: Tab; label: string; coach?: boolean }[] = [
@@ -28,6 +29,8 @@ export default function App() {
 
   if (auth === undefined) return <div className="center muted">Loading…</div>
   if (!auth) return <SignIn />
+  // The phone's bar-sensor page: no tabs, no data loading, just the sensor.
+  if (location.hash === '#phone') return <Phone />
   return <StoreProvider auth={auth}><Shell /></StoreProvider>
 }
 

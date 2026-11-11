@@ -10,6 +10,8 @@ import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
 import VoiceBar from './VoiceBar'
+import BarPanel from './BarPanel'
+import { imu, summarize as barSummary } from '../../lib/imuLink'
 import { predictionMiss, type Probe, type SetObs } from '../../lib/learn'
 import { recordObservations } from '../../lib/observations'
 import RestOverlay from './RestOverlay'
@@ -388,6 +390,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         </label>
         <Metronome />
         <VoiceBar />
+        <BarPanel />
         {spotMode && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
@@ -522,12 +525,17 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
+      // Bar speed: the set the phone on the bar just saw (its reps, speeds and travel) is saved with this set.
+      const bar = imu.take(), barSum = bar ? barSummary(bar.reps) : null
+      const r3 = (x: number) => Math.round(x * 1000) / 1000
       const saved = await api.addSet({ ...row, exercise_id: exerciseId, block: 'primary', set_index: idx,
         // Rest before this set: from the end of the last one to the start of this one, measured by the Tindeq where it recorded them.
         rest_s: (() => { const from = last?.setup?.spot?.tempo?.ended_at ?? last?.created_at, to = (tempo ?? row.setup.spot?.tempo)?.rec_at
           return from ? Math.round(((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000) : null })(),
         // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
-        setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null } })
+        setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
+          bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) })) } : null } })
+      if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) } })))
       // Raw Tindeq readings, one row per assisted rep, kept for later mining.
       const pulses = (patch.trace !== undefined ? patch.trace : trace) ?? []
       if (saved?.id && saved.session_id && pulses.length) recordObservations(pulses.map((pl, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'tindeq' as const, metric: 'assist_lb', value: Math.round(pl.mean * 10) / 10, data: { peak_lb: pl.peak, dur_s: pl.dur, start_s: pl.start } })))
@@ -601,6 +609,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
         {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}
+        {r?.setup?.bar_speed && <div className="sub2 barspeed" data-tip={`Bar speed from the phone: ${r.setup.bar_speed.n} reps seen. Average speed up per rep: ${r.setup.bar_speed.reps.map((x: any) => x.mean_mps.toFixed(2)).join(', ')} m/s.`} data-pos="right">{r.setup.bar_speed.first_mps.toFixed(2)} m/s {r.setup.bar_speed.n > 1 ? `· −${Math.max(0, Math.round(r.setup.bar_speed.loss_pct))}%` : ''}</div>}
         {isLow && <div className="sub2 lowset" data-tip="Low set: under half the reps Max expected at this weight. It's kept as logged, but the next sets are planned from the last good set, not this one." data-pos="right">low</div>}
         {pastStop && <div className="sub2 muted" data-tip="Past the stop line (or the max sets). Max would stop here; this row is open so another set can still be logged." data-pos="right">past stop</div>}</td>
       {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} origin={mine.includes('plates') ? 'o-user' : 'o-dyn'} />

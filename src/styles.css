@@ -717,3 +717,16 @@ td .probetag { margin: 2px 0 0; }
 .learning h3 { margin: 12px 0 6px; font-size: 15px; }
 .learngrid { display: grid; grid-template-columns: minmax(150px, auto) minmax(160px, auto) auto 1fr; gap: 6px 18px; align-items: center; margin-bottom: 6px; }
 @media (max-width: 700px) { .learngrid { grid-template-columns: 1fr 1fr; } }
+
+/* Phone as the bar sensor */
+.phonepage { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; }
+.phonepage h1 { margin: 0; font-size: 26px; }
+.phonepage .bigbtn { font-size: 22px; padding: 18px 40px; border-radius: 14px; width: auto; min-width: 200px; }
+.phonebig { font-size: 64px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.phonebig small { font-size: 20px; font-weight: 600; color: var(--muted); }
+.phonestat { font-weight: 600; } .phonestat.ok { color: #5fd38d; } .phonestat.bad { color: var(--hurt); }
+.barpanel { display: flex; flex-direction: column; }
+.barreps { display: inline-flex; gap: 6px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.barreps i { font-style: normal; font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--line); }
+.barspeed { color: var(--o-dyn); }
+.mono { font-family: ui-monospace, monospace; }
