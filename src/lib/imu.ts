@@ -11,7 +11,9 @@ export interface ImuSample { t: number; a: number }                       // sec
 export interface BarRep { mean_mps: number; peak_mps: number; rom_m: number; dur_s: number; at: number
   /** Travel as the sensor read it, before it was set to the lifter's known range of motion. */
   raw_rom_m?: number }
-export interface BarSet { reps: BarRep[]; started: number; ended: number }
+export interface BarSet { reps: BarRep[]; started: number; ended: number
+  /** The set began with the bar being lifted off the hooks, which was left out of the reps. */
+  unrack?: boolean }
 
 export interface ImuOptions {
   /** The bar counts as still when acceleration stays inside ± this (m/s²)... */
@@ -137,4 +139,16 @@ export function calibrate(reps: BarRep[], rom_m: number | null): BarRep[] {
     const rom = raw[i] >= 0.7 * mid ? rom_m : rom_m * (raw[i] / mid), k = rom / raw[i]
     return { ...r, raw_rom_m: raw[i], rom_m: rom, mean_mps: rom / r.dur_s, peak_mps: (r.peak_mps * k) / ((r.raw_rom_m ? r.rom_m / r.raw_rom_m : 1)) }
   })
+}
+
+/**
+ * Leave out the unrack. Lifting the bar off the hooks is a short upward move that looks like a small rep at the start of a
+ * set. It is dropped when it travelled less than half as far as a real rep: half the lifter's known range of motion, or,
+ * when that isn't known, half the middle travel of the reps after it (so it can only be judged once a real rep has followed).
+ */
+export function dropUnrack(reps: BarRep[], rom_m: number | null): { reps: BarRep[]; unrack: boolean } {
+  if (!reps.length) return { reps, unrack: false }
+  const rest = reps.slice(1).map(r => r.rom_m).sort((a, b) => a - b)
+  const full = rom_m ?? (rest.length ? rest[Math.floor(rest.length / 2)] : null)
+  return full !== null && reps[0].rom_m < 0.5 * full ? { reps: reps.slice(1), unrack: true } : { reps, unrack: false }
 }

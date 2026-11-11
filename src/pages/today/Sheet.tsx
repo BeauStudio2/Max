@@ -541,8 +541,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
           return from ? Math.round(((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000) : null })(),
         // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
         setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
-          force: !(patch.sp ?? sp) && trace?.length ? { n: trace.length, mean_lb: Math.round((trace.reduce((t, x) => t + x.mean, 0) / trace.length) * 10) / 10, peak_lb: Math.round(Math.max(...trace.map(x => x.peak)) * 10) / 10 } : null,
-          bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
+          force: (() => { const tr = (patch.trace !== undefined ? patch.trace : trace) ?? []; return !(patch.sp ?? sp) && tr.length ? { n: tr.length, mean_lb: Math.round((tr.reduce((t, x) => t + x.mean, 0) / tr.length) * 10) / 10, peak_lb: Math.round(Math.max(...tr.map(x => x.peak)) * 10) / 10 } : null })(),
+          bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', unrack_dropped: !!bar.unrack, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
       if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) } })))
       // Film of the set from the laptop camera: the exact set when a sensor timed it, otherwise the last stretch before logging.
       if (saved?.id && saved.session_id) {
@@ -576,7 +576,19 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   // A short wait first, so a spotter set the Tindeq is closing at the same moment fills this row before it's saved.
   useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps') { const v = String(c.n); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
   // The phone on the bar logs this set by itself when it sees the set end: its rep count goes in, and its speeds are saved with it.
-  useEffect(() => voiceTarget && autoBar && !r ? imu.onSet(s => { const v = String(s.reps.length); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) }) : undefined, [voiceTarget, autoBar, !r])
+  const tinRef = useRef({ trace, sp }); tinRef.current = { trace, sp }
+  useEffect(() => voiceTarget && autoBar && !r ? imu.onSet(s => {
+    const v = String(s.reps.length); setReps(v); cue('ack', v)
+    setTimeout(() => {
+      // The Tindeq feels the unrack as a pull too: when the phone left the unrack out and the Tindeq has exactly one pull more, its first goes as well.
+      const { trace: tr, sp: spot } = tinRef.current
+      if (s.unrack && tr && tr.length === s.reps.length + 1) {
+        const t2 = tr.slice(1); setTrace(t2)
+        if (spot) { const n = String(t2.length), avg = String(Math.round((t2.reduce((t, x) => t + x.mean, 0) / Math.max(1, t2.length)) * 10) / 10); setSpotted(n); setAssist(avg); commitRef.current({ reps: v, trace: t2, spotted: n, assist: avg }) }
+        else commitRef.current({ reps: v, trace: t2 })
+      } else commitRef.current({ reps: v })
+    }, 350)
+  }) : undefined, [voiceTarget, autoBar, !r])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar

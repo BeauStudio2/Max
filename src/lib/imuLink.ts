@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { supabase } from '../supabase'
-import { BarTracker, calibrate, summarize, type BarRep, type BarSet } from './imu'
+import { BarTracker, calibrate, dropUnrack, summarize, type BarRep, type BarSet } from './imu'
 
 type Batch = { s: [number, number][]; hz?: number }
 const local = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('max-imu') : null
@@ -58,9 +58,10 @@ const setSubs = new Set<(s: BarSet) => void>()
 
 /** The lifter's range of motion for the lift on screen (m), if known: speeds are scaled to it. */
 let rom: number | null = null
+const clean = (reps: BarRep[]) => calibrate(dropUnrack(reps, rom).reps, rom)
 const tracker = new BarTracker({
-  rep: (r, n) => { set({ reps: calibrate(tracker.reps, rom) }); repSubs.forEach(f => f(r, n)) },
-  set: s0 => { const s = { ...s0, reps: calibrate(s0.reps, rom) }; set({ reps: [], lastSet: { ...s, at: Date.now(), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
+  rep: (r, n) => { set({ reps: clean(tracker.reps) }); repSubs.forEach(f => f(r, n)) },
+  set: s0 => { const u = dropUnrack(s0.reps, rom), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 function ingest(b: Batch) {
@@ -68,7 +69,7 @@ function ingest(b: Batch) {
   for (const [t, a] of b.s) tracker.push({ t, a: state.flip ? -a : a })
   count += b.s.length
   if (now - countFrom >= 1000) { const hz = Math.round((count * 1000) / Math.max(1, now - countFrom)); count = 0; countFrom = now; set({ hz }) }
-  if (now - lastPaint > 100) { lastPaint = now; set({ lastAt: now, velocity: tracker.velocity, reps: calibrate(tracker.reps, rom) }) }
+  if (now - lastPaint > 100) { lastPaint = now; set({ lastAt: now, velocity: tracker.velocity, reps: clean(tracker.reps) }) }
 }
 
 export const imu = {
