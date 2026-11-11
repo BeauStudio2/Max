@@ -208,7 +208,6 @@ export function LadderPlanFields({ L, setPlan, carriedFrom, currentMax, lifterGe
           <button type="button" className={'switch' + (plan.chains_on ? ' on' : '')} aria-pressed={plan.chains_on} onClick={() => setPlan({ chains_on: !plan.chains_on })}>{plan.chains_on ? 'On' : 'Off'}</button>
         </label>}
       </div>
-      {plan.bar && <PlatesOn value={plan.plates_on} onChange={v => setPlan({ plates_on: v })} />}
       {plan.bar && L.kept.base.length > 0 && (
         <p className="small">
           <T tip="Built from the lightest working set with the biggest plates that are on. Locked once set 1 is logged.">Keep on all session</T>, per side: <b>{stackText(L.kept.base)}</b>

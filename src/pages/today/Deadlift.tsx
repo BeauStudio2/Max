@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { e1rmFromRpe, platesPerSide, round, roundTo } from '../../lib/load'
 import type { SetRow } from '../../lib/types'
 import { Num, T, type Api } from './shared'
-import { PlatesOn } from './Ladder'
 
 export interface DeadliftPlan { planned_top_lb: number | null; bar_lb: number; rest_s?: number; plates_on?: number[] }
 
@@ -56,7 +55,6 @@ export function DeadliftPlanFields({ D, setPlan, best }: { D: DeadliftCtl; setPl
         </label>
         <Num label="Rest (s)" tip="Target rest between pulls." value={D.plan.rest_s ?? 180} onSave={v => v && setPlan({ rest_s: v })} />
       </div>
-      <PlatesOn value={D.plan.plates_on} onChange={v => setPlan({ plates_on: v })} />
       <p className="small muted">
         {best ? <>Best conventional {best} (85% {roundTo(best * 0.85, 5)} · 92% {roundTo(best * 0.92, 5)} · 97% {roundTo(best * 0.97, 5)}). </> : null}
         {D.todayMax ? <>Today’s estimate <b>{round(D.todayMax)}</b> from the best top single and its RPE. </> : null}

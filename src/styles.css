@@ -691,3 +691,9 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .crmodel .crnow { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 10px; }
 .crmodel .cap { text-transform: capitalize; margin-right: 6px; }
 .crlog tr.undone td { opacity: .5; }
+
+/* Plate column headings are switches for that plate. */
+th.c-plate .platehd { all: unset; cursor: pointer; display: block; width: 100%; text-align: center; padding: 2px 0; border-radius: 4px; font: inherit; color: inherit; }
+th.c-plate .platehd:hover { background: var(--line); }
+th.c-plate .platehd:focus-visible { outline: 2px solid var(--accent); }
+th.c-plate.off .platehd { text-decoration: line-through; opacity: .45; }

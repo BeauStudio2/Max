@@ -1,3 +1,4 @@
+import { ALL_PLATES } from '../../lib/load'
 import { useRef, Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../lib/store'
 import { e1rm, e1rmFromRpe, expectedReps, lostReps, repGoal, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
@@ -208,13 +209,15 @@ function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: bo
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, onAutoFit, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, onAutoFit, onPlatesOn, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, S, circuit, onCircuit }: {
   /** S switched on or off on sets not yet done, kept on the session so it survives leaving Log. */
   spotRows?: Record<string, boolean>; onSpotRow?: (idx: number, on: boolean) => void
   speedBands?: Record<string, BandPick[]>; onSpeedBands?: (exercise: string, bands: BandPick[]) => void
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; order: Block[]; joins: boolean[]; running?: boolean; onPlannedMax?: (v: number | null) => void
   speedMax?: Record<string, number>; supportMax?: Record<string, number>; onApplyFit?: (patch: Record<string, number>) => void
+  /** Switch plates on or off for this session (the plate column headings). */
+  onPlatesOn?: (on: number[]) => void
   /** Today's fit, handed up so the lifter's numbers can learn from it. */
   onAutoFit?: (fit: { cost: number | null; costN: number; half_s: number | null; halfN: number }) => void
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
@@ -371,7 +374,13 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             <tr>
               <th className="stick" data-tip="Grey rows are planned; logging reps saves the set. Tap a set name on narrow screens for plates, chains and bands." data-pos="left">Set</th><th data-tip="Total on the bar: bar + clamps + plates (not chains or bands). Type a total and the plates update." data-pos="left">lb</th><th className="c-exp" data-tip="Reps expected at this weight to hit the set's target max. Under it: logged reps minus expected (green ahead, red behind).">Exp</th><th data-tip="Reps done. The grey number is the rep goal (expected reps rounded down; up with Spotter on).">Reps</th>
               <th>{D ? <span data-tip="Rate of perceived exertion, 1–10. The top single's RPE sets today's deadlift estimate.">RPE</span> : <span data-tip="A = last rep assisted (counts half). F = last rep failed (counts nothing). S = spotter set: Reps holds the unaided reps, with spotted reps and average assist beside it.">A · F · S</span>}</th><th data-tip="Estimated 1-rep max from this set (Epley, chains averaged bottom/top). Grey on planned rows = the target. % = vs set 1. Red row = below the stop line.">e1RM</th>
-              {PLATE_COLS.map(p => <th key={p} className={'c-plate' + (platesOn && !platesOn.includes(p) ? ' off' : '')} data-tip={`${p} lb plates per side`}>{p}</th>)}
+              {PLATE_COLS.map(p => { const off = !!platesOn && !platesOn.includes(p); return (
+                <th key={p} className={'c-plate' + (off ? ' off' : '')}>
+                  {onPlatesOn ? <button type="button" className="platehd" aria-pressed={!off}
+                    onClick={() => { const cur = platesOn?.length ? platesOn : ALL_PLATES; const next = off ? [...cur, p].sort((a, b) => b - a) : cur.filter(x => x !== p); if (next.length) onPlatesOn(next) }}
+                    data-tip={off ? `${p} lb plates are off for this session: Max won't use them. Click to turn on.` : `${p} lb plates per side. Click to turn them off for this session.`} data-pos="below">{p}</button> : p}
+                </th>
+              ) })}
               <th className="c-setup" data-tip="Clamps on this set. Adding chains switches to the chain clamps; removing them switches back.">Clamps</th>
               {chains && <><th className="c-chain" data-tip="½ in chains per side">½ ch</th><th className="c-chain" data-tip="⅝ in chains per side">⅝ ch</th></>}
               <th className="c-band" data-tip="Bands per side: each chip is one band. + adds another (the same colour is fine); pick “remove” in a chip to take it off." data-pos="right">Bands</th>
