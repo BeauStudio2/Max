@@ -420,7 +420,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
           <tbody>
             {seq.map(x => {
               const next = x === nextItem
-              if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} voiceTarget={x === nextMain} />
+              if (x.kind === 'main' && L) return <MainTr key={x.key} L={L} api={api} r={x.r} p={x.p} exerciseId={heavyExerciseId} label={liftLabel} next={next} voiceTarget={x === nextMain} autoBar={running} />
               if (x.kind === 'pull' && D) return <PullTr key={x.key} D={D} def={x.row} r={x.r} next={next} />
               if (x.kind === 'speed') return <SpeedTr key={x.key} api={api} r={x.r} it={x.it} name={speedEx(x.it)} n={x.n} sets={speedSets(x.it)} next={next} lastMain={lastMain} saved={speedBands[speedEx(x.it)]} onBands={onSpeedBands} />
               if (x.kind === 'sup') return <SupportTr key={x.key} slot={x.slot} S={S} api={api} inline next={next} />
@@ -457,10 +457,12 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
 
 /* ---------- main lift row (logged or planned) ---------- */
 
-function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
+function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }: {
   L: Ladder; api: Api; r?: SetRow; p?: Ladder['projected'][number]; exerciseId?: string; label: string; next?: boolean
   /** The first heavy set not yet done: spoken reps ("Max five") go here. */
   voiceTarget?: boolean
+  /** The workout is running, so a set the phone on the bar sees may be logged by itself. */
+  autoBar?: boolean
 }) {
   const { equipment: eq, cfg } = useStore()
   const logged = !!r
@@ -568,6 +570,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   const commitRef = useRef(commit); commitRef.current = commit
   // A short wait first, so a spotter set the Tindeq is closing at the same moment fills this row before it's saved.
   useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps') { const v = String(c.n); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
+  // The phone on the bar logs this set by itself when it sees the set end: its rep count goes in, and its speeds are saved with it.
+  useEffect(() => voiceTarget && autoBar && !r ? imu.onSet(s => { const v = String(s.reps.length); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) }) : undefined, [voiceTarget, autoBar, !r])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar

@@ -46,16 +46,19 @@ export interface ImuState {
   /** The last finished set, and whether a logged set has already taken it. */
   lastSet: (BarSet & { at: number; taken: boolean }) | null
   flip: boolean
+  /** Log a heavy set by itself when the bar sensor sees one end. */
+  autolog: boolean
 }
-const FLIP = 'max.imu.flip'
-let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
+const FLIP = 'max.imu.flip', AUTO = 'max.imu.autolog'
+let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, autolog: (() => { try { return localStorage.getItem(AUTO) !== '0' } catch { return true } })(), flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
 const subs = new Set<() => void>()
 const set = (p: Partial<ImuState>) => { state = { ...state, ...p }; subs.forEach(f => f()) }
 const repSubs = new Set<(r: BarRep, n: number) => void>()
+const setSubs = new Set<(s: BarSet) => void>()
 
 const tracker = new BarTracker({
   rep: (r, n) => { set({ reps: tracker.reps }); repSubs.forEach(f => f(r, n)) },
-  set: s => set({ reps: [], lastSet: { ...s, at: Date.now(), taken: false } }),
+  set: s => { set({ reps: [], lastSet: { ...s, at: Date.now(), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 function ingest(b: Batch) {
@@ -77,6 +80,9 @@ export const imu = {
     join(ingest)
   },
   onRep: (f: (r: BarRep, n: number) => void) => { repSubs.add(f); return () => { repSubs.delete(f) } },
+  /** Called when a set ends, while logging sets by itself is on. */
+  onSet: (f: (s: BarSet) => void) => { setSubs.add(f); return () => { setSubs.delete(f) } },
+  setAutolog(autolog: boolean) { try { localStorage.setItem(AUTO, autolog ? '1' : '0') } catch { /* this visit only */ } set({ autolog }) },
   /** End the set now instead of waiting for the bar to sit still. */
   endSet() { tracker.flush() },
   /** The last finished set, once, for the heavy set being logged (only if it finished in the last few minutes). */
