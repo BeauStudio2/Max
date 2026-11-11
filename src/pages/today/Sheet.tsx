@@ -550,6 +550,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
           ended_at: bar ? new Date(bar.ended_ms).toISOString() : null,
           bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', unrack_dropped: !!bar.unrack, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
       if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) } })))
+      // The phone's raw readings over the set (the last two minutes), whether or not it read the reps right.
+      if (saved?.id && saved.session_id) { const raw = imu.raw(120); if (raw) recordObservations([{ session_id: saved.session_id, set_id: saved.id, source: 'inertiometer' as const, metric: 'raw_accel', value: raw.n, data: { ...raw, typed_reps: row.reps, sensor_reps: bar?.reps.length ?? null } }]) }
       // Film of the set from the laptop camera: the exact set when a sensor timed it, otherwise the last stretch before logging.
       if (saved?.id && saved.session_id) {
         const tm = tempo ?? row.setup.spot?.tempo
@@ -797,6 +799,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands, au
         recordObservations(raw.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) } })))
         camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: n }, { from: bar.ended_ms - (bar.ended - bar.started + 8) * 1000, to: Math.min(bar.at, bar.ended_ms + 6000) })
       } else if (saved?.id && saved.session_id) camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: n })
+      if (saved?.id && saved.session_id) { const rw = imu.raw(90); if (rw) recordObservations([{ session_id: saved.session_id, set_id: saved.id, source: 'inertiometer' as const, metric: 'raw_accel', value: rw.n, data: { ...rw, typed_reps: row.reps, sensor_reps: bar?.reps.length ?? null } }]) }
     }
   }
   // The phone on the bar logs this set by itself when it is the next one on the sheet.

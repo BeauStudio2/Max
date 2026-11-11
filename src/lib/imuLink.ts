@@ -72,9 +72,18 @@ const tracker = new BarTracker({
   set: s0 => { const u = dropUnrack(s0.reps, rom), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
+// The last few minutes of raw readings, kept so a set's own stretch can be saved with it (for checking and improving the rep reading).
+const rawT: number[] = [], rawA: number[] = []
+let wallOffset = 0   // seconds to add to a phone timestamp to get wall-clock seconds
+const RAW_KEEP_S = 300
 function ingest(b: Batch) {
   const now = Date.now()
-  for (const [t, a] of b.s) tracker.push({ t, a: state.flip ? -a : a })
+  for (const [t, a] of b.s) { tracker.push({ t, a: state.flip ? -a : a }); rawT.push(t); rawA.push(state.flip ? -a : a) }
+  if (b.s.length) {
+    const lastT = b.s[b.s.length - 1][0]
+    wallOffset = now / 1000 - lastT
+    while (rawT.length && rawT[0] < lastT - RAW_KEEP_S) { rawT.shift(); rawA.shift() }
+  }
   count += b.s.length
   if (now - countFrom >= 1000) { const hz = Math.round((count * 1000) / Math.max(1, now - countFrom)); count = 0; countFrom = now; set({ hz }) }
   if (now - lastPaint > 100) { lastPaint = now; set({ lastAt: now, velocity: tracker.velocity, reps: clean(tracker.reps) }) }
@@ -106,6 +115,15 @@ export const imu = {
     if (!s || s.taken || Date.now() - s.at > 4 * 60_000) return null
     set({ lastSet: { ...s, taken: true } })
     return s
+  },
+  /** The raw readings from the last `seconds`, for saving with a set: start time, and [seconds from start, m/s²] pairs. */
+  raw(seconds: number): { from: string; n: number; t: number[]; a: number[] } | null {
+    if (!rawT.length) return null
+    const end = rawT[rawT.length - 1]; let i = rawT.length - 1
+    while (i > 0 && rawT[i - 1] >= end - seconds) i--
+    const t0 = rawT[i], r3 = (x: number) => Math.round(x * 1000) / 1000
+    if (Date.now() / 1000 - (end + wallOffset) > seconds) return null          // nothing recent
+    return { from: new Date((t0 + wallOffset) * 1000).toISOString(), n: rawT.length - i, t: rawT.slice(i).map(x => r3(x - t0)), a: rawA.slice(i).map(r3) }
   },
   setFlip(flip: boolean) { try { localStorage.setItem(FLIP, flip ? '1' : '0') } catch { /* this visit only */ } set({ flip }) },
 }
