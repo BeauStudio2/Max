@@ -10,12 +10,16 @@ import { type SupportCtl, type SupportSlot } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
 import VoiceBar from './VoiceBar'
+import { predictionMiss, type Probe, type SetObs } from '../../lib/learn'
+import { recordObservations } from '../../lib/observations'
 import RestOverlay from './RestOverlay'
 import { cue, cueWord, onCommand, sayLb, saySeconds, speak, voice } from '../../lib/voice'
 import { live, nextPhrases, platePhrases } from './live'
 const cueOn = (k: 'next' | 'plates') => voice.get().settings.cues[k]?.on !== false
 /** Rest taken so far and how full creatine is getting, for the next spotter set's prediction. */
 const RestCtx = createContext<number | null>(null)
+/** Test sets: which upcoming sets have a deliberate short or long rest before them, and how to skip one. */
+const ProbeCtx = createContext<{ probes: Record<number, Probe>; skip?: (idx: number) => void }>({ probes: {} })
 const SpotCtx = createContext<{ rows: Record<string, boolean>; set?: (idx: number, on: boolean) => void }>({ rows: {} })
 import TindeqPanel, { type Tempo } from './TindeqPanel'
 import { endLevel, fitQualifies, fitSession, levelAfter, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
@@ -210,7 +214,9 @@ function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: bo
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, onAutoFit, onPlatesOn, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, onAutoFit, onPlatesOn, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, probes = {}, onSkipProbe, onObs, S, circuit, onCircuit }: {
+  /** Test sets for today (by set number), skipping one, and the session's sets handed up for learning. */
+  probes?: Record<number, Probe>; onSkipProbe?: (idx: number) => void; onObs?: (obs: SetObs[]) => void
   /** S switched on or off on sets not yet done, kept on the session so it survives leaving Log. */
   spotRows?: Record<string, boolean>; onSpotRow?: (idx: number, on: boolean) => void
   speedBands?: Record<string, BandPick[]>; onSpeedBands?: (exercise: string, bands: BandPick[]) => void
@@ -289,7 +295,10 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     const Pend = endLevel({ load, totalReps: lastSpot.setup.spot.mode === 'all' ? (lastSpot.reps ?? 0) : (lastSpot.reps ?? 0) + (lastSpot.setup.spot.spotted ?? 0), lastAssist, P0: startLevel(lastSpot.set_index, L.cr) }, L.cr)
     return { seconds: Math.round(restFor(Pend, L.cr)), Pend }
   })()
-  const restTarget = crRest ? crRest.seconds : restS
+  // A test set has a deliberate short or long rest before it; otherwise the plan's rest (or the creatine refill after a spotter set).
+  const nextMainIdx = (() => { const n = seq.find(x => x.kind === 'main' && !x.r) as Extract<Item, { kind: 'main' }> | undefined; return n?.p?.idx ?? null })()
+  const nextProbe = nextMainIdx !== null && lastMain ? probes[nextMainIdx] : undefined
+  const restTarget = nextProbe ? nextProbe.rest_s : crRest ? crRest.seconds : restS
   // What today's spotter sets say about the model, against the numbers in use.
   const fit = (() => {
     if (!L) return null
@@ -302,6 +311,12 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     if (!ss.length) return null
     return fitSession(ss, L.cr, L.plan.fatigue_rate_used_pct / 100)
   })()
+  // The session's heavy sets in the form Max learns from: load, reps, estimated max, rest before, and what she predicted.
+  const obs: SetObs[] = L ? L.logged.map((r, i) => ({ idx: r.set_index, load: r.total_bottom_lb != null && r.total_top_lb != null ? (r.total_bottom_lb + r.total_top_lb) / 2 : null,
+    reps: r.reps, e1rm: L.actual[i], low: L.low[i], rest_s: r.rest_s ?? null, spot: !!r.setup?.spot?.on, pred_reps: r.setup?.pred_reps ?? null })) : []
+  const obsKey = JSON.stringify(obs)
+  useEffect(() => { if (obs.length) onObs?.(obs) }, [obsKey])
+  const miss = predictionMiss(obs)
   const fitKey = fit ? JSON.stringify([fit.cost && Math.round(fit.cost * 1000), fit.costN, fit.half_s && Math.round(fit.half_s), fit.halfN]) : ''
   useEffect(() => { if (fit) onAutoFit?.(fit) }, [fitKey])
   // Column headings stay in view while scrolling the sets: they stick just under the rest bar, whatever its height.
@@ -365,7 +380,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     <section className="card sheetcard" ref={cardRef}>
       {running && restFrom && restTarget > 0 && <RestOverlay rest={rest} target={restTarget} />}
       <div className="sheetbar" ref={barRef}>
-        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
+        <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span>{nextProbe && <span className="probetag" data-tip={`Test rest: deliberately ${nextProbe.variant} (${fmt(nextProbe.rest_s)} instead of ${fmt(restS)}) so Max can learn how fast you recover. Lift when it's up. Skip it with the × on the set's row.`} data-pos="left">test · {nextProbe.variant}</span>}<b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
           <input inputMode="decimal" placeholder={autoMin && autoMin > 1 ? String(Math.round(autoMin)) : ''} defaultValue={circuit ?? ''} key={circuit ?? 'x'}
@@ -377,7 +392,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       </div>
 
       <div className="tablewrap sheetwrap">
-        <SpotCtx.Provider value={{ rows: spotRows, set: onSpotRow }}><RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
+        <ProbeCtx.Provider value={{ probes, skip: onSkipProbe }}><SpotCtx.Provider value={{ rows: spotRows, set: onSpotRow }}><RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
         <table className="sheet">
           <thead>
             <tr>
@@ -413,7 +428,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
             })}
           </tbody>
         </table>
-        </ColsCtx.Provider></CaptureCtx.Provider></RestCtx.Provider></SpotCtx.Provider>
+        </ColsCtx.Provider></CaptureCtx.Provider></RestCtx.Provider></SpotCtx.Provider></ProbeCtx.Provider>
       </div>
       {fit && (fit.cost !== null || fit.half_s !== null) && (
         <p className="small fitline">
@@ -425,7 +440,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       )}
       <p className="small muted sheetfoot">
         <span className="okey"><i className="o-def" />from the plan <i className="o-dyn" />worked out by Max <i className="o-user" />set by you</span>
-        {L?.fitRep != null ? `Fatigue today ${L.fitRep.toFixed(2)}%/rep (planning with ${perRep(L.plan).toFixed(2)})` : ''}{perMin ? ` · ${perMin.toFixed(2)}%/min over ${minutes} min, ${mainCount} sets` : ''}
+        {miss ? <span data-tip="How far Max's rep predictions were from what you did, on average, over the sets she predicted today. This is what tells her how well she understands you." data-pos="left">Predictions off by {miss.miss.toFixed(1)} reps over {miss.n} sets · </span> : ''}{L?.fitRep != null ? `Fatigue today ${L.fitRep.toFixed(2)}%/rep (planning with ${perRep(L.plan).toFixed(2)})` : ''}{perMin ? ` · ${perMin.toFixed(2)}%/min over ${minutes} min, ${mainCount} sets` : ''}
         {D?.todayMax ? `Deadlift estimate ${round(D.todayMax)}.` : ''}
       </p>
 
@@ -450,6 +465,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
   const [f, setF] = useState(!!r?.failed)
   // S = this set is run with the spotter: Reps holds the unaided reps; spotted reps and their average assist are entered beside it.
   const spotCtx = useContext(SpotCtx), rowIdx = r ? r.set_index : p!.idx
+  const probeCtx = useContext(ProbeCtx), probe = !r && rowIdx > 1 ? probeCtx.probes[rowIdx] : undefined
   const planSp = spotCtx.rows[rowIdx] ?? (L.plan.spotter && rowIdx > 1)
   const [sp, setSp] = useState<boolean>(r ? !!r.setup?.spot?.on : planSp)
   const [spotted, setSpotted] = useState<string>(r?.setup?.spot?.spotted?.toString() ?? '')
@@ -506,11 +522,15 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
       const last = L.logged.at(-1)
-      await api.addSet({ ...row, exercise_id: exerciseId, block: 'primary', set_index: idx,
+      const saved = await api.addSet({ ...row, exercise_id: exerciseId, block: 'primary', set_index: idx,
         // Rest before this set: from the end of the last one to the start of this one, measured by the Tindeq where it recorded them.
         rest_s: (() => { const from = last?.setup?.spot?.tempo?.ended_at ?? last?.created_at, to = (tempo ?? row.setup.spot?.tempo)?.rec_at
           return from ? Math.round(((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000) : null })(),
-        setup: { ...row.setup, target_e1rm: target ?? null } })
+        // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
+        setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null } })
+      // Raw Tindeq readings, one row per assisted rep, kept for later mining.
+      const pulses = (patch.trace !== undefined ? patch.trace : trace) ?? []
+      if (saved?.id && saved.session_id && pulses.length) recordObservations(pulses.map((pl, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'tindeq' as const, metric: 'assist_lb', value: Math.round(pl.mean * 10) / 10, data: { peak_lb: pl.peak, dur_s: pl.dur, start_s: pl.start } })))
     }
   }
   const setSet = (s: LoadSetup, touch?: string) => {
@@ -588,7 +608,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
       <td className={'c-setup ' + org('clamp', 'o-def')}>{setupCell}</td>
       <ChainCells half={setup.chain_half} big={setup.chain_5_8} onSet={hasBar && L.plan.chains_ok ? setChain : undefined} origin={org('chains', 'o-def')} />
       <td className="c-band"><BandEditor bands={setup.bands ?? []} onChange={bb => setSet({ ...setup, bands: bb })} /></td>
-      <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}</td>
+      <td className="num muted c-rest">{r?.rest_s ? fmt(r.rest_s) : ''}
+        {r?.setup?.probe && <div className="probetag" data-tip={`Test set: the rest before it was deliberately ${r.setup.probe.variant} (${fmt(r.setup.probe.rest_s)}).`} data-pos="right">test</div>}
+        {!r && probe && <div className="probetag" data-tip={`Test set: rest ${fmt(probe.rest_s)} before this one (deliberately ${probe.variant}) so Max can learn how fast you recover. × skips the test and uses the normal rest.`} data-pos="right">test {fmt(probe.rest_s)} <button type="button" className="probex" aria-label="Skip this test" onClick={() => probeCtx.skip?.(idx)}>×</button></div>}</td>
       <td className="c-del">{logged && <DelBtn tip="Delete this logged set" onConfirm={() => api.deleteSet(r!.id!)} />}</td>
     </tr>
     {more && (

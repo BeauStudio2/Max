@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
 import { BandEditor, CellText, type BandPick } from './today/Sheet'
 import { DelBtn, T } from './today/shared'
+import { BELIEFS, beliefDef, blend, pendingShift, probeBudget, type Belief, type LearnEntry } from '../lib/learn'
 import { crOf, fmtCr, LEARN_RATE, type CrLogEntry } from '../lib/creatine'
 import { e1rmFromRpe, fitFatigue, localDate, round } from '../lib/load'
 import Tracker, { onBar, type TrackRow, type TLift } from './profile/Tracker'
@@ -132,6 +133,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
         </div>
       </section>
 
+      <Learning lifterId={lifterId} />
       <CreatineModel lifterId={lifterId} />
       <SpeedBands lifterId={lifterId} />
 
@@ -482,6 +484,81 @@ function CreatineModel({ lifterId }: { lifterId: string }) {
         </table></div>
       )}
       {!log.length && <p className="small muted">No updates yet. They start once a session has two spotter sets read by the Tindeq.</p>}
+    </section>
+  )
+}
+
+/**
+ * What Max believes about this lifter and how sure she is, per lift, with each session's effect on it.
+ * A reading taken on a sick or hurt day that is very different from healthy sessions is listed but not used; three of those
+ * in a row pointing the same way can be accepted as the new normal. The latest change to each number can be undone.
+ */
+function Learning({ lifterId }: { lifterId: string }) {
+  const { lifters, reload } = useStore()
+  const lifter = lifters.find(l => l.id === lifterId)
+  const st = lifter?.settings ?? {}
+  const log: LearnEntry[] = st.belief_log ?? []
+  const lifts = ['bench', 'squat']
+  const save = async (patch: Record<string, any>) => { await supabase.from('lifters').update({ settings: { ...st, ...patch } }).eq('id', lifterId); await reload() }
+  const setBelief = (lift: string, key: string, b: Belief) => ({
+    beliefs: { ...(st.beliefs ?? {}), [lift]: { ...(st.beliefs?.[lift] ?? {}), [key]: b } },
+    ...(key === 'fatigue_rep_pct' ? { fatigue_rep_pct: { ...(st.fatigue_rep_pct ?? {}), [lift]: Math.round(b.value * 1000) / 1000 } } : {}),
+  })
+  const latest = (lift: string, key: string) => log.find(e => e.lift === lift && e.key === key && !e.undone && !e.flag)
+  const undo = (e: LearnEntry) => save({ ...setBelief(e.lift, e.key, e.before), belief_log: log.map(x => (x === e ? { ...x, undone: true } : x)) })
+  // Accepting a run of flagged sessions blends each of them in, oldest first, as if they had counted.
+  const accept = (run: LearnEntry[]) => {
+    const def = beliefDef(run[0].key)
+    let b: Belief = st.beliefs?.[run[0].lift]?.[run[0].key] ?? def.init
+    for (const e of [...run].reverse()) b = blend(b, e.measured, new Date().toISOString())
+    return save({ ...setBelief(run[0].lift, run[0].key, b), belief_log: log.map(x => (run.includes(x) ? { ...x, accepted: true, after: b } : x)) })
+  }
+  return (
+    <section className="card learning">
+      <h2><T tip="Every number Max plans with is a belief: a value and how sure she is. After each finished session she scores her predictions, measures what the session shows, and blends it in: big moves while she's unsure, small refinements once she's confident. While a number is vague she spends more sets testing it; once settled, about one test a session." pos="right">What Max is learning</T></h2>
+      {lifts.map(lift => {
+        const bl: Record<string, Belief> = st.beliefs?.[lift] ?? {}
+        const pm = (st.pred_miss?.[lift] ?? []) as { date: string; miss: number; n: number }[]
+        const recent = pm.length ? pm.slice(0, 3).reduce((t, x) => t + x.miss, 0) / Math.min(3, pm.length) : null
+        const budget = probeBudget({ ...Object.fromEntries(BELIEFS.map(d => [d.key, d.init])), ...bl }, recent)
+        return (
+          <div key={lift} className="learnlift">
+            <h3 className="cap">{lift}</h3>
+            <div className="learngrid">
+              {BELIEFS.map(d => {
+                const b = bl[d.key], shift = pendingShift(log, lift, d.key)
+                const settled = !!b && b.sd / Math.max(1e-9, b.value) <= d.settled
+                return (
+                  <Fragment key={d.key}>
+                    <span><T tip={d.tip} pos="right">{d.label}</T></span>
+                    <span>{b ? <><b>{d.fmt(b.value)}</b> <span className="muted">± {d.fmt(b.sd)}</span></> : <span className="muted">not measured yet (starting from {d.fmt(d.init.value)})</span>}</span>
+                    <span className={'small ' + (settled ? 'up' : 'muted')}>{b ? `${settled ? 'settled' : 'learning'} · ${b.n} session${b.n === 1 ? '' : 's'}` : d.probes.length ? 'needs test sets' : 'needs a full session'}</span>
+                    <span>{shift && <button className="ghost small" onClick={() => accept(shift)} data-tip={`The last three sick or hurt sessions all measured ${shift[0].measured.value > shift[0].before.value ? 'higher' : 'lower'} (${shift.map(e => d.fmt(e.measured.value)).reverse().join(', ')}). Accept that as the new normal.`} data-pos="left">Accept new normal</button>}</span>
+                  </Fragment>
+                )
+              })}
+            </div>
+            <p className="small muted">Test sets next session: {budget.count ? `${budget.count}` : `up to ${Math.round(budget.share * 100)}% of sets`} ({budget.why}).
+              {pm.length > 0 && <> Predictions: off by {pm[0].miss.toFixed(1)} reps over {pm[0].n} sets on {pm[0].date}{pm.length > 1 ? `; ${pm.slice(1, 4).map(x => x.miss.toFixed(1)).join(', ')} before that` : ''}.</>}</p>
+          </div>
+        )
+      })}
+      {log.length > 0 && (
+        <div className="tablewrap"><table className="sheet cfg crlog">
+          <thead><tr><th className="stick">Session</th><th>Lift</th><th>What</th><th>Before → after</th><th>Measured</th><th>Note</th><th /></tr></thead>
+          <tbody>
+            {log.slice(0, 40).map(e => { const d = beliefDef(e.key); return (
+              <tr key={e.session + e.lift + e.key} className={e.undone ? 'undone' : ''}>
+                <td className="stick">{e.date}</td><td className="cap">{e.lift}</td><td>{d.label}</td>
+                <td>{d.fmt(e.before.value)} → <b>{d.fmt(e.after.value)}</b> <span className="small muted">± {d.fmt(e.after.sd)}</span></td>
+                <td>{d.fmt(e.measured.value)} <span className="small muted">± {d.fmt(e.measured.sd)}</span></td>
+                <td className="small">{e.undone ? <span className="muted">undone</span> : e.accepted ? <span className="up">accepted as new normal</span> : e.flag ? <span className="err">not used: {e.flag}</span> : e.off ? <span className="muted">sick or hurt, in line: used</span> : ''}</td>
+                <td>{latest(e.lift, e.key) === e && <button className="ghost small" onClick={() => undo(e)} data-tip={`Put ${d.label.toLowerCase()} back to ${d.fmt(e.before.value)}; this session won't be applied again.`} data-pos="left">Undo</button>}</td>
+              </tr>
+            ) })}
+          </tbody>
+        </table></div>
+      )}
     </section>
   )
 }

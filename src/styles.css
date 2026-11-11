@@ -705,3 +705,15 @@ th.c-plate.off .platehd { text-decoration: line-through; opacity: .45; }
   .sheetwrap { overflow-x: clip; }
   .sheetwrap table.sheet thead th { top: var(--sheet-top, 130px); }
 }
+
+/* Test sets (probes) */
+.probetag { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 6px; color: var(--o-dyn); border: 1px solid color-mix(in srgb, var(--o-dyn) 45%, transparent); white-space: nowrap; }
+td .probetag { margin: 2px 0 0; }
+.probex { all: unset; cursor: pointer; padding: 0 2px; color: var(--muted); }
+.probex:hover { color: var(--text); }
+.probeline { align-items: center; margin-top: 6px; }
+.probeline .probewhy { grid-column: span 3; align-self: center; }
+
+.learning h3 { margin: 12px 0 6px; font-size: 15px; }
+.learngrid { display: grid; grid-template-columns: minmax(150px, auto) minmax(160px, auto) auto 1fr; gap: 6px 18px; align-items: center; margin-bottom: 6px; }
+@media (max-width: 700px) { .learngrid { grid-template-columns: 1fr 1fr; } }

@@ -1,8 +1,9 @@
 import { crOf, fitQualifies, learn, type CrLogEntry } from '../lib/creatine'
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
 import { perRep } from './today/Ladder'
+import { BELIEFS, learnOne, measureFatigue, measureRecovery, planProbes, predictionMiss, probeBudget, type Belief, type LearnEntry, type Measurement, type SetObs } from '../lib/learn'
 import { ALL_PLATES, LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
@@ -20,7 +21,7 @@ function dlDefaultTop(week: number | null, week1: number | null, best?: number) 
   if (!best) return null
   return roundTo(best * ([0, 0, 0.8, 0.8, 0.85, 0.92][week - 1] ?? 0.85), 5)
 }
-const KEY_LABEL: Record<string, string> = { fatigue_rep_pct: 'fatigue per rep', target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
+const KEY_LABEL: Record<string, string> = { probes_on: 'test sets', probe_skip: 'skipped tests', fatigue_rep_pct: 'fatigue per rep', target_reps: 'target reps', stop_pct: 'stop %', step_lb: 'weight step', rest_s: 'rest', chain_half: '½ chains', chain_5_8: '⅝ chains',
   chains_on: 'chains on/off', plates_on: 'plates on', spotter: 'spotter', assist_min_lb: 'assist threshold', assist_min_s: 'shortest rep', clamp: 'clamps', change_plate: 'change plate', max_sets: 'max heavy sets', speed_max: 'max speed sets', support_max: 'max support sets', set1_lb: 'set 1 lb', bar_lb: 'bar',
   speed_choice: 'speed', support_choice: 'support', support_ex: 'support exercises', speed_placement: 'interleave 1', speed_offset_s: 'speed start', support_interleave: 'interleave 2', block_order: 'block order' }
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
@@ -216,6 +217,59 @@ export default function Today({ lifterId }: { lifterId: string }) {
   }
   // After a session with enough Tindeq data, the lifter's creatine numbers for this lift move a quarter of the way toward what it measured.
   // Done per session (recomputed from the numbers before it as more sets come in), logged on the lifter, and undoable on Profile.
+  // The workout clock runs from Start workout to Finish. A set logged after Finish means the workout carried on, so the clock (and rest timer) keep running.
+  const running = !!session?.started_at && (!session?.ended_at || sets.some(x => !!x.created_at && x.created_at > session.ended_at!))
+  // ---- Learning: beliefs, test sets, and the update after each session ----
+  const beliefs: Record<string, Belief> = { ...Object.fromEntries(BELIEFS.map(d => [d.key, d.key === 'fatigue_rep_pct' ? { ...d.init, value: perRep(ladderPlan) } : d.init])), ...(st.beliefs?.[lift] ?? {}) }
+  const recentMiss: number | null = (() => { const m = (st.pred_miss?.[lift] ?? []) as { miss: number }[]; return m.length ? m.slice(0, 3).reduce((t, x) => t + x.miss, 0) / Math.min(3, m.length) : null })()
+  const budget = probeBudget(beliefs, recentMiss)
+  const probesOn = lift !== 'deadlift' && (sp.probes_on ?? st.probes_on ?? true)
+  const probes = useMemo(() => {
+    if (!probesOn) return {}
+    const all = planProbes(`${lifterId}:${date}:${lift}`, budget, ladderPlan.rest_s)
+    const skip = (sp.probe_skip ?? {}) as Record<string, boolean>
+    return Object.fromEntries(Object.entries(all).filter(([i]) => !skip[i]))
+  }, [probesOn, lifterId, date, lift, budget.share, budget.count, ladderPlan.rest_s, JSON.stringify(sp.probe_skip ?? {})])
+  const [obs, setObs] = useState<SetObs[]>([])
+  // Once the workout is finished (or the day is past), Max updates what she believes about this lifter and lift from the session.
+  // One entry per session and belief, recomputed from the belief as it stood before the session if more sets come in.
+  async function learnSession(o: SetObs[]) {
+    if (!lifter || !session?.id || lift === 'deadlift') return
+    const off = !!session.sick || !!session.hurt?.trim()
+    const log: LearnEntry[] = st.belief_log ?? []
+    // With rests that differ, recovery and fatigue are fitted together; otherwise fatigue alone, from the fall across the session.
+    const both = measureRecovery(o)
+    const measured: Record<string, Measurement | null> = { fatigue_rep_pct: both?.fatigue ?? measureFatigue(o), recovery_half_s: both?.recovery ?? null }
+    let nextLog = log, nextBeliefs = { ...(st.beliefs?.[lift] ?? {}) } as Record<string, Belief>, changed = false
+    for (const d of BELIEFS) {
+      const m = measured[d.key]
+      const prior = log.find(e => e.session === session.id && e.lift === lift && e.key === d.key)
+      if (!m || prior?.undone) continue
+      const before = prior?.before ?? beliefs[d.key]
+      const healthy = log.filter(e => e.lift === lift && e.key === d.key && !e.off && !e.flag && !e.undone && e.session !== session.id).map(e => e.measured.value)
+      const { after, flag } = learnOne(d, before, m, off, healthy)
+      if (prior && Math.abs(prior.measured.value - m.value) < 1e-6 && prior.flag === flag) continue
+      const entry: LearnEntry = { session: session.id, date, lift, key: d.key, before, measured: m, after, flag, off, at: new Date().toISOString() }
+      nextLog = [entry, ...nextLog.filter(e => !(e.session === session.id && e.lift === lift && e.key === d.key))].slice(0, 120)
+      nextBeliefs = { ...nextBeliefs, [d.key]: after }; changed = true
+    }
+    const miss = predictionMiss(o)
+    const pm = (st.pred_miss?.[lift] ?? []) as { session: string; date: string; miss: number; n: number }[]
+    const missChanged = miss && !(pm[0]?.session === session.id && Math.abs(pm[0].miss - miss.miss) < 1e-6)
+    if (!changed && !missChanged) return
+    const settings = { ...st, beliefs: { ...(st.beliefs ?? {}), [lift]: nextBeliefs }, belief_log: nextLog,
+      // Planning reads the fatigue rate from the lifter's settings: keep it in step with the belief.
+      fatigue_rep_pct: nextBeliefs.fatigue_rep_pct ? { ...(st.fatigue_rep_pct ?? {}), [lift]: Math.round(nextBeliefs.fatigue_rep_pct.value * 1000) / 1000 } : st.fatigue_rep_pct,
+      pred_miss: miss ? { ...(st.pred_miss ?? {}), [lift]: [{ session: session.id, date, miss: Math.round(miss.miss * 100) / 100, n: miss.n }, ...pm.filter(x => x.session !== session.id)].slice(0, 10) } : st.pred_miss }
+    const { error } = await supabase.from('lifters').update({ settings }).eq('id', lifter.id)
+    if (error) setErr(error.message); else await reload()
+  }
+  // Only sessions just done teach her (today's once finished, or yesterday's): browsing old sessions never changes what she believes.
+  const yesterday = localDate(new Date(Date.now() - 864e5))
+  const finished = !!session?.id && !running && ((date === localDate() && !!session.ended_at) || date === yesterday)
+  const obsKey = JSON.stringify(obs)
+  useEffect(() => { if (finished && obs.length >= 4) learnSession(obs) }, [finished, obsKey, session?.sick, session?.hurt])
+
   async function autoFit(fit: { cost: number | null; costN: number; half_s: number | null; halfN: number }) {
     if (!lifter || !session?.id || !fitQualifies(fit)) return
     const log: CrLogEntry[] = st.creatine_log ?? []
@@ -232,8 +286,6 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const { error } = await supabase.from('lifters').update({ settings: { ...st, creatine, creatine_log: nextLog } }).eq('id', lifter.id)
     if (error) setErr(error.message); else await reload()
   }
-  // The workout clock runs from Start workout to Finish. A set logged after Finish means the workout carried on, so the clock (and rest timer) keep running.
-  const running = !!session?.started_at && (!session?.ended_at || sets.some(x => !!x.created_at && x.created_at > session.ended_at!))
   async function applyFit(patch: Record<string, number>) {
     if (!lifter) return
     const creatine = { ...(st.creatine ?? {}), [lift]: { ...(st.creatine?.[lift] ?? {}), ...patch } }
@@ -252,7 +304,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setSession(data as Session); return data as Session
   }
   /** Fields this session has edited itself (they no longer follow the Plan page). */
-  const PROGRAM_KEYS = ['fatigue_rep_pct', 'target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'assist_min_lb', 'assist_min_s', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
+  const PROGRAM_KEYS = ['probes_on', 'probe_skip', 'fatigue_rep_pct', 'target_reps', 'stop_pct', 'step_lb', 'rest_s', 'chain_half', 'chain_5_8', 'chains_on', 'plates_on', 'spotter', 'assist_min_lb', 'assist_min_s', 'clamp', 'change_plate', 'max_sets', 'speed_max', 'support_max', 'set1_lb', 'bar_lb', 'speed_choice', 'support_choice', 'support_ex', 'speed_placement', 'speed_offset_s', 'support_interleave', 'block_order']
   const edited = PROGRAM_KEYS.filter(k => sp[k] !== undefined && sp[k] !== null)
   const resetEdits = () => ensureSession({ planned: Object.fromEntries(Object.entries(own()).filter(([k]) => !PROGRAM_KEYS.includes(k))) })
 
@@ -385,6 +437,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
             {lift === 'deadlift'
               ? <DeadliftPlanFields D={D} setPlan={savePlan(dlPlan)} best={best} />
               : <LadderPlanFields L={L} src={planSrc} setPlan={savePlan(ladderPlan)} carriedFrom={sp.planned_e1rm === undefined ? prevPlan.from : undefined} currentMax={currentMax} lifterGeometry={st.chain_geometry?.[lift]} />}
+            {lift !== 'deadlift' && (
+              <div className="planfields probeline">
+                <label className="toggle"><T tip="Test sets: Max deliberately makes the rest before some sets short or long, in random order, to learn how fast this lifter recovers. They're marked on the sheet and each can be skipped. She tests a lot while she's unsure and about once a session once she's settled. What she has learned is on Profile.">Test sets</T>
+                  <button type="button" className={'switch' + (probesOn ? ' on' : '')} aria-pressed={probesOn} onClick={() => savePlanned({ probes_on: !probesOn })}>{probesOn ? 'On' : 'Off'}</button>
+                </label>
+                {probesOn && <span className="small muted probewhy">{budget.count ? `${budget.count} today` : `up to ${Math.round(budget.share * 100)}% of sets`}: {budget.why}</span>}
+              </div>
+            )}
             {edited.length > 0 && (
               <p className="small edited">
                 <T tip="These were changed on this session, so they no longer follow the Plan page. Everything else still does.">Edited for this session</T>: {edited.map(k => KEY_LABEL[k] ?? k).join(', ')}
@@ -419,7 +479,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={running} onPlatesOn={v => (lift === 'deadlift' ? savePlan(dlPlan) : savePlan(ladderPlan))({ plates_on: v })} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={running} onPlatesOn={v => (lift === 'deadlift' ? savePlan(dlPlan) : savePlan(ladderPlan))({ plates_on: v })} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} probes={probes} onSkipProbe={(idx: number) => savePlanned({ probe_skip: { ...(sp.probe_skip ?? {}), [idx]: true } })} onObs={setObs} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 
