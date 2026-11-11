@@ -42,6 +42,19 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const [prevPlan, setPrevPlan] = useState<Record<string, any>>({})
   const [err, setErr] = useState<string | null>(null)
 
+  // A session whose data was corrected by hand and must not be removed from the app.
+  const LOCKED = ['0def149c-5840-425a-817e-68e42f847301']
+  /** Clear day: delete this day's session with everything logged in it (sets, sensor readings, film), back to a blank day. */
+  async function clearDay() {
+    if (!session?.id || LOCKED.includes(session.id)) return
+    const id = session.id
+    const { data: films } = await supabase.storage.from('video').list(id, { limit: 1000 })
+    if (films?.length) await supabase.storage.from('video').remove(films.map(f => `${id}/${f.name}`))
+    const { error } = await supabase.from('sessions').delete().eq('id', id)
+    if (error) { setErr(error.message); return }
+    await load()
+  }
+
   async function load() {
     setErr(null)
     const { data: s, error } = await supabase.from('sessions').select('*')
@@ -418,6 +431,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
               <DelBtn label="Reset" text="Reset" tip="Clears start and finish times. Logged sets are kept." onConfirm={() => ensureSession({ started_at: null, ended_at: null })} />
             </>
           )}
+          {session?.id && !LOCKED.includes(session.id) && <DelBtn label="Clear day" text="Clear day" tip="Deletes everything logged for this lift on this day (sets, notes, times, sensor readings, film) and starts the day blank. It cannot be undone." onConfirm={clearDay} />}
         </div>
         <SessionStats session={session} sets={sets} volume={L?.volume ?? null} bwDefault={lifter?.bodyweight_lb ?? st.bodyweight_lb ?? null} lifterId={lifter?.id} date={date} />
       </section>
