@@ -128,8 +128,13 @@ export const roundTo = (v: number, step: number) => Math.round(v / step) * step
 /** What stays on the bar all session (per side, inner to outer), the plate size that makes up the span between sets, and the plates allowed. */
 export interface Kept { base: number[]; change: number; on?: number[] }
 /** Older sessions stored kept plates as 45/25 counts. */
-export const keptFromStored = (k: any, change = 10, on?: number[]): Kept | null =>
-  !k ? null : Array.isArray(k.base) ? { base: k.base, change: k.change ?? change, on } : { base: [...Array(k.n45 ?? 0).fill(45), ...Array(k.n25 ?? 0).fill(25)], change, on }
+/** The kept stack saved with the session's first set, while it still fits: same change plate, every kept plate heavier than it and switched on. Otherwise null, and it's worked out again. */
+export const keptFromStored = (k: any, change = 10, on?: number[]): Kept | null => {
+  if (!k) return null
+  const base: number[] = Array.isArray(k.base) ? k.base : [...Array(k.n45 ?? 0).fill(45), ...Array(k.n25 ?? 0).fill(25)]
+  if ((k.change ?? change) !== change || base.some(p => p <= change || (on && !on.includes(p)))) return null
+  return { base, change, on }
+}
 /** Plates owned per side, beyond the 45s. */
 export const OWNED = { 25: 4, 10: 9, 5: 2, 2.5: 2, 1.25: 2 } as const
 export const ALL_PLATES = [45, 25, 10, 5, 2.5, 1.25]
@@ -186,13 +191,14 @@ export function loadSide(perSide: number, kept: Kept): number[] | null {
 }
 
 /**
- * What stays on the bar all session: the lightest working set built from the biggest plates switched on,
- * down to the change plate. Every heavier set adds change plates; only plates smaller than the change plate come and go.
+ * What stays on the bar all session: the last planned set (the lightest, at the stop line) built from the plates heavier than the
+ * change plate, as many of each as fit, heaviest first. Every set above it is made up with change plates, then lighter plates.
  */
 export function keptFor(lightestPlates: number, on: number[] = ALL_PLATES, change = 10): Kept {
   let side = Math.max(0, lightestPlates / 2)
   const base: number[] = []
-  for (const p of on.filter(x => x >= change).sort((a, b) => b - a)) {
+  // Only plates heavier than the change plate are kept; change plates and lighter ones make up each set above it.
+  for (const p of on.filter(x => x > change).sort((a, b) => b - a)) {
     let k = 0
     while (side >= p - 1e-9 && k < ownedOf(p)) { base.push(p); side = r2(side - p); k++ }
   }
