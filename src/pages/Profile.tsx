@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
 import { BandEditor, CellText, type BandPick } from './today/Sheet'
 import { DelBtn, T } from './today/shared'
+import { crOf, fmtCr, LEARN_RATE, type CrLogEntry } from '../lib/creatine'
 import { e1rmFromRpe, fitFatigue, localDate, round } from '../lib/load'
 import Tracker, { onBar, type TrackRow, type TLift } from './profile/Tracker'
 
@@ -131,6 +132,7 @@ export default function Profile({ lifterId }: { lifterId: string }) {
         </div>
       </section>
 
+      <CreatineModel lifterId={lifterId} />
       <SpeedBands lifterId={lifterId} />
 
       <MetricSection title="Body" items={catalog.filter(m => m.grp === 'Body' && !m.derived)} series={series} lifterId={lifterId} reload={load}
@@ -433,6 +435,53 @@ function SpeedBands({ lifterId }: { lifterId: string }) {
           ))}
         </div>
       )}
+    </section>
+  )
+}
+
+/**
+ * The creatine numbers Max plans spotter sets with, per lift, and how each session moved them.
+ * Undo puts a lift back to where it was before that session (latest first), and that session is never applied again.
+ */
+function CreatineModel({ lifterId }: { lifterId: string }) {
+  const { lifters, reload, cfg } = useStore()
+  const lifter = lifters.find(l => l.id === lifterId)
+  const st = lifter?.settings ?? {}
+  const log: CrLogEntry[] = st.creatine_log ?? []
+  const def = crOf(cfg)
+  const lifts = ['bench', 'squat']
+  const latest = (lift: string) => log.find(e => e.lift === lift && !e.undone && !(e.after.half_s === e.before.half_s && e.after.cost === e.before.cost))
+  async function undo(e: CrLogEntry) {
+    const creatine = { ...(st.creatine ?? {}), [e.lift]: { ...(st.creatine?.[e.lift] ?? {}), half_s: e.before.half_s, cost: e.before.cost } }
+    const creatine_log = log.map(x => (x === e ? { ...x, undone: true } : x))
+    await supabase.from('lifters').update({ settings: { ...st, creatine, creatine_log } }).eq('id', lifterId)
+    await reload()
+  }
+  return (
+    <section className="card crmodel">
+      <h2><T tip={`What Max plans spotter sets with: how long creatine takes to half refill, and how much each rep uses. After a session with two spotter sets read by the Tindeq and one measured rest, each number moves ${LEARN_RATE * 100}% of the way toward what the session measured. A reading under half or over double the current number, or outside a sensible range, is ignored and listed here.`} pos="right">Creatine model</T></h2>
+      <div className="crnow">
+        {lifts.map(l => { const c = { ...def, ...(st.creatine?.[l] ?? {}) }; const own = !!st.creatine?.[l]; return (
+          <div key={l}><span className="cap">{l}</span> half-time <b>{fmtCr('half_s', c.half_s)}</b> · per rep <b>{fmtCr('cost', c.cost)}</b> {!own && <span className="small muted">(defaults)</span>}</div>
+        ) })}
+      </div>
+      {log.length > 0 && (
+        <div className="tablewrap"><table className="sheet cfg crlog">
+          <thead><tr><th className="stick">Session</th><th>Lift</th><th>Half-time</th><th>Per rep</th><th>Note</th><th /></tr></thead>
+          <tbody>
+            {log.map(e => (
+              <tr key={e.session + e.lift} className={e.undone ? 'undone' : ''}>
+                <td className="stick">{e.date}</td><td className="cap">{e.lift}</td>
+                <td>{fmtCr('half_s', e.before.half_s)} → <b>{fmtCr('half_s', e.after.half_s)}</b>{e.fitted.half_s !== null && <span className="small muted"> (measured {fmtCr('half_s', e.fitted.half_s)})</span>}</td>
+                <td>{fmtCr('cost', e.before.cost)} → <b>{fmtCr('cost', e.after.cost)}</b>{e.fitted.cost !== null && <span className="small muted"> (measured {fmtCr('cost', e.fitted.cost)})</span>}</td>
+                <td className="small">{e.undone ? <span className="muted">undone</span> : e.rejected.length ? <span className="err">ignored: {e.rejected.join('; ')}</span> : ''}</td>
+                <td>{latest(e.lift) === e && <button className="ghost small" onClick={() => undo(e)} data-tip={`Put ${e.lift} back to ${fmtCr('half_s', e.before.half_s)} and ${fmtCr('cost', e.before.cost)}; this session won't be applied again.`} data-pos="left">Undo</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+      {!log.length && <p className="small muted">No updates yet. They start once a session has two spotter sets read by the Tindeq.</p>}
     </section>
   )
 }

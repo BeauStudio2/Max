@@ -689,3 +689,6 @@ table.sheet tr td.o-dyn { color: var(--o-dyn); } table.sheet tr td.o-def { color
 .restoverlay.lift .ro-big { font-size: min(30vw, 60vh); }
 .restoverlay.over { color: var(--hurt); }
 .sbands { grid-template-columns: minmax(0, 1fr) auto 40px; max-width: 640px; }
+.crmodel .crnow { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 10px; }
+.crmodel .cap { text-transform: capitalize; margin-right: 6px; }
+.crlog tr.undone td { opacity: .5; }

@@ -16,7 +16,7 @@ const cueOn = (k: 'next' | 'plates') => voice.get().settings.cues[k]?.on !== fal
 const RestCtx = createContext<number | null>(null)
 const SpotCtx = createContext<{ rows: Record<string, boolean>; set?: (idx: number, on: boolean) => void }>({ rows: {} })
 import TindeqPanel, { type Tempo } from './TindeqPanel'
-import { endLevel, fitSession, levelAfter, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
+import { endLevel, fitQualifies, fitSession, levelAfter, predictSet, restFor, startLevel, strengthAt, type Pulse, type SpotSet } from '../../lib/creatine'
 import { DelBtn, fmt, useClock, type Api } from './shared'
 
 export type Placement = 'between' | 'first' | 'after'
@@ -208,13 +208,15 @@ function buildSequence(units: Record<Block, Item[][]>, order: Block[], joins: bo
 
 /* ---------- the sheet ---------- */
 
-export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, S, circuit, onCircuit }: {
+export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, restS, speed, speedEx, speedSets, order, joins, running = false, onPlannedMax, onApplyFit, onAutoFit, speedMax = {}, supportMax = {}, speedBands = {}, onSpeedBands, spotRows = {}, onSpotRow, S, circuit, onCircuit }: {
   /** S switched on or off on sets not yet done, kept on the session so it survives leaving Log. */
   spotRows?: Record<string, boolean>; onSpotRow?: (idx: number, on: boolean) => void
   speedBands?: Record<string, BandPick[]>; onSpeedBands?: (exercise: string, bands: BandPick[]) => void
   api: Api; liftLabel: string; L: Ladder | null; D: DeadliftCtl | null; heavyExerciseId?: string; restS: number
   speed: any | null; speedEx: (it: any) => string; speedSets: (it: any) => SetRow[]; order: Block[]; joins: boolean[]; running?: boolean; onPlannedMax?: (v: number | null) => void
   speedMax?: Record<string, number>; supportMax?: Record<string, number>; onApplyFit?: (patch: Record<string, number>) => void
+  /** Today's fit, handed up so the lifter's numbers can learn from it. */
+  onAutoFit?: (fit: { cost: number | null; costN: number; half_s: number | null; halfN: number }) => void
   S: SupportCtl; circuit: number | null; onCircuit: (min: number | null) => void
 }) {
   const platesOn: number[] | undefined = L?.plan.plates_on ?? D?.plan.plates_on
@@ -296,6 +298,8 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     if (!ss.length) return null
     return fitSession(ss, L.cr, L.plan.fatigue_rate_used_pct / 100)
   })()
+  const fitKey = fit ? JSON.stringify([fit.cost && Math.round(fit.cost * 1000), fit.costN, fit.half_s && Math.round(fit.half_s), fit.halfN]) : ''
+  useEffect(() => { if (fit) onAutoFit?.(fit) }, [fitKey])
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
 
   // Spoken cues: "Ten seconds" before rest is up, "Lift" when it is, "Overtime" a minute later. Each once per rest.
@@ -395,11 +399,10 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
       </div>
       {fit && (fit.cost !== null || fit.half_s !== null) && (
         <p className="small fitline">
-          <span className="hastip" data-tip="Fitted from today's spotter sets. Rep cost needs Tindeq readings (how fast strength falls rep to rep). Recovery half-time comes from how much strength returned over each rest." data-pos="left">Model check</span>:
-          {fit.half_s !== null && <> recovery half-time <b>{Math.round(fit.half_s)} s</b> from {fit.halfN} rest{fit.halfN > 1 ? 's' : ''} (using {Math.round(L!.cr.half_s)} s)
-            {' '}{Math.round(fit.half_s) !== Math.round(L!.cr.half_s) && <button className="linkish" onClick={() => onApplyFit?.({ half_s: Math.round(fit.half_s!) })} data-tip="Save this as the lifter's half-time for this lift; later sessions plan with it." data-pos="center">use it</button>}</>}
-          {fit.cost !== null && <>{fit.half_s !== null ? ' · ' : ' '}creatine per rep <b>{(fit.cost * 100).toFixed(1)}%</b> from {fit.costN} set{fit.costN > 1 ? 's' : ''} (using {(L!.cr.cost * 100).toFixed(1)}%)
-            {' '}{Math.round(fit.cost * 1000) !== Math.round(L!.cr.cost * 1000) && <button className="linkish" onClick={() => onApplyFit?.({ cost: Math.round(fit.cost! * 1000) / 1000 })} data-tip="Save this as the lifter's rep cost for this lift." data-pos="center">use it</button>}</>}
+          <span className="hastip" data-tip="Fitted from today's spotter sets. Creatine per rep needs Tindeq readings (how fast strength falls rep to rep); recovery half-time comes from how much strength returned over each rest. With two read sets and one measured rest, Max moves the lifter's numbers a quarter of the way toward these (a reading under half or over double is ignored). See Profile → Creatine model." data-pos="left">Model check</span>
+          {fit.half_s !== null && <> recovery half-time <b>{Math.round(fit.half_s)} s</b> from {fit.halfN} rest{fit.halfN > 1 ? 's' : ''}</>}
+          {fit.cost !== null && <>{fit.half_s !== null ? ' · ' : ' '}creatine per rep <b>{(fit.cost * 100).toFixed(1)}%</b> from {fit.costN} set{fit.costN > 1 ? 's' : ''}</>}
+          {' · '}{fitQualifies(fit) ? <>planning with {Math.round(L!.cr.half_s)} s, {(L!.cr.cost * 100).toFixed(1)}% (updated)</> : <span className="muted">needs 2 sets read by the Tindeq and a measured rest to update</span>}
         </p>
       )}
       <p className="small muted sheetfoot">

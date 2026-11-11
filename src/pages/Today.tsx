@@ -1,3 +1,4 @@
+import { crOf, fitQualifies, learn, type CrLogEntry } from '../lib/creatine'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
@@ -24,7 +25,7 @@ const KEY_LABEL: Record<string, string> = { target_reps: 'target reps', stop_pct
 const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== null && v !== undefined) as T | undefined
 
 export default function Today({ lifterId }: { lifterId: string }) {
-  const { templates, lifters, exercises, reload } = useStore()
+  const { templates, lifters, exercises, reload, cfg } = useStore()
   const lifter = lifters.find(l => l.id === lifterId)
   const st = lifter?.settings ?? {}
   const [date, setDate] = useState(localDate())
@@ -204,6 +205,24 @@ export default function Today({ lifterId }: { lifterId: string }) {
     const cur = st.speed_bands ?? {}
     if (JSON.stringify(cur[exercise] ?? null) === JSON.stringify(bands)) return
     const { error } = await supabase.from('lifters').update({ settings: { ...st, speed_bands: { ...cur, [exercise]: bands } } }).eq('id', lifter.id)
+    if (error) setErr(error.message); else await reload()
+  }
+  // After a session with enough Tindeq data, the lifter's creatine numbers for this lift move a quarter of the way toward what it measured.
+  // Done per session (recomputed from the numbers before it as more sets come in), logged on the lifter, and undoable on Profile.
+  async function autoFit(fit: { cost: number | null; costN: number; half_s: number | null; halfN: number }) {
+    if (!lifter || !session?.id || !fitQualifies(fit)) return
+    const log: CrLogEntry[] = st.creatine_log ?? []
+    const prior = log.find(e => e.session === session.id && e.lift === lift)
+    if (prior?.undone) return
+    const cur = { ...crOf(cfg), ...(st.creatine?.[lift] ?? {}) }
+    const before = prior?.before ?? { half_s: cur.half_s, cost: cur.cost }
+    const fitted = { half_s: fit.half_s, cost: fit.cost }
+    const { after, rejected } = learn(before, fitted)
+    if (prior && Math.round(prior.after.half_s) === Math.round(after.half_s) && Math.round(prior.after.cost * 1000) === Math.round(after.cost * 1000) && prior.rejected.length === rejected.length) return
+    const entry: CrLogEntry = { session: session.id, date, lift, before, fitted, after, rejected, at: new Date().toISOString() }
+    const creatine = { ...(st.creatine ?? {}), [lift]: { ...(st.creatine?.[lift] ?? {}), half_s: after.half_s, cost: after.cost } }
+    const nextLog = [entry, ...log.filter(e => !(e.session === session.id && e.lift === lift))].slice(0, 60)
+    const { error } = await supabase.from('lifters').update({ settings: { ...st, creatine, creatine_log: nextLog } }).eq('id', lifter.id)
     if (error) setErr(error.message); else await reload()
   }
   async function applyFit(patch: Record<string, number>) {
@@ -391,7 +410,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
 
       <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
-        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
+        speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={!!session?.started_at && !session?.ended_at} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
         onCircuit={m => ensureSession({ extra: { ...((session?.extra as any) ?? {}), circuit_minutes: m } } as any)} />
 

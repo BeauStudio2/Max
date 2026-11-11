@@ -134,3 +134,35 @@ export function fitSession(sets: SpotSet[], cr: Cr, slowFatigue: number) {
   }
   return { cost, costN: costs.length, half_s: median(halves), halfN: halves.length }
 }
+
+/* ---------- learning the lifter's numbers, session by session ---------- */
+
+/** What one session needs before it can move the lifter's numbers: two spotter sets read by the Tindeq and one measured rest between them. */
+export const fitQualifies = (f: { costN: number; halfN: number }) => f.costN >= 2 && f.halfN >= 1
+/** Each session moves a number this far toward what it measured, so no single session can swing it. */
+export const LEARN_RATE = 0.25
+const RANGE = { half_s: [10, 180], cost: [0.03, 0.3] } as const
+
+export interface CrLearn { half_s: number; cost: number }
+/**
+ * The lifter's numbers after one session. A fitted value outside the sensible range, or under half / over double the
+ * number before the session, is treated as a bad reading: it is left out and reported, and that number stays as it was.
+ */
+export function learn(before: CrLearn, fitted: { half_s: number | null; cost: number | null }) {
+  const after = { ...before }, rejected: string[] = []
+  for (const k of ['half_s', 'cost'] as const) {
+    const v = fitted[k]
+    if (v === null) continue
+    const [lo, hi] = RANGE[k]
+    if (v < lo || v > hi) { rejected.push(`${k === 'half_s' ? 'half-time' : 'creatine per rep'} ${fmtCr(k, v)} is outside ${fmtCr(k, lo)}–${fmtCr(k, hi)}`); continue }
+    if (v < before[k] / 2 || v > before[k] * 2) { rejected.push(`${k === 'half_s' ? 'half-time' : 'creatine per rep'} ${fmtCr(k, v)} is under half or over double ${fmtCr(k, before[k])}`); continue }
+    after[k] = before[k] + LEARN_RATE * (v - before[k])
+  }
+  after.half_s = Math.round(after.half_s * 10) / 10
+  after.cost = Math.round(after.cost * 10000) / 10000
+  return { after, rejected }
+}
+export const fmtCr = (k: 'half_s' | 'cost', v: number) => (k === 'half_s' ? `${Math.round(v)} s` : `${(v * 100).toFixed(1)}%`)
+
+/** One session's update, kept on the lifter so it can be seen and undone on Profile. */
+export interface CrLogEntry { session: string; date: string; lift: string; before: CrLearn; fitted: { half_s: number | null; cost: number | null }; after: CrLearn; rejected: string[]; undone?: boolean; at: string }
