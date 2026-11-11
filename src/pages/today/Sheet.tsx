@@ -304,6 +304,14 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   })()
   const fitKey = fit ? JSON.stringify([fit.cost && Math.round(fit.cost * 1000), fit.costN, fit.half_s && Math.round(fit.half_s), fit.halfN]) : ''
   useEffect(() => { if (fit) onAutoFit?.(fit) }, [fitKey])
+  // Column headings stay in view while scrolling the sets: they stick just under the rest bar, whatever its height.
+  const cardRef = useRef<HTMLElement>(null), barRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const bar = barRef.current, card = cardRef.current
+    if (!bar || !card) return
+    const set = () => card.style.setProperty('--sheet-top', `${Math.round(parseFloat(getComputedStyle(bar).top) + bar.offsetHeight)}px`)
+    set(); const ro = new ResizeObserver(set); ro.observe(bar); return () => ro.disconnect()
+  }, [])
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
 
   // Spoken cues: "Ten seconds" before rest is up, "Lift" when it is, "Overtime" a minute later. Each once per rest.
@@ -354,9 +362,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const slotName = (r: SetRow) => { const it = items.find(i => i.name === r.setup?.slot); return it ? speedEx(it) : r.setup?.slot ?? 'Speed' }
 
   return (
-    <section className="card sheetcard">
+    <section className="card sheetcard" ref={cardRef}>
       {running && restFrom && restTarget > 0 && <RestOverlay rest={rest} target={restTarget} />}
-      <div className="sheetbar">
+      <div className="sheetbar" ref={barRef}>
         <div><span className="small muted hastip" data-tip="Time since the last heavy set / your rest target. Turns green when it's time." data-pos="left">Rest</span><b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>
         <label className="circuit"><span className="small muted hastip" data-tip="Minutes from the first to the last set of the heavy + speed circuit. Blank uses the logged times; type to override. Used for fatigue per minute." data-pos="right">Circuit min</span>
@@ -368,7 +376,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         {spotMode && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
-      <div className="tablewrap">
+      <div className="tablewrap sheetwrap">
         <SpotCtx.Provider value={{ rows: spotRows, set: onSpotRow }}><RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
         <table className="sheet">
           <thead>

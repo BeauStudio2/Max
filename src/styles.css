@@ -698,3 +698,10 @@ th.c-plate .platehd:hover { background: var(--line); }
 th.c-plate .platehd:focus-visible { outline: 2px solid var(--accent); }
 th.c-plate.off .platehd { text-decoration: line-through; opacity: .45; }
 .lowset { color: var(--warn); font-weight: 600; }
+
+/* Log sheet: column headings stay visible while scrolling through the sets (they stick under the rest bar). Where the table
+   has to scroll sideways (narrow screens) the wrapper is a scroll box and they scroll away as before. */
+@media (min-width: 900px) {
+  .sheetwrap { overflow-x: clip; }
+  .sheetwrap table.sheet thead th { top: var(--sheet-top, 130px); }
+}
