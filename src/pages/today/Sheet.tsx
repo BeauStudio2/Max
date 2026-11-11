@@ -11,6 +11,8 @@ import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
 import VoiceBar from './VoiceBar'
 import BarPanel from './BarPanel'
+import CamPanel from './CamPanel'
+import { camera } from '../../lib/camera'
 import { imu, summarize as barSummary } from '../../lib/imuLink'
 import { predictionMiss, type Probe, type SetObs } from '../../lib/learn'
 import { recordObservations } from '../../lib/observations'
@@ -391,6 +393,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         <Metronome />
         <VoiceBar />
         <BarPanel />
+        <CamPanel />
         {spotMode && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
@@ -536,6 +539,13 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget }: {
         setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
           bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) })) } : null } })
       if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s) } })))
+      // Film of the set from the laptop camera: the exact set when a sensor timed it, otherwise the last stretch before logging.
+      if (saved?.id && saved.session_id) {
+        const tm = tempo ?? row.setup.spot?.tempo
+        const win = bar ? { from: bar.at - (bar.ended - bar.started + 6 + 8) * 1000, to: bar.at + 2000 }
+          : tm?.rec_at && tm?.ended_at ? { from: Date.parse(tm.rec_at) - 5000, to: Date.parse(tm.ended_at) + 5000 } : undefined
+        camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: idx }, win)
+      }
       // Raw Tindeq readings, one row per assisted rep, kept for later mining.
       const pulses = (patch.trace !== undefined ? patch.trace : trace) ?? []
       if (saved?.id && saved.session_id && pulses.length) recordObservations(pulses.map((pl, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'tindeq' as const, metric: 'assist_lb', value: Math.round(pl.mean * 10) / 10, data: { peak_lb: pl.peak, dur_s: pl.dur, start_s: pl.start } })))

@@ -80,7 +80,7 @@ export const imu = {
   /** End the set now instead of waiting for the bar to sit still. */
   endSet() { tracker.flush() },
   /** The last finished set, once, for the heavy set being logged (only if it finished in the last few minutes). */
-  take(): BarSet | null {
+  take(): (BarSet & { at: number }) | null {
     tracker.flush()
     const s = state.lastSet
     if (!s || s.taken || Date.now() - s.at > 4 * 60_000) return null

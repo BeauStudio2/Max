@@ -75,7 +75,7 @@ function Shell() {
         ) : (
           <>
             {tab === 'today' && <Today lifterId={lifterId} />}
-            {tab === 'profile' && <><Profile lifterId={lifterId} /><Account email={auth.user.email ?? ''} /></>}
+            {tab === 'profile' && <><Profile lifterId={lifterId} onPick={setLifterId} /><Account email={auth.user.email ?? ''} /></>}
             {tab === 'plan' && <Plan lifterId={lifterId} />}
             {tab === 'config' && <Config />}
           </>

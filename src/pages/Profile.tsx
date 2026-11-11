@@ -13,8 +13,17 @@ interface Point { d: string; v: number; x?: boolean; id?: string; src?: string }
 
 const DAY = 86400000
 
-export default function Profile({ lifterId }: { lifterId: string }) {
-  const { lifters, exercises, equipment } = useStore()
+export default function Profile({ lifterId, onPick }: { lifterId: string; onPick?: (id: string) => void }) {
+  const { lifters, exercises, equipment, isCoach, reload: reloadStore } = useStore()
+  const [newName, setNewName] = useState<string | null>(null)
+  async function addProfile() {
+    const name = (newName ?? '').trim()
+    if (!name) return
+    if (lifters.some(l => l.name.toLowerCase() === name.toLowerCase())) { setErr(`There is already a profile called ${name}.`); return }
+    const { data, error } = await supabase.from('lifters').insert({ name }).select('id').single()
+    if (error) { setErr(error.message); return }
+    setErr(null); setNewName(null); await reloadStore(); if (data?.id) onPick?.(data.id)
+  }
   const lifter = lifters.find(l => l.id === lifterId)
   const [catalog, setCatalog] = useState<Metric[]>([])
   const [series, setSeries] = useState<Record<string, Point[]>>({})
@@ -108,8 +117,18 @@ export default function Profile({ lifterId }: { lifterId: string }) {
       <section className="card phead">
         <div className="row between">
           <h2 style={{ margin: 0 }}>{lifter?.name ?? 'Profile'}</h2>
-          <button className="primary inline" onClick={() => setAdding(a => !a)}>{adding ? 'Close' : '+ Add measurements'}</button>
+          <div className="row" style={{ gap: 8 }}>
+            {isCoach && newName === null && <button className="ghost inline" onClick={() => setNewName('')} data-tip="Add another person to train. They start with the default plan and settings; link their sign-in under Config." data-pos="left">+ Add profile</button>}
+            <button className="primary inline" onClick={() => setAdding(a => !a)}>{adding ? 'Close' : '+ Add measurements'}</button>
+          </div>
         </div>
+        {newName !== null && (
+          <form className="row newprofile" style={{ gap: 8, marginTop: 8 }} onSubmit={e => { e.preventDefault(); addProfile() }}>
+            <input autoFocus placeholder="Name" value={newName} onChange={e => setNewName(e.target.value)} />
+            <button className="primary inline" type="submit" disabled={!newName.trim()}>Add</button>
+            <button className="ghost inline" type="button" onClick={() => setNewName(null)}>Cancel</button>
+          </form>
+        )}
         <div className="keystats">
           <Stat label="Bench" value={valid('e1rm_bench')?.v ?? st.planned_e1rm?.bench} note={valid('e1rm_bench') ? 'est. max' : 'planned'} />
           <Stat label="Squat" value={valid('e1rm_squat')?.v ?? st.planned_e1rm?.squat} note={valid('e1rm_squat') ? 'est. max' : 'planned'} />

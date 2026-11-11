@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { camera, useCamera } from '../../lib/camera'
 import { imu, useImu } from '../../lib/imuLink'
+import { CamPreview } from '../today/CamPanel'
 import { bluetoothAvailable, sensor } from '../../lib/tindeq'
 import { useSensor } from '../../lib/useSensor'
 import { findPulses, type Pulse } from '../../lib/creatine'
@@ -58,6 +60,7 @@ export default function Sensors() {
           </>
         )}
       <PhoneBar />
+      <Camera />
     </section>
   )
 }
@@ -87,3 +90,35 @@ function PhoneBar() {
   )
 }
 
+
+/** The laptop camera that films heavy sets: which camera, how much to keep per set, and a picture to aim it by. */
+function Camera() {
+  const s = useCamera()
+  useEffect(() => { camera.resume() }, [])
+  return (
+    <>
+      <h3><T tip="Films each heavy set and saves the clip with the set, as raw material for tracking the bar: true bar speed and path, depth, sticking point. Nothing is analysed yet. Aim it side-on to the bar, at about bar height, with the whole lift in view. A strip of bright tape on the end of the bar makes it much easier to track." pos="right">Camera</T></h3>
+      <div className="sensrow">
+        <span className={'dot ' + (s.status === 'rec' ? 'on' : s.status === 'starting' ? 'connecting' : '')} />
+        <span>{s.status === 'rec' ? <>Filming <b>{s.size}</b></> : s.status === 'starting' ? 'Starting…' : 'Off'}</span>
+        <button className={(s.on ? 'ghost' : 'primary') + ' small'} onClick={() => camera.setOn(!s.on)}>{s.on ? 'Turn off' : 'Turn on'}</button>
+        {s.clips > 0 && <span className="small">{s.clips} clips saved this visit · {Math.round(s.bytes / 1e6)} MB</span>}
+      </div>
+      {s.error && <p className="small err">{s.error}</p>}
+      <CamPreview className="campreview" />
+      <div className="planfields sensfields">
+        {s.devices.length > 1 && (
+          <label><T tip="Which camera to film with, if the laptop has more than one (for example a USB camera).">Camera</T>
+            <select value={s.deviceId} onChange={e => camera.setDevice(e.target.value)}>
+              <option value="">Default</option>
+              {s.devices.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+            </select>
+          </label>
+        )}
+        <label><T tip="How much film to keep for a set when no sensor timed it: this many seconds before the moment you log it. 10 to 180. About 1 MB for every 8 seconds.">Seconds per set</T>
+          <input inputMode="numeric" defaultValue={s.clip_s} key={s.clip_s} onBlur={e => camera.setClipS(Number(e.target.value))} />
+        </label>
+      </div>
+    </>
+  )
+}

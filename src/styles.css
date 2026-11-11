@@ -730,3 +730,11 @@ td .probetag { margin: 2px 0 0; }
 .barreps i { font-style: normal; font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--line); }
 .barspeed { color: var(--o-dyn); }
 .mono { font-family: ui-monospace, monospace; }
+
+/* Camera */
+.campanel { display: flex; flex-direction: column; }
+.camthumb { height: 34px; border-radius: 6px; background: #000; }
+.camthumb:hover { transform: scale(5); transform-origin: top left; position: relative; z-index: 30; }
+.campreview { display: block; width: min(100%, 480px); border-radius: 10px; background: #000; margin: 8px 0; }
+.recdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e5484d; margin-right: 2px; }
+.newprofile input { max-width: 220px; }
