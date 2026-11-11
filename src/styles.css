@@ -738,3 +738,7 @@ td .probetag { margin: 2px 0 0; }
 .campreview { display: block; width: min(100%, 480px); border-radius: 10px; background: #000; margin: 8px 0; }
 .recdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e5484d; margin-right: 2px; }
 .newprofile input { max-width: 220px; }
+
+.clearday { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+button.danger { color: #fff; background: var(--err); border: 1px solid var(--err); border-radius: 8px; padding: 6px 12px; font-weight: 700; cursor: pointer; }
+.small.ok { color: var(--ok, #3fb950); }

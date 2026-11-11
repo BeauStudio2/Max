@@ -45,14 +45,18 @@ export default function Today({ lifterId }: { lifterId: string }) {
   // A session whose data was corrected by hand and must not be removed from the app.
   const LOCKED = ['0def149c-5840-425a-817e-68e42f847301']
   /** Clear day: delete this day's session with everything logged in it (sets, sensor readings, film), back to a blank day. */
+  const [clearing, setClearing] = useState<'ask' | 'busy' | 'done' | null>(null)
+  const [cleared, setCleared] = useState(0)
   async function clearDay() {
     if (!session?.id || LOCKED.includes(session.id)) return
     const id = session.id
+    setClearing('busy')
     const { data: films } = await supabase.storage.from('video').list(id, { limit: 1000 })
     if (films?.length) await supabase.storage.from('video').remove(films.map(f => `${id}/${f.name}`))
     const { error } = await supabase.from('sessions').delete().eq('id', id)
-    if (error) { setErr(error.message); return }
+    if (error) { setErr(error.message); setClearing(null); return }
     await load()
+    setCleared(n => n + 1); setClearing('done'); setTimeout(() => setClearing(c => (c === 'done' ? null : c)), 2500)
   }
 
   async function load() {
@@ -431,9 +435,18 @@ export default function Today({ lifterId }: { lifterId: string }) {
               <DelBtn label="Reset" text="Reset" tip="Clears start and finish times. Logged sets are kept." onConfirm={() => ensureSession({ started_at: null, ended_at: null })} />
             </>
           )}
-          {session?.id && !LOCKED.includes(session.id)
-            ? <DelBtn label="Clear day" text="Clear day" tip="Deletes everything logged for this lift on this day (sets, notes, times, sensor readings, film) and starts the day blank. It cannot be undone." onConfirm={clearDay} />
-            : <button type="button" className="ghost small del" disabled data-pos="right" data-tip={session?.id ? 'This session was corrected by hand and is protected: it cannot be cleared from here.' : 'Nothing is saved for this lift on this day yet, so there is nothing to clear.'}>Clear day</button>}
+        </div>
+        <div className="clearday">
+          {clearing === 'ask' ? (
+            <>
+              <span className="small">Delete {sets.length === 1 ? "the 1 set and " : sets.length ? `all ${sets.length} sets and ` : ""}everything saved for {heavyEx} on {date}?</span>
+              <button type="button" className="small danger" onClick={clearDay}>Delete</button>
+              <button type="button" className="ghost small" onClick={() => setClearing(null)}>Cancel</button>
+            </>
+          ) : clearing === 'busy' ? <span className="small muted">Clearing…</span>
+            : clearing === 'done' ? <span className="small ok">Day cleared.</span>
+            : <button type="button" className="ghost small" disabled={!session?.id || LOCKED.includes(session.id)} onClick={() => setClearing('ask')} data-pos="right"
+                data-tip={!session?.id ? 'Nothing is saved for this lift on this day yet, so there is nothing to clear.' : LOCKED.includes(session.id) ? 'This session was corrected by hand and is protected: it cannot be cleared from here.' : 'Deletes everything logged for this lift on this day (sets, notes, times, sensor readings, film) and starts the day blank. Asks first.'}>Clear day</button>}
         </div>
         <SessionStats session={session} sets={sets} volume={L?.volume ?? null} bwDefault={lifter?.bodyweight_lb ?? st.bodyweight_lb ?? null} lifterId={lifter?.id} date={date} />
       </section>
@@ -493,7 +506,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
         )}
       </section>
 
-      <SessionSheet key={date + lift + supportKey} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
+      <SessionSheet key={date + lift + supportKey + cleared} api={api} liftLabel={heavyEx} L={lift === 'deadlift' ? null : L} D={lift === 'deadlift' ? D : null}
         heavyExerciseId={exId(heavyEx)} restS={lift === 'deadlift' ? (dlPlan.rest_s ?? 180) : ladderPlan.rest_s}
         speed={speedFor} speedEx={speedEx} speedSets={speedSlotSets} order={order} joins={joins} S={S} running={running} onPlatesOn={v => (lift === 'deadlift' ? savePlan(dlPlan) : savePlan(ladderPlan))({ plates_on: v })} onPlannedMax={v => savePlan(ladderPlan)({ planned_e1rm: v })} onApplyFit={applyFit} onAutoFit={autoFit} probes={probes} onSkipProbe={(idx: number) => savePlanned({ probe_skip: { ...(sp.probe_skip ?? {}), [idx]: true } })} onObs={setObs} spotRows={(sp.spot_rows as Record<string, boolean> | undefined) ?? {}} onSpotRow={(idx: number, on: boolean) => savePlanned({ spot_rows: { ...(sp.spot_rows ?? {}), [idx]: on } })} speedBands={st.speed_bands ?? {}} onSpeedBands={saveSpeedBands} speedMax={speedMax} supportMax={supportMax}
         circuit={(session?.extra as any)?.circuit_minutes ?? null}
