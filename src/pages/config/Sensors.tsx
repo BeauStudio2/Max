@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { camera, useCamera } from '../../lib/camera'
-import { imu, useImu } from '../../lib/imuLink'
+import { imu, pairCode, useImu } from '../../lib/imuLink'
 import { CamPreview } from '../today/CamPanel'
 import { bluetoothAvailable, sensor } from '../../lib/tindeq'
 import { useSensor } from '../../lib/useSensor'
@@ -68,7 +68,8 @@ export default function Sensors() {
 /** A phone fixed to the bar as the bar-speed sensor: where to open it, and whether its readings are arriving. */
 function PhoneBar() {
   const s = useImu()
-  useEffect(() => { imu.listen() }, [])
+  const [code, setCode] = useState('')
+  useEffect(() => { imu.listen(); pairCode().then(setCode) }, [])
   const live = s.hz > 0 && Date.now() - s.lastAt < 2500
   const url = `${location.origin}/#phone`
   return (
@@ -80,7 +81,8 @@ function PhoneBar() {
         {live && <b className="senslb">{s.velocity >= 0 ? '+' : ''}{s.velocity.toFixed(2)} m/s</b>}
         {live && s.reps.length > 0 && <span className="small">{s.reps.length} reps: {s.reps.map(r => r.mean_mps.toFixed(2)).join(', ')} m/s</span>}
       </div>
-      {!live && <p className="small">On the phone, sign in to Max, open <b className="mono">{url}</b> and press Start. Then fix the phone to the bar.</p>}
+      {!live && <p className="small">On the phone, sign in to Max, open <b className="mono">{url}</b> and press Start. Then fix the phone to the bar. The page must stay on screen.</p>}
+      <p className="small">Android app (keeps sending in the background): install <a className="linkish" href="https://github.com/BeauStudio2/Max/releases/tag/maxbar" target="_blank" rel="noreferrer">Max Bar</a> on the phone, enter the code <b className="mono">{code || '…'}</b> and press Start.</p>
       <div className="planfields sensfields">
         <label className="toggle"><T tip="Turn on if lifting the bar shows as a negative speed (some phones report motion the other way round).">Flip direction</T>
           <button type="button" className={'switch' + (s.flip ? ' on' : '')} aria-pressed={s.flip} onClick={() => imu.setFlip(!s.flip)}>{s.flip ? 'On' : 'Off'}</button>

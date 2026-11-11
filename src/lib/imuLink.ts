@@ -12,12 +12,20 @@ type Batch = { s: [number, number][]; hz?: number }
 const local = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('max-imu') : null
 let joining: Promise<ReturnType<typeof supabase.channel>> | null = null
 let joined = false
+/** The code the Android app is paired with: the first part of the account's id. */
+export const pairCode = async () => ((await supabase.auth.getSession()).data.session?.user.id ?? '').slice(0, 8)
 /** Join the account's channel once. (Readings arrive ten times a second, so every caller must share the one join.) */
 function join(onBatch?: (b: Batch) => void) {
   return (joining ??= (async () => {
     const { data } = await supabase.auth.getSession()
-    const ch = supabase.channel(`imu:${data.session?.user.id ?? 'anon'}`, { config: { broadcast: { self: false, ack: false } } })
-    if (onBatch) ch.on('broadcast', { event: 's' }, ({ payload }) => onBatch(payload as Batch))
+    const uid = data.session?.user.id ?? 'anon'
+    const ch = supabase.channel(`imu:${uid}`, { config: { broadcast: { self: false, ack: false } } })
+    if (onBatch) {
+      ch.on('broadcast', { event: 's' }, ({ payload }) => onBatch(payload as Batch))
+      // The Android app sends the same readings on its own channel, named by the pairing code.
+      supabase.channel(`imubar:${uid.slice(0, 8)}`, { config: { broadcast: { self: false, ack: false } } })
+        .on('broadcast', { event: 's' }, ({ payload }) => onBatch(payload as Batch)).subscribe()
+    }
     ch.subscribe(status => { joined = status === 'SUBSCRIBED' })
     return ch
   })())
