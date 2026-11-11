@@ -98,7 +98,7 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
   )
   return (
     <div className="tindeq">
-      <span className="small muted hastip" data-tip={`The Tindeq listens all workout. A set starts on "Max go" or its first assisted rep, and ends by itself ${END_AFTER_S} s after the last one (or "Max stop"). Its assisted reps fill the next heavy set. Record / Stop do the same by hand.`} data-pos="right">Tindeq{auto && st.status === 'on' ? (armed ? ' · set on' : ' · listening') : ''}</span>
+      <span className="small muted hastip" data-tip={`The Tindeq listens all workout. A set starts on "Max go" or its first assisted rep, and ends by itself ${END_AFTER_S} s after the last one (or "Max stop"). Its pulls are saved with the next heavy set; with S on they also fill that set's spotted reps and assist. Record / Stop do the same by hand.`} data-pos="right">Tindeq{auto && st.status === 'on' ? (armed ? ' · set on' : ' · listening') : ''}</span>
       <div className="metrorow">
         {st.status !== 'on'
           ? <><button type="button" className="switch" disabled={st.status === 'connecting'} onClick={() => sensor.connect()} data-tip="Wake the Tindeq (press its button) and close the Tindeq phone app first, then pick it in the list. Reloading the page drops the connection." data-pos="right">{st.status === 'connecting' ? 'Connecting…' : 'Connect'}</button>

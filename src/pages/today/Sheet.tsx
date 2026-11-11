@@ -396,7 +396,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         <VoiceBar />
         <BarPanel />
         <CamPanel />
-        {spotMode && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
+        {L && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
       <div className="tablewrap sheetwrap">
@@ -541,6 +541,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
           return from ? Math.round(((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000) : null })(),
         // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
         setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
+          force: !(patch.sp ?? sp) && trace?.length ? { n: trace.length, mean_lb: Math.round((trace.reduce((t, x) => t + x.mean, 0) / trace.length) * 10) / 10, peak_lb: Math.round(Math.max(...trace.map(x => x.peak)) * 10) / 10 } : null,
           bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
       if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) } })))
       // Film of the set from the laptop camera: the exact set when a sensor timed it, otherwise the last stretch before logging.
@@ -550,9 +551,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
           : tm?.rec_at && tm?.ended_at ? { from: Date.parse(tm.rec_at) - 5000, to: Date.parse(tm.ended_at) + 5000 } : undefined
         camera.saveClip({ session_id: saved.session_id, set_id: saved.id, set_index: idx }, win)
       }
-      // Raw Tindeq readings, one row per assisted rep, kept for later mining.
+      // Raw Tindeq readings, one row per pull (spotter help when S is on, plain force otherwise), kept for later mining.
       const pulses = (patch.trace !== undefined ? patch.trace : trace) ?? []
-      if (saved?.id && saved.session_id && pulses.length) recordObservations(pulses.map((pl, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'tindeq' as const, metric: 'assist_lb', value: Math.round(pl.mean * 10) / 10, data: { peak_lb: pl.peak, dur_s: pl.dur, start_s: pl.start } })))
+      if (saved?.id && saved.session_id && pulses.length) recordObservations(pulses.map((pl, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'tindeq' as const, metric: (patch.sp ?? sp) ? 'assist_lb' : 'force_lb', value: Math.round(pl.mean * 10) / 10, data: { peak_lb: pl.peak, dur_s: pl.dur, start_s: pl.start } })))
     }
   }
   const setSet = (s: LoadSetup, touch?: string) => {
@@ -560,10 +561,12 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
     if (!r && target) { const w = L.weightFor(target, s, idx, sp); setPlates(w); return commit({ setup: s, plates: w, touch }) }
     return commit({ setup: s, touch })
   }
-  // A set recorded on the Tindeq fills this row's average assist (the next set to do, with S on).
+  // A set recorded on the Tindeq goes to the next set to do: with S on it fills the row's spotted reps and average assist.
   const cap = useContext(CaptureCtx)
   useEffect(() => {
-    if (!cap || !next || !sp || !cap.pulses.length) return
+    if (!cap || !next || !cap.pulses.length) return
+    // With S off the pulls are not spotter help: they are kept with the set as raw force readings and nothing else changes.
+    if (!sp) { if (!r) { setTrace(cap.pulses); setTempo(cap.tempo) } return }
     const n = String(cap.pulses.length), avg = String(Math.round((cap.pulses.reduce((t, x) => t + x.mean, 0) / cap.pulses.length) * 10) / 10)
     setSpotted(n); setAssist(avg); setTrace(cap.pulses); setTempo(cap.tempo)
     if (r) commit({ spotted: n, assist: avg, trace: cap.pulses, tempo: cap.tempo })

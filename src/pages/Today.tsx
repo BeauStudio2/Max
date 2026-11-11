@@ -59,14 +59,19 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setCleared(n => n + 1); setClearing('done'); setTimeout(() => setClearing(c => (c === 'done' ? null : c)), 2500)
   }
 
+  const loadSeq = useRef(0)
+  // Only the latest load may write: changing the date changes the lift a moment later, and the first (stale) load must not win.
   async function load() {
+    const my = ++loadSeq.current, stale = () => my !== loadSeq.current
     setErr(null)
     const { data: s, error } = await supabase.from('sessions').select('*')
       .eq('lifter_id', lifterId).eq('session_date', date).eq('primary_lift', lift).maybeSingle()
+    if (stale()) return
     if (error) { setErr(error.message); return }
     setSession(s as Session | null)
     if (s) {
       const { data } = await supabase.from('sets').select('*').eq('session_id', s.id).order('set_index')
+      if (stale()) return
       setSets((data as SetRow[]) ?? [])
     } else setSets([])
     const [{ data: h }, { data: p }] = await Promise.all([
@@ -75,6 +80,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
       supabase.from('sessions').select('id, session_date, primary_lift, planned, sick, hurt, exclude_reason').eq('lifter_id', lifterId)
         .lt('session_date', date).order('session_date', { ascending: false }).limit(60),
     ])
+    if (stale()) return
     setHistory((h as SummaryRow[]) ?? [])
     // The plan carries forward from the last session of the same exercise (a substitute has its own history).
     const exOf = (x: any) => x?.planned?.heavy_exercise ?? LIFT_EXERCISE[x?.primary_lift ?? lift]
@@ -97,6 +103,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
       if (fit && fit.ratePct > 0) carried.fatigue_rate_used_pct = Math.round(fit.ratePct * 100) / 100
       carried.from = prev.session_date
     } else if (prev) carried.from = prev.session_date + ' (excluded: its planned values)'
+    if (stale()) return
     setPrevPlan(carried)
   }
   useEffect(() => { if (lifterId) load() }, [lifterId, date, lift])
