@@ -26,6 +26,7 @@ const PRE_S = 3
  * Each finished set's assisted reps fill the next heavy set's row. Connecting is in Config.
  */
 export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCapture: (pulses: Pulse[], tempo: Tempo) => void; minLb: number; minS: number; auto: boolean }) {
+  useEffect(() => { sensor.resume() }, [])
   const st = useSensor()
   // Connected but silent for 2 s: say so, so a set is never "recorded" with nothing coming in.
   useClock(st.status === 'on' ? new Date(0).toISOString() : null)

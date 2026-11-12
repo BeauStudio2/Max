@@ -20,24 +20,43 @@ export function parseWeights(data: DataView): Sample[] {
 
 export interface Tindeq { tare: () => Promise<void>; disconnect: () => void; name: string }
 
-/** Opens the browser's device picker, connects, and streams force samples (lb, seconds) until disconnected. */
-export async function connectTindeq(onSamples: (s: Sample[]) => void, onDisconnect: () => void): Promise<Tindeq> {
+/**
+ * Connects and streams force samples (lb, seconds). With no `known` device it opens the browser's picker; with one (a device
+ * the browser already has permission for) it connects straight to it. If the link drops by itself, it is taken up again
+ * without asking: `onLink(false)` while it is down, `onLink(true)` when readings are flowing again, and `onGone` only after
+ * two minutes of failed tries or a deliberate disconnect.
+ */
+export async function connectTindeq(onSamples: (s: Sample[]) => void, onGone: () => void, onLink: (up: boolean) => void = () => {}, known?: any): Promise<Tindeq> {
   const bt = (navigator as any).bluetooth
   if (!bt) throw new Error('This browser has no Bluetooth access. Use Chrome or Edge on the laptop.')
-  const device = await bt.requestDevice({ filters: [{ namePrefix: 'Progressor' }], optionalServices: [SERVICE] })
-  const server = await device.gatt.connect()
-  const service = await server.getPrimaryService(SERVICE)
-  const data = await service.getCharacteristic(DATA)
-  const ctrl = await service.getCharacteristic(CTRL)
-  data.addEventListener('characteristicvaluechanged', (e: any) => { const s = parseWeights(e.target.value as DataView); if (s.length) onSamples(s) })
-  await data.startNotifications()
-  device.addEventListener('gattserverdisconnected', onDisconnect)
+  const device = known ?? await bt.requestDevice({ filters: [{ namePrefix: 'Progressor' }], optionalServices: [SERVICE] })
+  let ctrl: any = null, closed = false
   const send = (cmd: number) => ctrl.writeValue(new Uint8Array([cmd]))
-  await send(CMD_START)
+  const onValue = (e: any) => { const s = parseWeights(e.target.value as DataView); if (s.length) onSamples(s) }
+  async function open() {
+    const server = await device.gatt.connect()
+    const service = await server.getPrimaryService(SERVICE)
+    const data = await service.getCharacteristic(DATA)
+    ctrl = await service.getCharacteristic(CTRL)
+    data.addEventListener('characteristicvaluechanged', onValue)
+    await data.startNotifications()
+    await send(CMD_START)
+  }
+  await open()
+  device.addEventListener('gattserverdisconnected', async () => {
+    if (closed) { onGone(); return }
+    onLink(false)
+    const until = Date.now() + 120_000
+    for (let wait = 500; !closed && Date.now() < until; wait = Math.min(wait * 1.6, 5000)) {
+      await new Promise(r => setTimeout(r, wait))
+      try { await open(); onLink(true); return } catch { /* still out of reach: try again */ }
+    }
+    closed = true; onGone()
+  })
   return {
     name: device.name ?? 'Progressor',
     tare: async () => { await send(CMD_STOP); await send(CMD_TARE); await send(CMD_START) },
-    disconnect: () => { send(CMD_STOP).catch(() => {}).finally(() => device.gatt.disconnect()) },
+    disconnect: () => { closed = true; send(CMD_STOP).catch(() => {}).finally(() => { if (device.gatt.connected) device.gatt.disconnect(); else onGone() }) },
   }
 }
 
@@ -60,10 +79,23 @@ const subs = new Set<() => void>()
 const streams = new Set<(s: Sample[]) => void>()
 const set = (patch: Partial<SensorState>) => { state = { ...state, ...patch }; subs.forEach(f => f()) }
 
+// Whether the Tindeq is meant to be connected (kept across reloads), so it can be taken up again without asking.
+const WANT = 'max.tindeq.on'
+const wanted = () => { try { return localStorage.getItem(WANT) === '1' } catch { return false } }
+const want = (on: boolean) => { try { localStorage.setItem(WANT, on ? '1' : '0') } catch { /* this visit only */ } }
+
 export const sensor = {
   get: () => state,
   subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f) } },
-  async connect() {
+  /** After a reload: take up the Tindeq again without the picker, when the browser still has permission for it and it was in use. */
+  async resume() {
+    if (state.status !== 'off' || !wanted()) return
+    try {
+      const known = (await (navigator as any).bluetooth?.getDevices?.() ?? []).find((d: any) => (d.name ?? '').startsWith('Progressor'))
+      if (known) await sensor.connect(known)
+    } catch { /* not supported or out of reach: Connect still works */ }
+  },
+  async connect(known?: any) {
     if (state.status !== 'off') return
     set({ status: 'connecting', error: null })
     try {
@@ -76,15 +108,17 @@ export const sensor = {
         count += s.length
         if (now - countFrom >= 1000) { const hz = Math.round(count * 1000 / Math.max(1, now - countFrom)); count = 0; countFrom = now; set({ hz }) }
         if (now - lastPaint > 100) { lastPaint = now; set({ lb: s.at(-1)!.lb, lastAt: now }) }
-      }, () => { dev = null; set({ status: 'off', name: null, recording: false }) })
+      }, () => { dev = null; set({ status: 'off', name: null, recording: false, error: wanted() ? 'The Tindeq dropped out and could not be reached again. Check it is on, then Connect.' : null }) },
+        up => set(up ? { status: 'on', error: null, hz: 0 } : { status: 'connecting', error: 'The Tindeq dropped out. Reconnecting…' }), known)
       countFrom = Date.now(); count = 0
+      want(true)
       set({ status: 'on', name: dev.name, lastAt: 0, hz: 0 })
     } catch (e: any) {
       // Closing the browser's device picker is not an error.
-      set({ status: 'off', error: e?.name === 'NotFoundError' ? null : e?.message ?? 'Could not connect' })
+      set({ status: 'off', error: known || e?.name === 'NotFoundError' ? null : e?.message ?? 'Could not connect' })
     }
   },
-  disconnect() { dev?.disconnect() },
+  disconnect() { want(false); dev?.disconnect() },
   /** Every reading as it arrives (direction already applied); returns the unsubscribe. */
   onSamples: (f: (s: Sample[]) => void) => { streams.add(f); return () => { streams.delete(f) } },
   async tare() { await dev?.tare() },

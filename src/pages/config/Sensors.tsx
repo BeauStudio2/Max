@@ -11,6 +11,7 @@ import { repGap } from '../today/TindeqPanel'
 /** Config → Sensors and machines: connect the Tindeq, zero it, set its direction, and check its readings. */
 export default function Sensors() {
   const st = useSensor()
+  useEffect(() => { sensor.resume() }, [])
   const [test, setTest] = useState<Pulse[] | null>(null)
   const s = st.settings
   // The check here uses fixed values; a lift's own detection settings are on Log.
@@ -56,7 +57,7 @@ export default function Sensors() {
                 <button type="button" className={'switch' + (s.invert ? ' on' : '')} aria-pressed={s.invert} onClick={() => sensor.setSettings({ invert: !s.invert })}>{s.invert ? 'On' : 'Off'}</button>
               </label>
             </div>
-            <p className="small muted">The connection lasts until this page is reloaded or closed; the browser asks you to pick the device again after that. Flip direction is kept on this laptop.</p>
+            <p className="small muted">If the Tindeq drops out, Max reconnects by herself for up to two minutes. After a reload she takes it up again without asking when the browser allows it; otherwise press Connect. Flip direction is kept on this laptop.</p>
           </>
         )}
       <PhoneBar />
