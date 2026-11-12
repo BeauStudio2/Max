@@ -12,6 +12,7 @@ export default function Phone() {
   const [stat, setStat] = useState({ hz: 0, a: 0, sent: 0, linked: false })
   const buf = useRef<[number, number][]>([])
   const grav = useRef<[number, number, number] | null>(null)
+  const upNow = useRef<[number, number, number] | null>(null)
   const n = useRef({ count: 0, from: 0, sent: 0, a: 0 })
   const wake = useRef<any>(null)
 
@@ -33,6 +34,7 @@ export default function Phone() {
       const m = Math.hypot(up[0], up[1], up[2])
       if (m < 1) return
       const av = (lin[0] * up[0] + lin[1] * up[1] + lin[2] * up[2]) / m       // acceleration along the vertical, up positive
+      upNow.current = [Math.round((up[0] / m) * 1000) / 1000, Math.round((up[1] / m) * 1000) / 1000, Math.round((up[2] / m) * 1000) / 1000]
       buf.current.push([Math.round(e.timeStamp) / 1000, Math.round(av * 1000) / 1000])
       n.current.count++; n.current.a = av
     }
@@ -40,7 +42,7 @@ export default function Phone() {
     n.current = { count: 0, from: performance.now(), sent: 0, a: 0 }
     const send = setInterval(() => {
       const s = buf.current; buf.current = []
-      if (s.length) { sendBatch({ s }); n.current.sent += s.length }
+      if (s.length) { sendBatch(upNow.current ? { s, g: upNow.current } : { s }); n.current.sent += s.length }
     }, 100)
     const show = setInterval(() => {
       const now = performance.now(), c = n.current

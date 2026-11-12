@@ -250,6 +250,9 @@ public class BarService extends Service implements SensorEventListener {
             if (out.length() > 0 && joined && ws != null) {
                 try {
                     JSONObject inner = new JSONObject().put("s", out);
+                    // How the phone is lying: which way is up, in its own axes.
+                    double gm = Math.sqrt(gravity[0] * gravity[0] + gravity[1] * gravity[1] + gravity[2] * gravity[2]);
+                    if (haveGravity && gm > 1) inner.put("g", new JSONArray().put(Math.round(gravity[0] / gm * 1000.0) / 1000.0).put(Math.round(gravity[1] / gm * 1000.0) / 1000.0).put(Math.round(gravity[2] / gm * 1000.0) / 1000.0));
                     JSONObject payload = new JSONObject().put("type", "broadcast").put("event", "s").put("payload", inner);
                     ws.send(new JSONObject().put("topic", topic).put("event", "broadcast").put("payload", payload)
                             .put("ref", String.valueOf(++ref)).put("join_ref", "1").toString());

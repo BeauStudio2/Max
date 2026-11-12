@@ -8,7 +8,8 @@ import { useSyncExternalStore } from 'react'
 import { supabase } from '../supabase'
 import { BarTracker, calibrate, dropUnrack, summarize, type BarRep, type BarSet } from './imu'
 
-type Batch = { s: [number, number][]; hz?: number }
+/** Readings from the phone: [seconds, vertical m/s²] pairs, and how the phone is lying (which way is up, in its own axes). */
+type Batch = { s: [number, number][]; hz?: number; g?: [number, number, number] }
 const local = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('max-imu') : null
 let joining: Promise<ReturnType<typeof supabase.channel>> | null = null
 let joined = false
@@ -56,13 +57,16 @@ export interface ImuState {
   flip: boolean
   /** Log a heavy set by itself when the bar sensor sees one end. */
   autolog: boolean
+  /** Which way is up in the phone's own axes (unit vector), when the phone sends it: tells how the phone is lying on the bar. */
+  gravity: [number, number, number] | null
 }
 const FLIP = 'max.imu.flip', AUTO = 'max.imu.autolog'
-let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, autolog: (() => { try { return localStorage.getItem(AUTO) !== '0' } catch { return true } })(), flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
+let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, gravity: null, autolog: (() => { try { return localStorage.getItem(AUTO) !== '0' } catch { return true } })(), flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
 const subs = new Set<() => void>()
 const set = (p: Partial<ImuState>) => { state = { ...state, ...p }; subs.forEach(f => f()) }
 const repSubs = new Set<(r: BarRep, n: number) => void>()
 const setSubs = new Set<(s: BarSet) => void>()
+const anySetSubs = new Set<(s: BarSet & { at: number; ended_ms: number }) => void>()
 
 /** The lifter's range of motion for the lift on screen (m), if known: speeds are scaled to it. */
 let rom: number | null = null
@@ -71,7 +75,7 @@ let topStart = true
 const clean = (reps: BarRep[]) => calibrate(dropUnrack(reps, rom, topStart).reps, rom)
 const tracker = new BarTracker({
   rep: (r, n) => { set({ reps: clean(tracker.reps) }); repSubs.forEach(f => f(r, n)) },
-  set: s0 => { const u = dropUnrack(s0.reps, rom, topStart), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
+  set: s0 => { const u = dropUnrack(s0.reps, rom, topStart), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); anySetSubs.forEach(f => f(state.lastSet!)); if (state.autolog && !anySetSubs.size) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 // The last few minutes of raw readings, kept so a set's own stretch can be saved with it (for checking and improving the rep reading).
@@ -88,7 +92,7 @@ function ingest(b: Batch) {
   }
   count += b.s.length
   if (now - countFrom >= 1000) { const hz = Math.round((count * 1000) / Math.max(1, now - countFrom)); count = 0; countFrom = now; set({ hz }) }
-  if (now - lastPaint > 100) { lastPaint = now; set({ lastAt: now, velocity: tracker.velocity, reps: clean(tracker.reps) }) }
+  if (now - lastPaint > 100) { lastPaint = now; const g = b.g; const m = g ? Math.hypot(g[0], g[1], g[2]) : 0; set({ lastAt: now, velocity: tracker.velocity, reps: clean(tracker.reps), ...(g && m > 0 ? { gravity: [g[0] / m, g[1] / m, g[2] / m] as [number, number, number] } : {}) }) }
 }
 
 export const imu = {
@@ -108,6 +112,8 @@ export const imu = {
   setGap(s: number) { tracker.setGap(s) },
   /** Called when a set ends, while logging sets by itself is on. */
   onSet: (f: (s: BarSet) => void) => { setSubs.add(f); return () => { setSubs.delete(f) } },
+  /** Every set the sensor sees, whatever the Auto switch says (the Test screen). While anything listens here, Log is not sent sets. */
+  onAnySet: (f: (s: BarSet & { at: number; ended_ms: number }) => void) => { anySetSubs.add(f); return () => { anySetSubs.delete(f) } },
   setAutolog(autolog: boolean) { try { localStorage.setItem(AUTO, autolog ? '1' : '0') } catch { /* this visit only */ } set({ autolog }) },
   /** End the set now instead of waiting for the bar to sit still. */
   endSet() { tracker.flush() },

@@ -190,22 +190,23 @@ export const camera = {
     }).sort((a, b) => b.motion - a.motion)
   },
   /**
-   * Save the film of a heavy set that has just been logged, from the camera that saw the most movement during it, and return
-   * that camera's station. `from`/`to` are when the set happened if a sensor knows; otherwise the last `clip_s` seconds are
-   * used. Best effort: a failure here never blocks logging a set.
+   * Upload the film of a stretch of time, from the camera that saw the most movement during it. `prefix` is the folder and
+   * start of the file name. Returns that camera's station and what was saved (null when nothing was). `from`/`to` are when
+   * it happened if a sensor knows; otherwise the last `clip_s` seconds are used.
    */
-  async saveClip(set_: { session_id: string; set_id: string; set_index: number }, win?: { from: number; to: number }): Promise<string | null> {
-    if (!running.size) return null
+  async clip(prefix: string, win?: { from: number; to: number }): Promise<{ station: string | null; data: Record<string, any> | null; seconds: number }> {
+    if (!running.size) return { station: null, data: null, seconds: 0 }
     const now = Date.now()
     const from = Math.max(now - KEEP_MS, win?.from ?? now - state.clip_s * 1000), to = Math.min(now, win?.to ?? now)
     const seen = camera.motionIn(from, to)
     const pick = seen[0], r = running.get(pick.deviceId)!
     const station = pick.station || null
+    const seconds = Math.round((to - from) / 100) / 10
     set({ lastStation: station })
     // Close the piece being filmed so it can be saved, and carry on in a new one.
     const cur = r.pieces.at(-1); startPiece(r); if (cur) await stopPiece(cur)
     const mine = r.pieces.filter(p => p.blob && p.to !== null && p.to >= from && p.from <= to && p.blob.size > 0)
-    if (!mine.length) return station
+    if (!mine.length) return { station, data: null, seconds }
     set({ uploading: state.uploading + 1 })
     try {
       const tr = r.stream.getVideoTracks()[0]?.getSettings() ?? {}
@@ -213,18 +214,22 @@ export const camera = {
       const files: { path: string; from: string; to: string; bytes: number }[] = []
       for (const p of mine) {
         const ext = p.blob!.type.includes('mp4') ? 'mp4' : 'webm'
-        const path = `${set_.session_id}/set${String(set_.set_index).padStart(2, '0')}${slug}-${new Date(p.from).toISOString().replace(/[:.]/g, '-')}.${ext}`
+        const path = `${prefix}${slug}-${new Date(p.from).toISOString().replace(/[:.]/g, '-')}.${ext}`
         const { error } = await supabase.storage.from(BUCKET).upload(path, p.blob!, { contentType: p.blob!.type, upsert: true })
         if (error) throw new Error(error.message)
         files.push({ path, from: new Date(p.from).toISOString(), to: new Date(p.to!).toISOString(), bytes: p.blob!.size })
       }
       const bytes = files.reduce((t, f) => t + f.bytes, 0)
-      await recordObservations([{ session_id: set_.session_id, set_id: set_.set_id, source: 'vision', metric: 'clip', value: Math.round((to - from) / 100) / 10,
-        data: { bucket: BUCKET, files, from: new Date(from).toISOString(), to: new Date(to).toISOString(), width: tr.width ?? null, height: tr.height ?? null, fps: tr.frameRate ?? null, window: win ? 'sensor' : 'last_seconds',
-          station, camera: pick.label, cameras: seen.map(({ station, label, motion }) => ({ station, label, motion })) } }])
       set({ clips: state.clips + 1, bytes: state.bytes + bytes, uploading: state.uploading - 1, error: null })
-    } catch (e: any) { set({ uploading: state.uploading - 1, error: `A clip did not save: ${e?.message ?? e}` }) }
-    return station
+      return { station, seconds, data: { bucket: BUCKET, files, from: new Date(from).toISOString(), to: new Date(to).toISOString(), width: tr.width ?? null, height: tr.height ?? null, fps: tr.frameRate ?? null, window: win ? 'sensor' : 'last_seconds',
+        station, camera: pick.label, cameras: seen.map(({ station, label, motion }) => ({ station, label, motion })) } }
+    } catch (e: any) { set({ uploading: state.uploading - 1, error: `A clip did not save: ${e?.message ?? e}` }); return { station, data: null, seconds } }
+  },
+  /** Save the film of a heavy set that has just been logged and tie it to the set's row. Returns the station. Best effort: a failure here never blocks logging a set. */
+  async saveClip(set_: { session_id: string; set_id: string; set_index: number }, win?: { from: number; to: number }): Promise<string | null> {
+    const c = await camera.clip(`${set_.session_id}/set${String(set_.set_index).padStart(2, '0')}`, win)
+    if (c.data) await recordObservations([{ session_id: set_.session_id, set_id: set_.set_id, source: 'vision', metric: 'clip', value: c.seconds, data: c.data }])
+    return c.station
   },
 }
 export const useCamera = () => useSyncExternalStore(camera.subscribe, camera.get)

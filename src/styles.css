@@ -770,3 +770,19 @@ html { touch-action: pan-x pan-y; }
 
 /* A count the bar sensor made, still open to correction */
 td.sensed input { outline: 2px solid #f5a524; outline-offset: -2px; background: rgba(245,165,36,.14); }
+
+/* Config → Test */
+.testbench h3 { margin-top: 18px; }
+.testtop { align-items: end; }
+.testgo { font-size: 16px; padding: 10px 18px; }
+.testlive { display: flex; flex-wrap: wrap; gap: 12px 32px; align-items: flex-start; margin: 12px 0 4px; }
+.testcount { font-size: 34px; font-weight: 800; line-height: 1; min-width: 44px; text-align: center; color: var(--accent, #e6f23c); }
+.testcal { align-items: end; }
+.calnote { flex: 1 1 260px; align-self: center; }
+.testsets td.verdict { white-space: nowrap; font-weight: 700; }
+.testsets td.verdict.good { color: var(--ok, #3fb950); }
+.testsets td.verdict.bad { color: var(--err, #f85149); }
+.testsets td.speeds { max-width: 220px; white-space: normal; }
+.trace { display: block; }
+.trace polyline { fill: none; stroke: currentColor; stroke-width: 1; opacity: .85; }
+.trace line { stroke: currentColor; opacity: .2; stroke-width: 1; }

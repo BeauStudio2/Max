@@ -25,7 +25,7 @@ export default function CamPanel() {
         {s.status === 'starting' && <span className="small muted">starting…</span>}
         {s.status === 'rec' && <span className="small"><i className="recdot" /> {s.clips ? `${s.clips} clip${s.clips > 1 ? 's' : ''} · ${mb} MB` : 'filming'}{s.uploading ? ' · saving…' : ''}{s.lastStation ? ` · last set: ${s.lastStation}` : ''}</span>}
       </div>
-      {(s.error || bad) && <span className="small err">{s.error ?? `${bad!.label || 'Camera'}: ${bad!.error}`}</span>}
+      {s.on && (s.error || bad) && <span className="small err">{s.error ?? `${bad!.label || 'Camera'}: ${bad!.error}`}</span>}
     </div>
   )
 }
