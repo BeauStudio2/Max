@@ -125,10 +125,20 @@ export const sensor = {
   /** After a reload: take up the Tindeq again without the picker, when the browser still has permission for it and it was in use. */
   async resume() {
     if (state.status !== 'off' || !wanted()) return
-    try {
-      const known = (await (navigator as any).bluetooth?.getDevices?.() ?? []).find((d: any) => (d.name ?? '').startsWith('Progressor'))
-      if (known) await sensor.connect(known)
-    } catch { /* not supported or out of reach: Connect still works */ }
+    const bt = (navigator as any).bluetooth
+    if (!bt?.getDevices) { set({ error: 'A reload drops the Tindeq, and this browser cannot pick it up again by itself. Press Connect.' }); return }
+    // A reload always drops the Bluetooth link. The Tindeq needs a few seconds to notice and show itself again, so keep trying for a minute.
+    for (let i = 0; i < 20 && state.status === 'off' && wanted(); i++) {
+      try {
+        const known = (await bt.getDevices()).find((d: any) => (d.name ?? '').startsWith('Progressor'))
+        if (!known) { set({ error: 'A reload drops the Tindeq, and the browser has not kept permission for it. Press Connect.' }); return }
+        set({ error: `The reload dropped the Tindeq. Picking it up again… (try ${i + 1})` })
+        await sensor.connect(known)
+        if ((state.status as string) === 'on') { set({ error: null }); return }
+      } catch { /* out of reach this time */ }
+      await new Promise(r => setTimeout(r, 3000))
+    }
+    if (state.status === 'off' && wanted()) set({ error: 'The reload dropped the Tindeq and it could not be picked up again. Press its button if its light is off, then Connect.' })
   },
   async connect(known?: any) {
     if (state.status !== 'off') return
