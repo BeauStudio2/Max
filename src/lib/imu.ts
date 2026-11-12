@@ -30,8 +30,10 @@ export interface ImuOptions {
   min_rom_m: number
   /** A set is over when no rep has finished for this long (s). */
   set_gap_s: number
+  /** Swinging past this (m/s²) both up and down within 0.15 s is a hit (hooks, clang), not lifting. */
+  impact_a: number
 }
-export const IMU_DEFAULTS: ImuOptions = { still_a: 0.45, still_s: 0.35, still_max_s: 4, min_rom_m: 0.12, set_gap_s: 6 }
+export const IMU_DEFAULTS: ImuOptions = { still_a: 0.45, still_s: 0.35, still_max_s: 4, min_rom_m: 0.12, set_gap_s: 6, impact_a: 10 }
 
 /** Reps in a stretch of velocity: each run of upward travel that goes far enough. */
 function repsIn(t: number[], v: number[], minRom: number): BarRep[] {
@@ -40,7 +42,8 @@ function repsIn(t: number[], v: number[], minRom: number): BarRep[] {
   const close = (i1: number) => {
     const dur = t[i1] - t[i0]
     // A run too short to be a rep doesn't use up the descent before it.
-    if (rom >= minRom && dur >= 0.15) { out.push({ mean_mps: rom / dur, peak_mps: peak, rom_m: rom, dur_s: dur, at: t[i1], down_m: downAt }); down = 0 }
+    // Not a rep: too short, or a slow drift (many seconds long, barely moving, or further than a bar can travel).
+    if (rom >= minRom && dur >= 0.15 && dur <= 6 && rom <= 1.1 && peak >= 0.12) { out.push({ mean_mps: rom / dur, peak_mps: peak, rom_m: rom, dur_s: dur, at: t[i1], down_m: downAt }); down = 0 }
     else down = downAt
     i0 = -1
   }
@@ -69,6 +72,10 @@ export class BarTracker {
   private lastRepAt = -Infinity
   /** The sensor's resting offset, learned whenever the bar is still, and taken off every reading. */
   private bias = 0
+  /** The last few readings, to spot a hit. */
+  private recent: ImuSample[] = []
+  /** The bar was hit and is ringing: nothing is read until it is calm again. */
+  private settling = false
   /** Latest velocity (m/s), for a live readout. */
   velocity = 0
 
@@ -78,10 +85,35 @@ export class BarTracker {
   get reps(): BarRep[] { return [...this.set, ...this.live] }
 
   push(s: ImuSample) {
+    // (s may be replaced below while the bar rings after a hit)
     const prev = this.last
     if (prev && s.t <= prev.t + 1e-6) return                                          // a repeated or out-of-order reading
     this.last = s
     if (!prev || s.t - prev.t > 0.5) { this.reset(); return }                         // first reading, or a gap in the stream
+    // Racking the bar: the hit is far harder than any lifting, and summing its ringing would wreck the speeds of the whole set.
+    // Its readings (and the ringing just after) are left out; the bar coming to rest in the hooks then straightens the movement.
+    // A hit (the bar going into the hooks, or clanging): within a moment the reading swings hard both ways, which no lift does
+    // (a bounce off the chest only pushes up). The movement is closed just before the hit, where the bar was about still, and
+    // readings are then ignored until the bar has settled.
+    this.recent.push(s); if (this.recent.length > 15) this.recent.shift()
+    if (this.settling) {
+      const calm = Math.abs(s.a - this.bias) < this.o.still_a
+      if (calm) { if (this.stillSince === null) this.stillSince = s.t } else this.stillSince = null
+      if (this.stillSince !== null && s.t - this.stillSince >= this.o.still_s) { this.settling = false; this.stillSince = null }
+      if (this.set.length && s.t - this.lastRepAt >= this.o.set_gap_s) this.endSet(s.t)
+      return
+    }
+    let hi = -Infinity, lo = Infinity
+    for (const r of this.recent) { const x = r.a - this.bias; if (x > hi) hi = x; if (x < lo) lo = x }
+    if (hi > this.o.impact_a && lo < -this.o.impact_a) {
+      if (this.moving) {
+        const t0 = this.recent[0].t
+        while (this.t.length > 2 && this.t[this.t.length - 1] >= t0) { this.t.pop(); this.a.pop(); this.v.pop() }
+        this.endMovement()
+      }
+      this.settling = true; this.stillSince = null; this.velocity = 0; this.recent = []
+      return
+    }
     const dt = s.t - prev.t
     const quiet = Math.abs(s.a - this.bias) < this.o.still_a
     if (quiet) { if (this.stillSince === null) this.stillSince = prev.t } else this.stillSince = null
