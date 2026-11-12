@@ -56,6 +56,9 @@ function Trace({ data }: { data: number[] }) {
  * The same screen sets the person's range of motion and start height, registers how the phone lies on each bar, and zeroes
  * the Tindeq.
  */
+/** A push counts when the Tindeq reads this much over its resting tension (lb). Measured 11/12: no-push swing reaches 2.7 over; real pushes run 70+. */
+const PUSH_OVER_LB = 6
+
 export default function TestBench() {
   const { lifters, isCoach, reload } = useStore()
   const im = useImu(), tq = useSensor()
@@ -68,6 +71,7 @@ export default function TestBench() {
   const [rows, setRows] = useState<TestRow[]>([])
   const [again, setAgain] = useState<Record<string, string>>({})
   const [err, setErr] = useState<string | null>(null)
+  const [saving, setSaving] = useState<'' | 'busy' | 'done'>('')
   const [orient, setOrient] = useState<Record<string, [number, number, number]>>({})
   const lifter = lifters.find(l => l.id === lifterId) ?? lifters[0]
   const geo = (lifter?.settings?.chain_geometry?.[lift] ?? {}) as { rom_in?: number; hang_in?: number }
@@ -104,12 +108,15 @@ export default function TestBench() {
     const trace: number[] = []
     if (raw) { const step = Math.max(1, Math.floor(raw.a.length / 200)); for (let i = 0; i < raw.a.length; i += step) { let m = 0; for (let k = i; k < Math.min(raw.a.length, i + step); k++) if (Math.abs(raw.a[k]) > Math.abs(m)) m = raw.a[k]; trace.push(Math.round(m * 10) / 10) } }
     const tq = pulls.current.filter(p => p.at >= from - 2000 && p.at <= to + 2000)
-    const found = tq.length ? findPulses(tq.map(p => ({ lb: p.lb, t: (p.at - tq[0].at) / 1000 })), 3, 0.25) : []
     // The Tindeq's own readings over the set, 20 a second, so the way it is read can be worked out from real pulls.
     const force: number[] = []
     if (tq.length) { const t0 = tq[0].at; let k = -1, sum = 0, n = 0; for (const p of tq) { const b = Math.floor((p.at - t0) / 50); if (b !== k && n) { force.push(Math.round((sum / n) * 10) / 10); sum = 0; n = 0 } k = b; sum += p.lb; n++ } if (n) force.push(Math.round((sum / n) * 10) / 10) }
     const sorted = [...force].sort((x, y) => x - y)
-    const resting = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null
+    // Resting tension: what the line holds with nobody pushing (the hanging weight). The lower of the set's middle value and its first second and a half.
+    const lead = force.slice(0, 30).sort((x, y) => x - y)
+    const resting = sorted.length ? Math.min(sorted[Math.floor(sorted.length / 2)], lead[Math.floor(lead.length / 2)]) : null
+    // A push is force well clear of that: the line swings about 3 lb either side of resting by itself as the bar moves.
+    const found = tq.length ? findPulses(tq.map(p => ({ lb: p.lb - (resting ?? 0), t: (p.at - tq[0].at) / 1000 })), PUSH_OVER_LB, 0.25) : []
     const clip = await camera.clip(`test/${c.lifter.id}/${c.lift}-${new Date(now).toISOString().replace(/[:.]/g, '-')}`, { from, to })
     const row = {
       lifter_id: c.lifter.id, lift: c.lift, weight_lb: c.weight.trim() === '' || isNaN(Number(c.weight)) ? null : Number(c.weight), spotter: c.spotter,
@@ -187,7 +194,7 @@ export default function TestBench() {
       <div className="sensrow">
         <button type="button" className={(on ? 'ghost' : 'primary') + ' testgo'} onClick={() => setOn(!on)}>{on ? '■ Stop testing' : '▶ Start testing'}</button>
         {on && <span className="small">Lift. A set is saved {lift === 'squat' ? 12 : 6} seconds after its last rep, or when the bar is racked.</span>}
-        {on && <button type="button" className="ghost small" onClick={() => { const before = imu.get().lastSet?.at; imu.endSet(); setTimeout(() => { if (imu.get().lastSet?.at === before) saveSet(null) }, 300) }} data-tip="Save the last minute as a row now: use it when you lifted and no row appeared, so there is a record of what the sensor missed." data-pos="right">Save what just happened</button>}
+        {on && <button type="button" className="ghost small" disabled={saving !== ''} onClick={() => { setSaving('busy'); const before = imu.get().lastSet?.at; imu.endSet(); setTimeout(async () => { try { if (imu.get().lastSet?.at === before) await saveSet(null) } finally { setSaving('done'); setTimeout(() => setSaving(''), 2500) } }, 300) }} data-tip="Save the last minute as a row now: use it when you lifted and no row appeared, so there is a record of what the sensor missed." data-pos="right">{saving === 'busy' ? 'Saving…' : saving === 'done' ? '✓ Saved' : 'Save what just happened'}</button>}
       </div>
       {err && <p className="small err">{err}</p>}
 
