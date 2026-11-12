@@ -92,10 +92,11 @@ export default function Voice() {
       ) : (
         <div className="vblock">
           <div className="planfields vfields">
-            <label><T tip="Multilingual v2 sounds best; Flash is faster and costs half.">Model</T>
+            <label><T tip="Flash and Turbo v2.5 are locked to English, so numbers are never read in another language; Flash is the fastest and cheapest. Multilingual v2 guesses the language of each sentence and can read numbers in Russian with a Russian-accented voice.">Model</T>
               <select value={s.elevenModel} onChange={e => voice.setSettings({ elevenModel: e.target.value })}>
-                <option value="eleven_multilingual_v2">Multilingual v2</option>
-                <option value="eleven_flash_v2_5">Flash v2.5</option>
+                <option value="eleven_flash_v2_5">Flash v2.5 (English locked)</option>
+                <option value="eleven_turbo_v2_5">Turbo v2.5 (English locked)</option>
+                <option value="eleven_multilingual_v2">Multilingual v2 (guesses the language)</option>
               </select>
             </label>
           </div>

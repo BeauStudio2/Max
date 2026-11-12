@@ -401,9 +401,11 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     const n = live.next
     // A set the bar sensor logged is said first (who, which set, how many), so a wrong guess is heard straight away.
     const ack = cueOn('ack') && live.ack ? live.ack : []; live.ack = null
-    if (!n || !nextMain) { if (ack.length || cueOn('next')) speak([...ack, ...(cueOn('next') ? ['Done'] : [])]); return }
-    const say = [...ack, ...(cueOn('next') ? nextPhrases(n, sayLb) : []), ...(plates && cueOn('plates') ? platePhrases(n) : [])]
-    if (say.length) speak(say)
+    // One sentence per idea: "Beau, bench set one, four reps. One hundred fifty-five for four. Each side twenty-five, ten. Chains half."
+    const ackLine = ack.join(', ')
+    if (!n || !nextMain) { if (ack.length || cueOn('next')) speak([ackLine, cueOn('next') ? 'Done' : ''].filter(Boolean).join('. ')); return }
+    const say = [ackLine, ...(cueOn('next') ? nextPhrases(n, sayLb) : []), ...(plates && cueOn('plates') ? platePhrases(n) : [])].filter(Boolean)
+    if (say.length) speak(say.join('. '))
   }
   const loggedHeavy = useRef(mainSets.length)
   useEffect(() => {
@@ -415,10 +417,10 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   useEffect(() => onCommand(c => {
     const { announce, restLeft, restFrom, running } = cmd.current
     if (c.kind === 'next') announce(false)
-    else if (c.kind === 'plates') { const n = live.next; if (n) speak(platePhrases(n)) }
+    else if (c.kind === 'plates') { const n = live.next; if (n) speak(platePhrases(n).join('. ')) }
     else if (c.kind === 'time') {
       if (!running || !restFrom) cue('lift')
-      else speak(restLeft > 0 ? [saySeconds(restLeft), 'seconds'] : [cueWord('over'), saySeconds(-restLeft), 'seconds'])
+      else speak(restLeft > 0 ? `${saySeconds(restLeft)} seconds` : [cueWord('over'), `${saySeconds(-restLeft)} seconds`])
     }
   }), [])
   // The next spotter set's expected reps follow the rest actually taken: creatine refills along its curve (to full at most) while you rest.
@@ -639,14 +641,14 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   const commitRef = useRef(commit); commitRef.current = commit
   // A short wait first, so a spotter set the Tindeq is closing at the same moment fills this row before it's saved.
   // While the sensor's last count can still be corrected, a spoken number goes to that set, not to this one.
-  useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps' && !sensedSet.get()) { const v = String(c.n); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
+  useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps' && !sensedSet.get()) { const v = String(c.n); setReps(v); cue('ack', `${v} ${v === '1' ? 'rep' : 'reps'}`); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
   // This set was logged by the bar sensor and the next set hasn't started: the count is open to correction, by typing or by voice.
   const sensedNow = useSyncExternalStore(sensedSet.subscribe, sensedSet.get)
   const sensedHere = !!r && sensedNow?.idx === idx
   useEffect(() => sensedHere ? onCommand(c => {
     if (c.kind !== 'reps') return
     // (Closed a moment later, so the same spoken number isn't also taken by the next set's row.)
-    const v = String(c.n); setReps(v); setTimeout(() => sensedSet.set(null), 100); speak(['Set', String(idx), v, 'reps']); commitRef.current({ reps: v })
+    const v = String(c.n); setReps(v); setTimeout(() => sensedSet.set(null), 100); speak(`Set ${idx}, ${v} ${v === '1' ? 'rep' : 'reps'}`); commitRef.current({ reps: v })
   }) : undefined, [sensedHere])
   // A later set being logged closes the correction too.
   useEffect(() => { if (sensedHere && L.logged.some(x => x.set_index > idx)) sensedSet.set(null) })
@@ -657,7 +659,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   // Spotter sets are logged the same way: the count stays open to correction like any other.
   useEffect(() => autoBar && !r ? imu.onSet(s => {
     const v = String(s.reps.length); setReps(v); sensedSet.set({ idx })
-    live.ack = [live.who ?? '', /squat/i.test(label) ? 'Squat' : /bench/i.test(label) ? 'Bench' : label, String(idx), v, 'reps'].filter(Boolean)
+    live.ack = [live.who ?? '', `${/squat/i.test(label) ? 'Squat' : /bench/i.test(label) ? 'Bench' : label} set ${idx}, ${v} ${v === '1' ? 'rep' : 'reps'}`].filter(Boolean)
     setTimeout(() => {
       // The Tindeq feels the unrack as a pull too: when the phone left the unrack out and the Tindeq has exactly one pull more, its first goes as well.
       const { trace: tr, sp: spot } = tinRef.current

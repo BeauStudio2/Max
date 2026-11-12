@@ -133,7 +133,7 @@ export default function TestBench() {
     if (!on) return
     imu.listen(); imu.setRom(rom); imu.setTopStart(lift !== 'deadlift'); imu.setGap(lift === 'squat' ? 12 : 6)
     // Taking the set marks it used, so Log doesn't later attach it to a training set.
-    return imu.onAnySet(s => { imu.take(); if (say) speak([String(s.reps.length), 'reps']); saveSet(s) })
+    return imu.onAnySet(s => { imu.take(); if (say) speak(`${s.reps.length} ${s.reps.length === 1 ? 'rep' : 'reps'}`); saveSet(s) })
   }, [on, rom, lift, say])
   // Reps said as they happen.
   const said = useRef(0)

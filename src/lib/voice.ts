@@ -17,19 +17,23 @@ export interface VoiceSettings {
   browserVoice: string | null
   rate: number; pitch: number; volume: number
   elevenVoice: string | null; elevenVoiceName: string | null; elevenModel: string
+  /** Settings revision: 1 = moved to Flash v2.5 with English locked (11/12). */
+  voiceRev?: number
   cues: Record<CueKey, { on: boolean; word: string }>
   listen: boolean; wake: string
 }
 const DEFAULTS: VoiceSettings = {
   engine: 'browser', browserVoice: null, rate: 1, pitch: 1, volume: 1,
-  elevenVoice: null, elevenVoiceName: null, elevenModel: 'eleven_multilingual_v2',
+  elevenVoice: null, elevenVoiceName: null, elevenModel: 'eleven_flash_v2_5', voiceRev: 1,
   cues: { warn: { on: true, word: 'Ten seconds' }, lift: { on: true, word: 'Lift' }, over: { on: true, word: 'Overtime' }, rack: { on: true, word: 'Rack' },
     next: { on: true, word: '' }, plates: { on: true, word: '' }, ack: { on: true, word: '' } },
   listen: false, wake: 'Max',
 }
 const KEY = 'max.voice'
+/** Older settings used Multilingual v2, which guesses the language of each phrase and read bare numbers in Russian: move them to Flash v2.5 once. */
+function upgrade<T extends Partial<VoiceSettings>>(v: T): T { return (v.voiceRev ?? 0) < 1 ? { ...v, elevenModel: 'eleven_flash_v2_5', voiceRev: 1 } : v }
 const load = (): VoiceSettings => {
-  try { const v = JSON.parse(localStorage.getItem(KEY) ?? '{}'); return { ...DEFAULTS, ...v, cues: { ...DEFAULTS.cues, ...(v.cues ?? {}) } } } catch { return DEFAULTS }
+  try { const v = upgrade(JSON.parse(localStorage.getItem(KEY) ?? '{}')); return { ...DEFAULTS, ...v, cues: { ...DEFAULTS.cues, ...(v.cues ?? {}) } } } catch { return DEFAULTS }
 }
 
 export interface VoiceState { settings: VoiceSettings; listening: boolean; heard: string | null; error: string | null; speaking: boolean }
@@ -58,13 +62,22 @@ async function fromStore(path: string): Promise<Blob | null> {
 async function toStore(path: string, blob: Blob) {
   await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'audio/mpeg', upsert: true })
 }
+/** Only the v2.5 models (Flash, Turbo) take a fixed language; the others refuse the setting. */
+const locksLanguage = (model: string) => /_v2_5$/.test(model)
 async function fromEleven(text: string, s: VoiceSettings): Promise<Blob> {
   const key = apiKeys.get('elevenlabs')
   if (!key) throw new Error('This phrase isn\'t recorded yet, and there\'s no ElevenLabs key on this laptop to record it (Config → API keys).')
-  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${s.elevenVoice}?output_format=mp3_44100_128`, {
+  const ask = (model: string) => fetch(`https://api.elevenlabs.io/v1/text-to-speech/${s.elevenVoice}?output_format=mp3_44100_128`, {
     method: 'POST', headers: { 'xi-api-key': key, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
-    body: JSON.stringify({ text, model_id: s.elevenModel }),
+    body: JSON.stringify({ text, model_id: model, ...(locksLanguage(model) ? { language_code: 'en' } : {}) }),
   })
+  let r = await ask(s.elevenModel)
+  // A voice that can't use the chosen model (a professional clone trained only on Multilingual v2): fall back to that, numbers already in words.
+  if (!r.ok && r.status !== 401 && r.status !== 429 && s.elevenModel !== 'eleven_multilingual_v2') {
+    const why = (await r.text()).slice(0, 160)
+    r = await ask('eleven_multilingual_v2')
+    if (r.ok) set({ error: `This voice can't use ${s.elevenModel} (${why}), so Multilingual v2 was used: numbers may come out less clearly.` })
+  }
   if (!r.ok) throw new Error(`ElevenLabs: ${r.status} ${(await r.text()).slice(0, 160)}`)
   return r.blob()
 }
@@ -106,8 +119,12 @@ function browserSpeak(text: string, s = state.settings): Promise<void> {
     if (!synth) return res()
     synth.cancel()
     const u = new SpeechSynthesisUtterance(text)
-    const v = synth.getVoices().find(x => x.name === s.browserVoice)
-    if (v) { u.voice = v; u.lang = v.lang }
+    const all = synth.getVoices()
+    // Standing in for ElevenLabs: always an English voice, so numbers aren't read in another language.
+    const chosen = all.find(x => x.name === s.browserVoice)
+    const v = s.engine === 'eleven' && !chosen?.lang?.toLowerCase().startsWith('en') ? all.find(x => /^en-US/i.test(x.lang)) ?? all.find(x => /^en/i.test(x.lang)) : chosen
+    u.lang = v?.lang ?? 'en-US'
+    if (v) u.voice = v
     u.rate = s.rate; u.pitch = s.pitch; u.volume = s.volume
     u.onend = () => res(); u.onerror = () => res()
     synth.speak(u)
@@ -117,9 +134,36 @@ function browserSpeak(text: string, s = state.settings): Promise<void> {
 // Each new utterance cuts off the one before (a newer cue matters more).
 let gen = 0
 
-/** Speak one or more short phrases in turn. Recorded voices play each phrase as its own clip, so every piece can be recorded ahead of time. */
+/* Numbers as English words, so no voice has to guess what language a digit is in. */
+const ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen']
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+export function numberWords(n: number): string {
+  if (!Number.isFinite(n)) return String(n)
+  if (n < 0) return 'minus ' + numberWords(-n)
+  if (!Number.isInteger(n)) {
+    const w = Math.floor(n), f = Math.round((n - w) * 100) / 100
+    const frac = f === 0.5 ? 'and a half' : f === 0.25 ? 'and a quarter' : f === 0.75 ? 'and three quarters' : 'point ' + String(f).slice(2).split('').map(d => ONES[+d]).join(' ')
+    return (w ? numberWords(w) + ' ' : '') + (w ? frac : frac.replace(/^and /, ''))
+  }
+  if (n < 20) return ONES[n]
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : '')
+  if (n < 1000) return ONES[Math.floor(n / 100)] + ' hundred' + (n % 100 ? ' ' + numberWords(n % 100) : '')
+  if (n < 1e6) return numberWords(Math.floor(n / 1000)) + ' thousand' + (n % 1000 ? ' ' + numberWords(n % 1000) : '')
+  return String(n)
+}
+export const inWords = (text: string) => text.replace(/\d+(\.\d+)?/g, m => numberWords(Number(m)))
+/** Pieces become one sentence: "Set", "1", "7 reps" → "Set one, seven reps." */
+export function sentence(text: string | string[]) {
+  const t = (Array.isArray(text) ? text : [text]).map(x => x.trim()).filter(Boolean).join(', ')
+  if (!t) return ''
+  const w = inWords(t)
+  return /[.!?]$/.test(w) ? w : w + '.'
+}
+
+/** Speak a sentence, or pieces joined into one ("Set", "1", "7 reps" → "Set one, seven reps."), with numbers as English words. Each sentence is recorded once and kept. */
 export async function speak(text: string | string[], s = state.settings) {
-  const parts = (Array.isArray(text) ? text : [text]).map(x => x.trim()).filter(Boolean)
+  const one = sentence(text)
+  const parts = one ? [one] : []
   if (!parts.length) return
   const my = ++gen
   set({ speaking: true, error: null }); lastSaid = parts.join(' ').toLowerCase()
@@ -156,15 +200,11 @@ export const cueWord = (k: CueKey) => state.settings.cues[k]?.word ?? ''
 /* Words for numbers, so every spoken value is one of a fixed set of recorded phrases. */
 export const sayLb = (lb: number) => { const w = Math.round(lb * 2) / 2; return String(Math.floor(w)) + (w % 1 ? ' and a half' : '') }
 export const saySeconds = (sec: number) => { const s = Math.max(0, Math.round(sec)); return String(s <= 30 ? s : Math.round(s / 5) * 5) }
-/** Everything Max can say, for recording ahead of time. */
+/** The fixed cues, for recording ahead of time. Sentences with numbers in them are recorded the first time they are said, then kept. */
 export function allPhrases() {
   const c = state.settings.cues
-  const words = [c.warn.word, c.lift.word, c.over.word, c.rack.word, 'Go', 'Record', 'Stop', 'Tare', 'Done', 'Each side', 'Chains', 'No chains', 'half', 'five eighths', 'seconds', 'reps', 'Squat', 'Bench', 'Deadlift', ...people]
-  const nums = Array.from({ length: 31 }, (_, i) => String(i))
-  for (let n = 31; n <= 600; n++) nums.push(String(n))   // any whole weight, with chains and clamps too
-  const halves: string[] = []
-  for (let w = 45; w < 600; w++) halves.push(w + ' and a half')
-  return [...new Set([...words, ...nums, '1 and a quarter', '2 and a half', ...halves].filter(Boolean))]
+  const words = [c.warn.word, c.lift.word, c.over.word, c.rack.word, 'Go', 'Record', 'Stop', 'Tare', 'Done', ...people]
+  return [...new Set(words.filter(Boolean).map(w => sentence(w)))]
 }
 
 /** Fetch phrases ahead of time so they play instantly (and are paid for once, on ElevenLabs). */
@@ -274,7 +314,7 @@ function startListening() {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       if (!e.results[i].isFinal) continue
       const t: string = e.results[i][0].transcript
-      if (state.speaking && t.trim().toLowerCase() === lastSaid) continue   // Max hearing itself
+      if (state.speaking && t.toLowerCase().replace(/[^a-z0-9]/g, '') === lastSaid.replace(/[^a-z0-9]/g, '')) continue   // Max hearing itself
       const c = parseCommand(t)
       set({ heard: t.trim() + (c ? '' : ' (no command)') })
       if (c) handlers.forEach(h => h(c))
@@ -293,7 +333,7 @@ function stopListening(off = false) {
 
 /* The voice choice (engine, voice, model, cue words, wake word) is kept in Max too, so every laptop and browser uses it.
    This laptop's own copy wins only until Max's arrives. Listening on/off and the API key stay per laptop. */
-const SHARED: (keyof VoiceSettings)[] = ['engine', 'browserVoice', 'rate', 'pitch', 'volume', 'elevenVoice', 'elevenVoiceName', 'elevenModel', 'cues', 'wake']
+const SHARED: (keyof VoiceSettings)[] = ['engine', 'browserVoice', 'rate', 'pitch', 'volume', 'elevenVoice', 'elevenVoiceName', 'elevenModel', 'voiceRev', 'cues', 'wake']
 let pushTimer: any = null
 function pushShared(settings: VoiceSettings) {
   clearTimeout(pushTimer)
@@ -304,11 +344,13 @@ function pushShared(settings: VoiceSettings) {
   }, 600)
 }
 supabase.from('settings').select('value').eq('key', 'voice').maybeSingle().then(({ data }) => {
-  const v = data?.value as Partial<VoiceSettings> | undefined
-  if (!v) return
+  const stored = data?.value as Partial<VoiceSettings> | undefined
+  if (!stored) return
+  const v = upgrade(stored)
   const settings = { ...state.settings, ...v, cues: { ...DEFAULTS.cues, ...(v.cues ?? {}) }, listen: state.settings.listen }
   try { localStorage.setItem(KEY, JSON.stringify(settings)) } catch { /* private mode */ }
   set({ settings })
+  if (v !== stored) pushShared(settings)
 })
 
 export const voice = {

@@ -14,19 +14,15 @@ export const live: { next: NextSet | null
 const plate = (p: number) => (p === 2.5 ? '2 and a half' : p === 1.25 ? '1 and a quarter' : String(p))
 /** "285", "2" — then, with plates, "Each side", "45", "45", "10", "Chains", "half". Each piece is a phrase recorded ahead of time. */
 export function nextPhrases(n: NextSet, sayLb: (lb: number) => string) {
-  return [sayLb(n.lb), n.goal != null ? String(n.goal) : ''].filter(Boolean)
+  return [sayLb(n.lb) + (n.goal != null ? ' for ' + n.goal : '')]
 }
 export function platePhrases(n: NextSet) {
   const out: string[] = []
-  if (n.stack?.length) out.push('Each side', ...[...n.stack].sort((a, b) => b - a).map(plate))
+  if (n.stack?.length) out.push('Each side ' + [...n.stack].sort((a, b) => b - a).map(plate).join(', '))
   if (n.chains) {
     const { half, big } = n.chains
     if (!half && !big) out.push('No chains')
-    else {
-      out.push('Chains')
-      if (half) { if (half > 1) out.push(String(half)); out.push('half') }
-      if (big) { if (big > 1) out.push(String(big)); out.push('five eighths') }
-    }
+    else out.push('Chains ' + [half ? (half > 1 ? half + ' ' : '') + 'half' : '', big ? (big > 1 ? big + ' ' : '') + 'five-eighths' : ''].filter(Boolean).join(' and '))
   }
   return out
 }
