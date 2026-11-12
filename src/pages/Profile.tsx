@@ -155,6 +155,7 @@ export default function Profile({ lifterId, onPick }: { lifterId: string; onPick
       <Learning lifterId={lifterId} />
       <CreatineModel lifterId={lifterId} />
       <SpeedBands lifterId={lifterId} />
+      <OwnDefaults lifterId={lifterId} />
 
       <MetricSection title="Body" items={catalog.filter(m => m.grp === 'Body' && !m.derived)} series={series} lifterId={lifterId} reload={load}
         empty="Tap + Add measurements to log bodyweight and body fat." />
@@ -454,6 +455,81 @@ function SpeedBands({ lifterId }: { lifterId: string }) {
               <DelBtn tip="Forget the bands for this exercise" onConfirm={() => { const { [nm]: _, ...rest } = sb; save(rest) }} />
             </Fragment>
           ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * This lifter's own numbers for speed and support exercises. The day plans are shared by everyone; a number set here is used
+ * for this lifter in place of the plan's.
+ */
+function OwnDefaults({ lifterId }: { lifterId: string }) {
+  const { lifters, reload, templates, exercises, isCoach } = useStore()
+  const lifter = lifters.find(l => l.id === lifterId)
+  const st = lifter?.settings ?? {}
+  const speed: Record<string, { load_lb?: number; reps?: number }> = st.speed_defaults ?? {}
+  const support: Record<string, { start_lb?: number }> = st.support_defaults ?? {}
+  const [add, setAdd] = useState('')
+  // What the shared plans say, to show beside each box and to offer exercises to add.
+  const planSpeed = new Map<string, any>(), planSupport = new Map<string, any>()
+  for (const t of templates) {
+    for (const it of (t.spec as any)?.speed?.items ?? []) if (!planSpeed.has(it.name)) planSpeed.set(it.name, it)
+    for (const it of (t.spec as any)?.support?.items ?? []) if (!planSupport.has(it.name)) planSupport.set(it.name, it)
+  }
+  const save = async (patch: Record<string, any>) => { await supabase.from('lifters').update({ settings: { ...st, ...patch } }).eq('id', lifterId); await reload() }
+  const num = (v: string) => (v.trim() === '' || isNaN(Number(v)) ? undefined : Number(v))
+  const clean = <V extends Record<string, any>>(o: Record<string, V>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined))]).filter(([, v]) => Object.keys(v as object).length)) as Record<string, V>
+  const setSpeed = (nm: string, p: { load_lb?: number; reps?: number }) => save({ speed_defaults: clean({ ...speed, [nm]: { ...speed[nm], ...p } }) })
+  const setSupport = (nm: string, p: { start_lb?: number }) => save({ support_defaults: clean({ ...support, [nm]: { ...support[nm], ...p } }) })
+  const speedNames = Object.keys(speed).sort(), supportNames = Object.keys(support).sort()
+  const options = [...new Set([...planSpeed.keys(), ...planSupport.keys(), ...exercises.filter(e => e.category === 'support').map(e => e.name)])]
+    .filter(nm => !(nm in speed) && !(nm in support)).sort()
+  const isSpeed = (nm: string) => planSpeed.has(nm)
+  const box = (value: number | undefined, plan: any, onSave: (v: number | undefined) => void) => isCoach
+    ? <CellText value={value == null ? '' : String(value)} narrow numeric placeholder={plan != null ? String(plan) : ''} onSave={v => onSave(num(v))} />
+    : <b>{value ?? plan ?? ''}</b>
+  return (
+    <section className="card">
+      <h2><T tip="The day plans are shared by everyone. A number set here is used for this person in place of the plan's: the weight and reps a speed exercise starts at, and the starting weight of a support exercise. Grey numbers in an empty box are the shared plan's." pos="right">Own speed and support numbers</T></h2>
+      {!speedNames.length && !supportNames.length && <p className="small muted">None yet: this person uses the shared plan's numbers.</p>}
+      {(speedNames.length > 0 || supportNames.length > 0) && (
+        <div className="tablewrap"><table className="sheet cfg owndef">
+          <thead><tr><th className="stick">Exercise</th><th data-tip="Speed: the weight. Support: the starting (heaviest) weight.">lb</th><th data-tip="Speed exercises only: the reps suggested in the row.">Reps</th><th className="c-del" /></tr></thead>
+          <tbody>
+            {speedNames.map(nm => (
+              <tr key={'s' + nm}>
+                <td className="stick"><span className="tagdot s" />{nm}</td>
+                <td>{box(speed[nm].load_lb, planSpeed.get(nm)?.load_lb, v => setSpeed(nm, { load_lb: v }))}</td>
+                <td>{box(speed[nm].reps, planSpeed.get(nm)?.reps, v => setSpeed(nm, { reps: v }))}</td>
+                <td className="c-del">{isCoach && <DelBtn tip="Go back to the shared plan's numbers for this exercise" onConfirm={() => { const { [nm]: _, ...rest } = speed; save({ speed_defaults: rest }) }} />}</td>
+              </tr>
+            ))}
+            {supportNames.map(nm => (
+              <tr key={'u' + nm}>
+                <td className="stick">{nm}</td>
+                <td>{box(support[nm].start_lb, planSupport.get(nm)?.start_lb, v => setSupport(nm, { start_lb: v }))}</td>
+                <td className="muted small">—</td>
+                <td className="c-del">{isCoach && <DelBtn tip="Go back to the shared plan's starting weight for this exercise" onConfirm={() => { const { [nm]: _, ...rest } = support; save({ support_defaults: rest }) }} />}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+      {isCoach && (
+        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+          <select value={add} onChange={e => setAdd(e.target.value)} aria-label="Exercise to add">
+            <option value="">Add an exercise…</option>
+            {options.map(nm => <option key={nm} value={nm}>{nm}{isSpeed(nm) ? ' (speed)' : ''}</option>)}
+          </select>
+          <button className="ghost inline" disabled={!add} onClick={async () => {
+            // Starts from the shared plan's number, so the row appears with something to change.
+            const ps = planSpeed.get(add), pu = planSupport.get(add)
+            if (isSpeed(add)) await save({ speed_defaults: { ...speed, [add]: { ...(ps?.load_lb != null ? { load_lb: ps.load_lb } : {}), ...(ps?.reps != null ? { reps: ps.reps } : {}) } } })
+            else await save({ support_defaults: { ...support, [add]: pu?.start_lb != null ? { start_lb: pu.start_lb } : {} } })
+            setAdd('')
+          }}>Add</button>
         </div>
       )}
     </section>

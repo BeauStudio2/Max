@@ -358,7 +358,12 @@ export default function Today({ lifterId }: { lifterId: string }) {
   // The lifter's own load and reps for a speed exercise (settings.speed_defaults) replace the shared day plan's.
   const speedOwn: Record<string, { load_lb?: number; reps?: number }> = st.speed_defaults ?? {}
   const speedFor = speedFrozen ?? (speedPlan ? { ...speedPlan, items: (speedPlan.items ?? []).map((it: any) => ({ ...it, ...(speedOwn[it.name] ?? {}) })) } : null)
-  const support = (past && snap?.spec?.support?.group === supportKey ? snap.spec.support : null) ?? (spec.support?.group === supportKey ? spec.support : null) ?? supportOptions.get(supportKey) ?? null
+  const supportFrozen = past && snap?.spec?.support?.group === supportKey ? snap.spec.support : null
+  const supportPlan = (spec.support?.group === supportKey ? spec.support : null) ?? supportOptions.get(supportKey) ?? null
+  // The lifter's own starting weight for a support exercise (settings.support_defaults) replaces the shared day plan's.
+  const supportOwn: Record<string, { start_lb?: number }> = st.support_defaults ?? {}
+  const supportOwnKey = JSON.stringify(supportOwn)
+  const support = useMemo(() => supportFrozen ?? (supportPlan ? { ...supportPlan, items: (supportPlan.items ?? []).map((it: any) => ({ ...it, ...(supportOwn[it.name] ?? {}) })) } : null), [supportFrozen, supportPlan, supportOwnKey])
   const savePlanned = (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
   const choose = (k: 'speed_choice' | 'support_choice', v: string) => savePlanned({ [k]: v })
 
