@@ -18,7 +18,7 @@ interface TestRow {
   id: string; lifter_id: string; lift: Lift; weight_lb: number | null; spotter: boolean
   sensor_reps: number | null; true_reps: number | null
   reps: { list: { mean_mps: number; peak_mps: number; rom_m: number; raw_rom_m?: number; dur_s: number }[]; unrack: boolean; trace: number[]; seconds: number } | null
-  tindeq: { n: number; mean_lb: number; peak_lb: number; pulls: { mean: number; dur: number }[] } | null
+  tindeq: { n: number; mean_lb: number; peak_lb: number; resting_lb?: number | null; pulls: { mean: number; dur: number }[] } | null
   clip: { files?: { path: string }[]; station?: string | null } | null
   note: string | null; created_at: string
 }
@@ -105,12 +105,17 @@ export default function TestBench() {
     if (raw) { const step = Math.max(1, Math.floor(raw.a.length / 200)); for (let i = 0; i < raw.a.length; i += step) { let m = 0; for (let k = i; k < Math.min(raw.a.length, i + step); k++) if (Math.abs(raw.a[k]) > Math.abs(m)) m = raw.a[k]; trace.push(Math.round(m * 10) / 10) } }
     const tq = pulls.current.filter(p => p.at >= from - 2000 && p.at <= to + 2000)
     const found = tq.length ? findPulses(tq.map(p => ({ lb: p.lb, t: (p.at - tq[0].at) / 1000 })), 3, 0.25) : []
+    // The Tindeq's own readings over the set, 20 a second, so the way it is read can be worked out from real pulls.
+    const force: number[] = []
+    if (tq.length) { const t0 = tq[0].at; let k = -1, sum = 0, n = 0; for (const p of tq) { const b = Math.floor((p.at - t0) / 50); if (b !== k && n) { force.push(Math.round((sum / n) * 10) / 10); sum = 0; n = 0 } k = b; sum += p.lb; n++ } if (n) force.push(Math.round((sum / n) * 10) / 10) }
+    const sorted = [...force].sort((x, y) => x - y)
+    const resting = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null
     const clip = await camera.clip(`test/${c.lifter.id}/${c.lift}-${new Date(now).toISOString().replace(/[:.]/g, '-')}`, { from, to })
     const row = {
       lifter_id: c.lifter.id, lift: c.lift, weight_lb: c.weight.trim() === '' || isNaN(Number(c.weight)) ? null : Number(c.weight), spotter: c.spotter,
       sensor_reps: s ? s.reps.length : 0,
       reps: { list: (s?.reps ?? []).map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })), unrack: !!s?.unrack, trace, seconds: Math.round((to - from) / 100) / 10 },
-      raw, tindeq: found.length ? { n: found.length, mean_lb: Math.round((found.reduce((t, x) => t + x.mean, 0) / found.length) * 10) / 10, peak_lb: Math.round(Math.max(...found.map(x => x.peak)) * 10) / 10, pulls: found.map(x => ({ mean: Math.round(x.mean * 10) / 10, dur: Math.round(x.dur * 100) / 100 })) } : null,
+      raw, tindeq: force.length ? { resting_lb: resting, force_20hz: force, from: new Date(tq[0].at).toISOString(), n: found.length, mean_lb: found.length ? Math.round((found.reduce((t, x) => t + x.mean, 0) / found.length) * 10) / 10 : 0, peak_lb: Math.round(Math.max(...force) * 10) / 10, pulls: found.map(x => ({ mean: Math.round(x.mean * 10) / 10, dur: Math.round(x.dur * 100) / 100 })) } : null,
       clip: clip.data,
     }
     const { data, error } = await supabase.from('test_sets').insert(row).select(COLS).single()
@@ -255,7 +260,7 @@ export default function TestBench() {
                   <td className="o-user"><CellText value={r.true_reps != null ? String(r.true_reps) : ''} narrow numeric placeholder="?" onSave={v => patch(r.id, { true_reps: num(v) })} /></td>
                   <td className={'verdict ' + (ok === null ? '' : ok ? 'good' : 'bad')}>{ok === null ? '' : ok ? '✓ match' : `✗ off by ${Math.abs((r.true_reps ?? 0) - (r.sensor_reps ?? 0))}`}</td>
                   <td className="small speeds">{r.reps?.list?.length ? r.reps.list.map(x => x.mean_mps.toFixed(2)).join(' ') : '—'}</td>
-                  <td className="small">{r.tindeq ? `${r.tindeq.n}: ${r.tindeq.pulls.map(p => Math.round(p.mean)).join(' ')}` : '—'}</td>
+                  <td className="small">{r.tindeq ? <>{r.tindeq.n}: {r.tindeq.pulls.map(p => Math.round(p.mean)).join(' ')}{r.tindeq.resting_lb != null && <div className="sub2" data-tip="The tension the line sat at through the set (its middle reading), and the highest it reached.">rest {r.tindeq.resting_lb} · peak {r.tindeq.peak_lb} lb</div>}</> : '—'}</td>
                   <td><Trace data={r.reps?.trace ?? []} /></td>
                   <td className="small">{r.clip?.files?.length ? `✓${r.clip.station ? ` ${r.clip.station}` : ''}` : '—'}</td>
                   <td className="small">{again[r.id] ?? <button type="button" className="linkish" onClick={() => readAgain(r)}>Read again</button>}</td>
