@@ -654,8 +654,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   useEffect(() => sensedHere ? imu.onRep(() => sensedSet.set(null)) : undefined, [sensedHere])
   // The phone on the bar logs this set by itself when it sees the set end: its rep count goes in, and its speeds are saved with it.
   const tinRef = useRef({ trace, sp }); tinRef.current = { trace, sp }
-  // Spotter sets are never logged by the sensor: its count on them has not been proven on a real session yet.
-  useEffect(() => autoBar && !r && !sp ? imu.onSet(s => {
+  // Spotter sets are logged the same way: the count stays open to correction like any other.
+  useEffect(() => autoBar && !r ? imu.onSet(s => {
     const v = String(s.reps.length); setReps(v); sensedSet.set({ idx })
     live.ack = [live.who ?? '', /squat/i.test(label) ? 'Squat' : /bench/i.test(label) ? 'Bench' : label, String(idx), v, 'reps'].filter(Boolean)
     setTimeout(() => {
@@ -667,7 +667,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
         else commitRef.current({ reps: v, trace: t2 })
       } else commitRef.current({ reps: v })
     }, 350)
-  }) : undefined, [autoBar, !r, sp])
+  }) : undefined, [autoBar, !r])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
