@@ -339,28 +339,44 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     const set = () => card.style.setProperty('--sheet-top', `${Math.round(parseFloat(getComputedStyle(bar).top) + bar.offsetHeight)}px`)
     set(); const ro = new ResizeObserver(set); ro.observe(bar); return () => ro.disconnect()
   }, [])
-  // Narrow screens: the table scrolls sideways in its own box, which stops its headings sticking to the page. So the page
-  // scrolls the table as one, and the headings are moved down to sit just under the top bar while the table passes under it.
-  const wrapRef = useRef<HTMLDivElement>(null)
+  // Narrow screens: the table scrolls sideways in its own box, and a scroll box stops its headings sticking to the page.
+  // So a copy of the heading row sits outside the box in a strip that sticks under the top bar (the browser holds it there,
+  // no lag), kept the same column widths and slid sideways with the table. Taps on the copy go to the real headings.
+  const wrapRef = useRef<HTMLDivElement>(null), headRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const wrap = wrapRef.current
-    if (!wrap) return
+    const wrap = wrapRef.current, strip = headRef.current
+    const table = wrap?.querySelector('table.sheet') as HTMLTableElement | null
+    if (!wrap || !strip || !table?.tHead) return
+    const real = table.tHead
+    const copy = document.createElement('table'); copy.className = 'sheet headcopy'; strip.replaceChildren(copy)
     let raf = 0
-    const place = () => {
+    const build = () => {
       raf = 0
-      const table = wrap.querySelector('table.sheet') as HTMLTableElement | null, head = table?.tHead
-      if (!table || !head) return
-      if (window.innerWidth >= 900) { table.style.removeProperty('--head-y'); return }
-      const topBar = document.querySelector('.top')?.getBoundingClientRect().bottom ?? 0
-      const r = table.getBoundingClientRect()
-      const y = Math.max(0, Math.min(topBar - r.top, r.height - head.offsetHeight))
-      table.style.setProperty('--head-y', `${Math.round(y)}px`)
+      const narrow = window.innerWidth < 900
+      strip.hidden = !narrow; table.classList.toggle('headmoved', narrow)
+      if (!narrow) return
+      const head = real.cloneNode(true) as HTMLTableSectionElement
+      const src = real.querySelectorAll('th'), dst = head.querySelectorAll('th')
+      src.forEach((th, i) => { const w = `${th.getBoundingClientRect().width}px`; Object.assign((dst[i] as HTMLElement).style, { width: w, minWidth: w, maxWidth: w, boxSizing: 'border-box' }) })
+      copy.style.width = `${table.getBoundingClientRect().width}px`
+      copy.replaceChildren(head)
+      strip.style.top = `${document.querySelector('.top')?.getBoundingClientRect().height ?? 0}px`
+      // Overlays the real heading row when nothing has scrolled, so only one heading row ever shows.
+      strip.style.marginBottom = `${-real.getBoundingClientRect().height}px`
+      strip.scrollLeft = wrap.scrollLeft
     }
-    const queue = () => { if (!raf) raf = requestAnimationFrame(place) }
-    place()
-    window.addEventListener('scroll', queue, { passive: true }); window.addEventListener('resize', queue)
-    const ro = new ResizeObserver(queue); ro.observe(wrap)
-    return () => { window.removeEventListener('scroll', queue); window.removeEventListener('resize', queue); ro.disconnect(); if (raf) cancelAnimationFrame(raf) }
+    const queue = () => { if (!raf) raf = requestAnimationFrame(build) }
+    const slide = () => { strip.scrollLeft = wrap.scrollLeft }
+    const tap = (e: Event) => {
+      const btn = (e.target as HTMLElement).closest('button'); if (!btn) return
+      const all = Array.from(copy.querySelectorAll('button')), i = all.indexOf(btn as HTMLButtonElement)
+      ;(real.querySelectorAll('button')[i] as HTMLButtonElement | undefined)?.click()
+    }
+    build()
+    wrap.addEventListener('scroll', slide, { passive: true }); copy.addEventListener('click', tap); window.addEventListener('resize', queue)
+    const ro = new ResizeObserver(queue); ro.observe(table)
+    const mo = new MutationObserver(queue); mo.observe(real, { subtree: true, childList: true, attributes: true, characterData: true })
+    return () => { wrap.removeEventListener('scroll', slide); copy.removeEventListener('click', tap); window.removeEventListener('resize', queue); ro.disconnect(); mo.disconnect(); if (raf) cancelAnimationFrame(raf); table.classList.remove('headmoved') }
   }, [])
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
   // The phone on the bar logs only into heavy sets: it can't tell which bar it is on, so speed and support rows are never filled from it.
@@ -437,6 +453,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         {L && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
+      <div className="sheethead" ref={headRef} hidden />
       <div className="tablewrap sheetwrap" ref={wrapRef}>
         <ProbeCtx.Provider value={{ probes, skip: onSkipProbe }}><SpotCtx.Provider value={{ rows: spotRows, set: onSpotRow }}><RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
         <table className="sheet">

@@ -752,11 +752,17 @@ button.danger { color: #fff; background: var(--err); border: 1px solid var(--err
 .capgrid .capx { height: 36px; min-height: 36px; padding: 0; width: 34px; font-size: 18px; line-height: 1; }
 
 /* Phones and narrow tablets: the rest/metronome bar scrolls away with the page. The sets table scrolls with the page too
-   (only sideways on its own); its column headings are held under the top bar by Sheet.tsx moving them down by --head-y. */
+   (only sideways on its own); a copy of its heading row (built in Sheet.tsx) sticks under the top bar. */
 @media (max-width: 899px) {
   .sheetbar { position: static; }
-  .sheetwrap table.sheet thead th { transform: translateY(var(--head-y, 0px)); z-index: 3; }
-  .sheetwrap table.sheet thead .stick { z-index: 4; }
+  /* The heading copy: a strip stuck under the top bar, scrolled sideways in step with the table. It overlays the real
+     headings (hidden, but still setting the column widths) so only one heading row shows. */
+  .sheethead { position: sticky; z-index: 6; overflow: hidden; background: var(--card); scrollbar-width: none; }
+  .sheethead::-webkit-scrollbar { display: none; }
+  .sheethead table.sheet { table-layout: fixed; }
+  .sheethead table.sheet th { position: static; }
+  .sheethead table.sheet th.stick { position: sticky; left: 0; z-index: 2; }
+  table.sheet.headmoved thead { visibility: hidden; }
 }
 
 /* No pinch zoom: the app is laid out for the screen it's on. */
