@@ -66,10 +66,12 @@ const setSubs = new Set<(s: BarSet) => void>()
 
 /** The lifter's range of motion for the lift on screen (m), if known: speeds are scaled to it. */
 let rom: number | null = null
-const clean = (reps: BarRep[]) => calibrate(dropUnrack(reps, rom).reps, rom)
+/** The lift on screen starts at the top (bench, squat), so the bar goes down before each rep; false for lifts from the floor. */
+let topStart = true
+const clean = (reps: BarRep[]) => calibrate(dropUnrack(reps, rom, topStart).reps, rom)
 const tracker = new BarTracker({
   rep: (r, n) => { set({ reps: clean(tracker.reps) }); repSubs.forEach(f => f(r, n)) },
-  set: s0 => { const u = dropUnrack(s0.reps, rom), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
+  set: s0 => { const u = dropUnrack(s0.reps, rom, topStart), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); if (state.autolog) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 // The last few minutes of raw readings, kept so a set's own stretch can be saved with it (for checking and improving the rep reading).
@@ -101,6 +103,7 @@ export const imu = {
   },
   onRep: (f: (r: BarRep, n: number) => void) => { repSubs.add(f); return () => { repSubs.delete(f) } },
   setRom(m: number | null) { rom = m && m > 0.05 ? m : null },
+  setTopStart(on: boolean) { topStart = on },
   /** Seconds without a rep that end a set: longer for lifts with long pauses between reps. */
   setGap(s: number) { tracker.setGap(s) },
   /** Called when a set ends, while logging sets by itself is on. */

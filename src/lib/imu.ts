@@ -9,6 +9,8 @@
  */
 export interface ImuSample { t: number; a: number }                       // seconds, m/s²
 export interface BarRep { mean_mps: number; peak_mps: number; rom_m: number; dur_s: number; at: number
+  /** How far the bar travelled down just before this rep went up (m): a real rep starts with a descent, the unrack doesn't. */
+  down_m?: number
   /** Travel as the sensor read it, before it was set to the lifter's known range of motion. */
   raw_rom_m?: number }
 export interface BarSet { reps: BarRep[]; started: number; ended: number
@@ -34,19 +36,22 @@ export const IMU_DEFAULTS: ImuOptions = { still_a: 0.45, still_s: 0.35, still_ma
 /** Reps in a stretch of velocity: each run of upward travel that goes far enough. */
 function repsIn(t: number[], v: number[], minRom: number): BarRep[] {
   const out: BarRep[] = []
-  let i0 = -1, rom = 0, peak = 0
+  let i0 = -1, rom = 0, peak = 0, down = 0, downAt = 0
   const close = (i1: number) => {
     const dur = t[i1] - t[i0]
-    if (rom >= minRom && dur >= 0.15) out.push({ mean_mps: rom / dur, peak_mps: peak, rom_m: rom, dur_s: dur, at: t[i1] })
+    // A run too short to be a rep doesn't use up the descent before it.
+    if (rom >= minRom && dur >= 0.15) { out.push({ mean_mps: rom / dur, peak_mps: peak, rom_m: rom, dur_s: dur, at: t[i1], down_m: downAt }); down = 0 }
+    else down = downAt
     i0 = -1
   }
   for (let i = 1; i < t.length; i++) {
     const up = v[i] > 0.03
-    if (up && i0 < 0) { i0 = i - 1; rom = 0; peak = 0 }
+    if (up && i0 < 0) { i0 = i - 1; rom = 0; peak = 0; downAt = down }
     if (i0 >= 0) {
       if (up) { rom += ((v[i] + v[i - 1]) / 2) * (t[i] - t[i - 1]); peak = Math.max(peak, v[i]) }
       else close(i - 1)
     }
+    if (v[i] < -0.03) down += (-(v[i] + v[i - 1]) / 2) * (t[i] - t[i - 1])
   }
   if (i0 >= 0) close(t.length - 1)
   return out
@@ -145,13 +150,17 @@ export function calibrate(reps: BarRep[], rom_m: number | null): BarRep[] {
 }
 
 /**
- * Leave out the unrack. Lifting the bar off the hooks is a short upward move that looks like a small rep at the start of a
- * set. It is dropped when it travelled less than half as far as a real rep: half the lifter's known range of motion, or,
- * when that isn't known, half the middle travel of the reps after it (so it can only be judged once a real rep has followed).
+ * Leave out the unrack. On a lift that starts at the top (bench, squat), every real rep goes down before it comes up; lifting
+ * the bar off the hooks is the one upward move with no descent before it. So the first upward move of a set is the unrack
+ * when the bar hadn't gone down first (less than 15% of a rep's travel). Failing that, a first move that travelled less than
+ * half as far as a real rep is also taken as the unrack. Lifts from the floor (deadlift) start with a real rep and are left alone.
  */
-export function dropUnrack(reps: BarRep[], rom_m: number | null): { reps: BarRep[]; unrack: boolean } {
-  if (!reps.length) return { reps, unrack: false }
+export function dropUnrack(reps: BarRep[], rom_m: number | null, topStart = true): { reps: BarRep[]; unrack: boolean } {
+  if (!reps.length || !topStart) return { reps, unrack: false }
   const rest = reps.slice(1).map(r => r.rom_m).sort((a, b) => a - b)
   const full = rom_m ?? (rest.length ? rest[Math.floor(rest.length / 2)] : null)
-  return full !== null && reps[0].rom_m < 0.5 * full ? { reps: reps.slice(1), unrack: true } : { reps, unrack: false }
+  const r0 = reps[0]
+  const noDescent = r0.down_m !== undefined && r0.down_m < Math.max(0.04, 0.15 * (full ?? 0.4))
+  const short = full !== null && (r0.raw_rom_m ?? r0.rom_m) < 0.5 * full
+  return noDescent || short ? { reps: reps.slice(1), unrack: true } : { reps, unrack: false }
 }
