@@ -35,6 +35,14 @@ export default function Sensors() {
                 : <button className="primary small" onClick={() => sensor.connect()} disabled={st.status === 'connecting'}>Connect</button>}
             </div>
             {st.error && <p className="small err">{st.error}</p>}
+            {(st.battery_v !== null || st.log.length > 0) && (
+              <p className="small muted tqlog">
+                {st.battery_v !== null && <span data-tip="The Tindeq's battery. About 4.2 V is full; under about 3.4 V it is nearly flat and may switch off." data-pos="right">Battery <b>{st.battery_v.toFixed(2)} V</b> · </span>}
+                <span data-tip="What has happened to the connection lately, newest first. 'dropped after' is how long it had been up; 'tab hidden' means Max was not the tab on screen at that moment." data-pos="right">Connection history</span>: {st.log.slice(0, 8).map((e, i) => (
+                  <span key={i}>{i ? ' · ' : ''}{new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} {e.what}{e.after_s != null ? ` after ${e.after_s >= 90 ? Math.round(e.after_s / 60) + ' min' : e.after_s + ' s'}` : ''}{e.hidden ? ' (tab hidden)' : ''}</span>
+                ))}
+              </p>
+            )}
             {st.status === 'on' && (
               <>
                 <div className="sensrow">
