@@ -7,7 +7,7 @@ import SchemePicker from './today/SchemePicker'
 import { T } from './today/shared'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 0]
-const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF']
+const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF', '3×10 not to max']
 const BANDS = ['', 'Orange', 'Red', 'Blue', 'Green', 'Black', 'Purple', 'Silver']
 const num = (v: string) => (v.trim() === '' ? undefined : Number(v))
 

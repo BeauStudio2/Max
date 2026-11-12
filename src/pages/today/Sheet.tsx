@@ -420,7 +420,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
           <thead>
             <tr>
               <th className="stick" data-tip="Grey rows are planned; logging reps saves the set. Tap a set name on narrow screens for plates, chains and bands." data-pos="left">Set</th><th data-tip="Total on the bar: bar + clamps + plates (not chains or bands). Type a total and the plates update." data-pos="left">lb</th><th className="c-exp" data-tip="Reps expected at this weight to hit the set's target max. Under it: logged reps minus expected (green ahead, red behind).">Exp</th><th data-tip="Reps done. The grey number is the rep goal (expected reps rounded down; up with Spotter on).">Reps</th>
-              <th>{D ? <span data-tip="Rate of perceived exertion, 1–10. The top single's RPE sets today's deadlift estimate.">RPE</span> : <span data-tip="A = last rep assisted (counts half). F = last rep failed (counts nothing). S = spotter set: Reps holds the unaided reps, with spotted reps and average assist beside it.">A · F · S</span>}</th><th data-tip="Estimated 1-rep max from this set (Epley, chains averaged bottom/top). Grey on planned rows = the target. % = vs set 1. Red row = below the stop line.">e1RM</th>
+              <th>{D ? <span data-tip="Rate of perceived exertion, 1–10. The top single's RPE sets today's deadlift estimate.">RPE</span> : <span data-tip="A = last rep assisted (counts half). F = last rep failed (counts nothing). N = not to max (rehab, technique): weight and reps set by hand, no e1RM, doesn't change the ladder. S = spotter set: Reps holds the unaided reps, with spotted reps and average assist beside it.">A · F · N · S</span>}</th><th data-tip="Estimated 1-rep max from this set (Epley, chains averaged bottom/top). Grey on planned rows = the target. % = vs set 1. Red row = below the stop line.">e1RM</th>
               {PLATE_COLS.map(p => { const off = !!platesOn && !platesOn.includes(p); return (
                 <th key={p} className={'c-plate' + (off ? ' off' : '')}>
                   {onPlatesOn ? <button type="button" className="platehd" aria-pressed={!off}
@@ -488,6 +488,10 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   const [reps, setReps] = useState(r?.reps?.toString() ?? '')
   const [a, setA] = useState(!!r?.assisted)
   const [f, setF] = useState(!!r?.failed)
+  // N = not to max: a set done short of failure on purpose (rehab, technique). Weight and reps are whatever you set; no estimate comes from it.
+  const [sub, setSub] = useState(!!r?.setup?.submax)
+  // Rep goal typed by hand for this set; blank = Max's goal.
+  const [goalIn, setGoalIn] = useState<string>(r?.setup?.goal_reps?.toString() ?? '')
   // S = this set is run with the spotter: Reps holds the unaided reps; spotted reps and their average assist are entered beside it.
   const spotCtx = useContext(SpotCtx), rowIdx = r ? r.set_index : p!.idx
   const probeCtx = useContext(ProbeCtx), probe = !r && rowIdx > 1 ? probeCtx.probes[rowIdx] : undefined
@@ -504,15 +508,15 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   const [mine, setMine] = useState<string[]>(r?.setup?.user ?? [])
   const org = (k: string, other: 'o-dyn' | 'o-def') => (mine.includes(k) ? 'o-user' : other)
   useEffect(() => { if (!r) { setSetup(p!.setup); setPlates(p!.weight); setManual(null); setMine([]) } }, [p?.weight, p?.idx, p && setupKey(p.setup)])
-  useEffect(() => { if (r) { setSetup(setupOf(r)); setPlates(r.weight_lb); setReps(r.reps?.toString() ?? ''); setA(r.assisted); setF(r.failed) } }, [r])
+  useEffect(() => { if (r) { setSetup(setupOf(r)); setPlates(r.weight_lb); setReps(r.reps?.toString() ?? ''); setA(r.assisted); setF(r.failed); setSub(!!r.setup?.submax); setGoalIn(r.setup?.goal_reps?.toString() ?? '') } }, [r])
 
   const idx = r ? r.set_index : p!.idx
   const i = r ? L.logged.findIndex(x => x.id === r.id) : -1
   const target = r ? L.targets[i] : p!.target
   const t = totals(plates, setup, eq)
   const repsN = reps === '' ? null : Number(reps)
-  const est = e1rm(t.bottom, t.top, repsN, a, f, cfg)
-  const exp = target ? expectedReps(target, t.bottom, t.top, cfg) : null
+  const est = sub ? null : e1rm(t.bottom, t.top, repsN, a, f, cfg)
+  const exp = target && !sub ? expectedReps(target, t.bottom, t.top, cfg) : null
   const diff = exp !== null && repsN !== null ? repsN - lostReps(a, f, cfg) - exp : null
   // The next set to do starts from the creatine level the rest actually reached.
   const liveP0 = useContext(RestCtx)
@@ -523,13 +527,13 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   const measuredAt = idx <= 1 ? 1 : r ? startLevel(idx - 1, L.cr) : L.spotBasis
   const pred = sp && target && eff ? predictSet(eff, target * strengthAt(P0, L.cr) / strengthAt(measuredAt, L.cr), P0, L.cr) : null
   // Spotter set: Max's rep count is every rep until creatine is spent, all of them done with the spotter helping as needed.
-  const goal = pred ? pred.unaided + pred.spotted : exp !== null ? repGoal(exp, false) : null
+  const goal = goalIn !== '' ? Number(goalIn) : pred ? pred.unaided + pred.spotted : exp !== null ? repGoal(exp, false) : null
   const pct = est && L.actual[0] ? (est / L.actual[0]) * 100 : null
   const isLow = !!r && L.low[L.logged.indexOf(r)]
   const pastStop = !r && !!target && ((L.floor !== null && target < L.floor) || (L.plan.max_sets != null && idx > L.plan.max_sets))
   const below = L.floor !== null && est !== null && est < L.floor
 
-  async function commit(patch: { setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null; touch?: string }) {
+  async function commit(patch: { sub?: boolean; goal?: string; setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null; touch?: string }) {
     const s = patch.setup ?? setup, pl = patch.plates !== undefined ? patch.plates : plates
     const user = patch.touch && !mine.includes(patch.touch) ? [...mine, patch.touch] : mine
     if (user !== mine) setMine(user)
@@ -543,6 +547,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
     const row = { weight_lb: pl, total_bottom_lb: tt.bottom, total_top_lb: tt.top, reps: rp === '' ? null : Number(rp), assisted: aa, failed: ff,
       setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [], user,
         stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null),
+        submax: patch.sub ?? sub, goal_reps: numOrNull(patch.goal ?? goalIn),
         spot: (patch.sp ?? sp) ? { on: true, mode: 'all', spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined, tempo: (patch.tempo !== undefined ? patch.tempo : tempo) ?? undefined } : null } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
@@ -555,7 +560,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
         rest_s: (() => { const from = last?.setup?.spot?.tempo?.ended_at ?? last?.created_at, to = (tempo ?? row.setup.spot?.tempo)?.rec_at
           return from ? Math.round(((to ? Date.parse(to) : Date.now()) - Date.parse(from)) / 1000) : null })(),
         // What Max predicted for this set and whether it was a test set, saved with it so her predictions can be scored.
-        setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
+        setup: { ...row.setup, target_e1rm: target ?? null, pred_reps: !(patch.sp ?? sp) && !(patch.sub ?? sub) && exp !== null ? Math.round(exp * 10) / 10 : null, probe: probe ?? null,
           force: (() => { const tr = (patch.trace !== undefined ? patch.trace : trace) ?? []; return !(patch.sp ?? sp) && tr.length ? { n: tr.length, mean_lb: Math.round((tr.reduce((t, x) => t + x.mean, 0) / tr.length) * 10) / 10, peak_lb: Math.round(Math.max(...tr.map(x => x.peak)) * 10) / 10 } : null })(),
           ended_at: bar && bar.reps.length === row.reps ? new Date(bar.ended_ms).toISOString() : null,
           bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', unrack_dropped: !!bar.unrack, agrees: bar.reps.length === row.reps, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
@@ -655,11 +660,13 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
       <td className="nowrap">
         <button className={'flag' + (a ? ' on' : '')} data-tip="Assisted: last rep had help (counts half)" aria-label="Assisted" aria-pressed={a} onClick={() => { setA(!a); if (r) commit({ a: !a }) }}>A</button>
         <button className={'flag' + (f ? ' on' : '')} data-tip="Failed: last rep missed (counts nothing)" aria-label="Failed" aria-pressed={f} onClick={() => { setF(!f); if (r) commit({ f: !f }) }}>F</button>
+        <button className={'flag' + (sub ? ' on' : '')} data-tip="Not to max: a set stopped short on purpose (rehab, technique). Set the weight and reps yourself; it counts in volume but gives no e1RM and doesn't change the ladder." aria-label="Not to max" aria-pressed={sub} onClick={() => { setSub(!sub); if (r) commit({ sub: !sub }) }}>N</button>
         <button className={'flag s' + (sp ? ' on' : '')} data-tip="Spotter set: Max sets the reps and the spotter helps on every rep as needed. Reps = all reps done." aria-label="Spotter set" aria-pressed={sp} onClick={() => { setSp(!sp); if (r) commit({ sp: !sp }); else spotCtx.set?.(idx, !sp) }}>S</button>
       </td>
       <td className="num"><b>{logged || repsN !== null ? round(est) : target ? <span className="muted">{round(target)}</span> : ''}</b>
         {pct !== null && (logged || repsN !== null) && <div className="sub2" data-tip="This set's estimated max as % of set 1's. The stop line is at the Plan's stop %." data-pos="right">{round(pct)}%</div>}
         {r?.setup?.bar_speed && r.setup.bar_speed.agrees !== false && r.setup.bar_speed.n === r.reps && <div className="sub2 barspeed" data-tip={`Bar speed from the phone: ${r.setup.bar_speed.n} reps seen. Average speed up per rep: ${r.setup.bar_speed.reps.map((x: any) => x.mean_mps.toFixed(2)).join(', ')} m/s.`} data-pos="right">{r.setup.bar_speed.first_mps.toFixed(2)} m/s {r.setup.bar_speed.n > 1 ? `· −${Math.max(0, Math.round(r.setup.bar_speed.loss_pct))}%` : ''}</div>}
+        {sub && <div className="sub2 muted" data-tip="Not to max: left out of e1RM, fatigue and the ladder." data-pos="right">not to max</div>}
         {isLow && <div className="sub2 lowset" data-tip="Low set: under half the reps Max expected at this weight. It's kept as logged, but the next sets are planned from the last good set, not this one." data-pos="right">low</div>}
         {pastStop && <div className="sub2 muted" data-tip="Past the stop line (or the max sets). Max would stop here; this row is open so another set can still be logged." data-pos="right">past stop</div>}</td>
       {hasBar ? <PlateCells stack={stack} on={L.plan.plates_on} onSet={setPlate} keptN={keptN} origin={mine.includes('plates') ? 'o-user' : 'o-dyn'} />
@@ -681,6 +688,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
             <div className="plategrid chaingrid">{(['chain_half', 'chain_5_8'] as const).map(k => <label key={k}>{k === 'chain_half' ? '½ in' : '⅝ in'}
               <CellText value={setup[k] ? String(setup[k]) : ''} narrow numeric onSave={v => setChain(k, v === '' ? 0 : Number(v))} /></label>)}</div></label>}
           <label className="wide">Bands per side<BandEditor bands={setup.bands ?? []} onChange={bb => setSet({ ...setup, bands: bb })} /></label>
+          <label>Rep goal<CellText value={goalIn} narrow numeric placeholder={exp !== null ? String(repGoal(exp, false)) : ''} onSave={v => { setGoalIn(v); if (r) commit({ goal: v }) }} /></label>
           {exp !== null && <span className="small muted">Goal {goal} · expect {exp.toFixed(1)} reps{diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff.toFixed(1)})` : ''}</span>}
           {r?.rest_s ? <span className="small muted">Rest {fmt(r.rest_s)}</span> : null}
           {logged && <DelBtn text="Delete set" onConfirm={() => api.deleteSet(r!.id!)} />}
@@ -845,7 +853,7 @@ function SupportTable({ S, api, slots }: { S: SupportCtl; api: Api; slots?: Supp
   )
 }
 
-const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF']
+const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF', '3×10 not to max']
 
 function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: SupportCtl; api: Api; inline?: boolean; next?: boolean }) {
   const C = useContext(ColsCtx)

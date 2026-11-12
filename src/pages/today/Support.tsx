@@ -5,7 +5,7 @@ import type { SetRow } from '../../lib/types'
 import type { Api } from './shared'
 import SchemePicker from './SchemePicker'
 
-const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF']
+const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF', '3×10 not to max']
 
 interface Slot { key: string; slot: string | null; exerciseId: string; setIndex: number; existing?: SetRow; defaults: any }
 

@@ -12,11 +12,13 @@ export const SCHEME_INFO: Record<string, string> = {
   'F + RP×2 (15 s)': 'Rest-pause: to failure, rest 15 s, go again; repeat twice. Same weight.',
   '1×F': 'A single all-out set.',
   '3×12–15 TF': 'Three sets of 12–15 reps, each to technical failure.',
+  '3×10 not to max': 'Sets × reps as written, stopped short of failure on purpose (rehab, technique). Type your own, e.g. 2×15 not to max.',
 }
 
 /** Builds a description for a scheme the list doesn’t know, from its parts. */
 export function describe(s: string) {
   if (SCHEME_INFO[s]) return SCHEME_INFO[s]
+  if (/not to max/i.test(s)) return 'Sets × reps as written, stopped short of failure on purpose.'
   const parts: string[] = []
   if (/\bTF\b/.test(s)) parts.push('technical failure')
   else if (/\bF\b/.test(s)) parts.push('to failure')

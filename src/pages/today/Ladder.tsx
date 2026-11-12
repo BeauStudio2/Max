@@ -79,6 +79,9 @@ export const setupLabel = (s: LoadSetup) => {
 
 export type Ladder = ReturnType<typeof useLadder>
 
+/** Set marked "not to max": weight and reps set by hand, left out of e1RM, fatigue and the ladder. */
+export const isSubmax = (r?: SetRow | null) => !!r?.setup?.submax
+
 /** All of the ladder's math: targets, stop line, the projected sets with plate choices. */
 /** The plan's fatigue per rep, in %. */
 export const perRep = (plan: { fatigue_rep_pct?: number | null; fatigue_rate_used_pct: number; target_reps: number }) =>
@@ -102,7 +105,8 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     const P0 = startLevel(r.set_index, cr), Pk = P0 * (1 - cr.cost) ** (k - 1)
     return Math.round(((load - pulses[0].mean) / strengthAt(Pk, cr)) * strengthAt(P0, cr) * 10) / 10
   }
-  const actual = logged.map(r => r.setup?.spot?.mode === 'all' ? spotE1rm(r) : e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted, r.failed, cfg))
+  // A "not to max" set (rehab, technique, anything stopped short on purpose) says nothing about the max: no estimate from it.
+  const actual = logged.map(r => isSubmax(r) ? null : r.setup?.spot?.mode === 'all' ? spotE1rm(r) : e1rm(r.total_bottom_lb, r.total_top_lb, r.reps, r.assisted, r.failed, cfg))
   // Target estimated max for each logged set: set 1 = planned max; after that, the last good set's actual less one fatigue step per set since.
   // A set is "low" when its reps came in under half of what its target predicted (a misload, a miss, a set cut short). A low set, like
   // a set saved without reps, doesn't steer what follows: the next sets keep aiming from the last good set.
@@ -113,6 +117,8 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   logged.forEach((r, i) => {
     const target = cur
     targets.push(target)
+    // A not-to-max set is logged and counts in volume, but it neither resets the estimate nor takes fatigue off it.
+    if (isSubmax(r)) { low.push(false); return }
     const exp = target !== null && r.setup?.spot?.mode !== 'all' ? expectedReps(target, r.total_bottom_lb, r.total_top_lb, cfg) : null
     const isLow = r.reps !== null && exp !== null && exp >= 2 && r.reps < exp / 2
     low.push(isLow)
