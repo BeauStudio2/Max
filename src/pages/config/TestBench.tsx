@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { recorder } from '../../lib/record'
 import { supabase } from '../../supabase'
 import { useStore } from '../../lib/store'
 import { imu, useImu } from '../../lib/imuLink'
@@ -65,6 +66,7 @@ export default function TestBench() {
   const [lifterId, setLifterId] = useState<string>(() => { try { return localStorage.getItem('max.test.lifter') ?? '' } catch { return '' } })
   const [lift, setLift] = useState<Lift>(() => { try { return (localStorage.getItem('max.test.lift') as Lift) || 'bench' } catch { return 'bench' } })
   const [on, setOn] = useState(false)
+  useEffect(() => { recorder.want('test', on); if (on) recorder.tag({ label: 'test' }); return () => recorder.want('test', false) }, [on])
   const [weight, setWeight] = useState('')
   const [spotter, setSpotter] = useState(false)
   const [say, setSay] = useState(true)

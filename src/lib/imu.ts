@@ -120,6 +120,8 @@ export class BarTracker {
   private recent: ImuSample[] = []
   /** The bar was hit and is ringing: nothing is read until it is calm again. */
   private settling = false
+  /** The last rest-time's worth of readings, to recognise rest at a new level. */
+  private win: ImuSample[] = []
   /** Latest velocity (m/s), for a live readout (it forgets over a couple of seconds, so it can't drift away). */
   velocity = 0
 
@@ -138,6 +140,16 @@ export class BarTracker {
     this.last = s
     if (!prev || s.t - prev.t > 0.5) { this.reset(); return }                         // first reading, or a gap in the stream
     const dt = s.t - prev.t
+    // The resting offset can jump while the bar is in use (the phone is knocked or turns on the bar during a plate change).
+    // Readings that have held steady for the whole rest time ARE rest, whatever level they sit at: take that level as the new offset.
+    // Without this the bar would look "moving" for ever after such a jump, and no later set would close.
+    this.win.push(s); while (this.win.length && this.win[0].t < s.t - this.o.still_s) this.win.shift()
+    if (this.win.length > 8 && s.t - this.win[0].t >= this.o.still_s * 0.9) {
+      let mn = Infinity, mx = -Infinity
+      for (const w of this.win) { if (w.a < mn) mn = w.a; if (w.a > mx) mx = w.a }
+      const mid = (mn + mx) / 2
+      if (mx - mn < this.o.still_a && Math.abs(mid - this.bias) >= this.o.still_a / 2) { this.bias = mid; this.quietSince = this.win[0].t; this.settling = false; this.recent = [] }
+    }
     const x = s.a - this.bias
     const quiet = Math.abs(x) < this.o.still_a
     if (quiet) { if (this.quietSince === null) this.quietSince = prev.t } else this.quietSince = null
@@ -202,7 +214,7 @@ export class BarTracker {
   }
   /** End the set now (for example on "Max stop"). */
   flush() { if (this.moving) this.endMovement(); if (this.set.length) this.endSet(this.last?.t ?? 0) }
-  private reset() { this.moving = false; this.quietSince = null; this.live = []; this.t = []; this.a = []; this.velocity = 0; this.recent = []; this.settling = false }
+  private reset() { this.win = []; this.moving = false; this.quietSince = null; this.live = []; this.t = []; this.a = []; this.velocity = 0; this.recent = []; this.settling = false }
 }
 
 /** What a set's reps say at a glance: first-rep and last-rep speed, and how much speed was lost across the set. */
@@ -240,4 +252,19 @@ export function dropUnrack(reps: BarRep[], rom_m: number | null, topStart = true
   const noDescent = r0.down_m !== undefined && r0.down_m < Math.max(0.04, 0.15 * (full ?? 0.4))
   const short = full !== null && (r0.raw_rom_m ?? r0.rom_m) < 0.5 * full
   return noDescent || short ? { reps: reps.slice(1), unrack: true } : { reps, unrack: false }
+}
+
+/**
+ * Is this the lift, or the bar just being handled (plates changed, bar shifted in the hooks)? A real rep travels the lift's
+ * range; handling moves the bar a little. The yardstick is how far this session's accepted reps have read on the sensor (it
+ * reads the same lift consistently, though not always the true distance); before any, the lifter's range of motion.
+ * Measured 11/12: real reps 0.35-0.53 m on the sensor, plate changes 0.10-0.29 m.
+ */
+export function isLiftSet(reps: BarRep[], seenRoms: number[], romM: number | null): boolean {
+  if (!reps.length) return false
+  const raw = reps.map(r => r.raw_rom_m ?? r.rom_m)
+  const mid = seenRoms.length >= 3 ? [...seenRoms].sort((a, b) => a - b)[Math.floor(seenRoms.length / 2)] : null
+  const need = mid !== null ? 0.75 * mid : romM ? 0.5 * romM : 0
+  const full = raw.filter(x => x >= need).length
+  return full >= Math.max(1, Math.ceil(raw.length / 2))
 }

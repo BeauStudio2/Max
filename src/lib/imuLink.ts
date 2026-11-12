@@ -6,7 +6,8 @@
  */
 import { useSyncExternalStore } from 'react'
 import { supabase } from '../supabase'
-import { BarTracker, calibrate, dropUnrack, summarize, type BarRep, type BarSet } from './imu'
+import { BarTracker, calibrate, dropUnrack, isLiftSet, summarize, type BarRep, type BarSet } from './imu'
+import { recorder } from './record'
 
 /** Readings from the phone: [seconds, vertical m/s²] pairs, and how the phone is lying (which way is up, in its own axes). */
 type Batch = { s: [number, number][]; hz?: number; g?: [number, number, number] }
@@ -59,9 +60,11 @@ export interface ImuState {
   autolog: boolean
   /** Which way is up in the phone's own axes (unit vector), when the phone sends it: tells how the phone is lying on the bar. */
   gravity: [number, number, number] | null
+  /** The last movement that was not taken as a set (too short to be the lift: a plate change, or the bar being moved), and when. */
+  ignored: { at: number; n: number; travel_m: number } | null
 }
 const FLIP = 'max.imu.flip', AUTO = 'max.imu.autolog'
-let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, gravity: null, autolog: (() => { try { return localStorage.getItem(AUTO) !== '0' } catch { return true } })(), flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
+let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, gravity: null, ignored: null, autolog: (() => { try { return localStorage.getItem(AUTO) !== '0' } catch { return true } })(), flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
 const subs = new Set<() => void>()
 const set = (p: Partial<ImuState>) => { state = { ...state, ...p }; subs.forEach(f => f()) }
 const repSubs = new Set<(r: BarRep, n: number) => void>()
@@ -72,10 +75,12 @@ const anySetSubs = new Set<(s: BarSet & { at: number; ended_ms: number }) => voi
 let rom: number | null = null
 /** The lift on screen starts at the top (bench, squat), so the bar goes down before each rep; false for lifts from the floor. */
 let topStart = true
+const seen: number[] = []
+const isLift = (reps: BarRep[]) => isLiftSet(reps, seen, rom)
 const clean = (reps: BarRep[]) => calibrate(dropUnrack(reps, rom, topStart).reps, rom)
 const tracker = new BarTracker({
   rep: (r, n) => { set({ reps: clean(tracker.reps) }); repSubs.forEach(f => f(r, n)) },
-  set: s0 => { const u = dropUnrack(s0.reps, rom, topStart), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); anySetSubs.forEach(f => f(state.lastSet!)); if (state.autolog && !anySetSubs.size) setSubs.forEach(f => f(s)) },
+  set: s0 => { const u = dropUnrack(s0.reps, rom, topStart), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } if (!isLift(s.reps)) { set({ reps: [], ignored: { at: Date.now(), n: s.reps.length, travel_m: Math.max(...s.reps.map(r => r.raw_rom_m ?? r.rom_m)) } }); return } seen.push(...s.reps.map(r => r.raw_rom_m ?? r.rom_m)); if (seen.length > 60) seen.splice(0, seen.length - 60); set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); anySetSubs.forEach(f => f(state.lastSet!)); if (state.autolog && !anySetSubs.size) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 // The last few minutes of raw readings, kept so a set's own stretch can be saved with it (for checking and improving the rep reading).
@@ -88,6 +93,7 @@ function ingest(b: Batch) {
   if (b.s.length) {
     const lastT = b.s[b.s.length - 1][0]
     wallOffset = now / 1000 - lastT
+    recorder.add('imu', b.s.map(([t, a]) => [Math.round((t + wallOffset) * 1000), state.flip ? -a : a]))
     while (rawT.length && rawT[0] < lastT - RAW_KEEP_S) { rawT.shift(); rawA.shift() }
   }
   count += b.s.length
@@ -106,7 +112,8 @@ export const imu = {
     join(ingest)
   },
   onRep: (f: (r: BarRep, n: number) => void) => { repSubs.add(f); return () => { repSubs.delete(f) } },
-  setRom(m: number | null) { rom = m && m > 0.05 ? m : null },
+  /** (A different range of motion means a different lift or lifter: what counted as a full rep before no longer applies.) */
+  setRom(m: number | null) { const next = m && m > 0.05 ? m : null; if (next !== rom) seen.length = 0; rom = next },
   setTopStart(on: boolean) { topStart = on; tracker.setTopStart(on) },
   /** Seconds without a rep that end a set: longer for lifts with long pauses between reps. */
   setGap(s: number) { tracker.setGap(s) },

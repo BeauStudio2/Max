@@ -1,4 +1,5 @@
-import type { Sample } from './creatine'
+import type { Pulse, Sample } from './creatine'
+import { recorder } from './record'
 
 // Tindeq Progressor Bluetooth protocol (from Tindeq's published API sample client).
 const SERVICE = '7e4e1701-1ea6-40c9-9dcc-13d34ffead57'
@@ -119,6 +120,35 @@ function note(what: LinkEvent['what']) {
 }
 let batteryTimer: ReturnType<typeof setInterval> | null = null
 
+/** The last ten minutes of readings: [clock time in ms, lb]. */
+const ring: [number, number][] = [], RING_MS = 600_000
+/** Line tension between two clock times (ms): the readings, for working out the help on each rep of a set. Null when none were taken then. */
+export function tension(fromMs: number, toMs: number): [number, number][] | null {
+  const out = ring.filter(x => x[0] >= fromMs && x[0] <= toMs)
+  return out.length ? out : null
+}
+/**
+ * The spotter line's help on each rep of a set. The tension in the line IS the help (it pulls up on the bar), so there is no
+ * threshold and no zero to learn: each rep gets the average tension while the bar was going up, and its peak.
+ * `reps` are [start, end] clock times (ms) of each rep's way up. Null when the Tindeq sent nothing during the set.
+ */
+export function assistPerRep(reps: [number, number][]): { pulses: Pulse[]; mean_lb: number; peak_lb: number; trace: { from: string; hz: number; lb: number[] } } | null {
+  if (!reps.length) return null
+  const from = reps[0][0] - 3000, to = reps[reps.length - 1][1] + 2000
+  const all = tension(from, to)
+  if (!all || all.length < 10) return null
+  const r1 = (x: number) => Math.round(x * 10) / 10
+  const pulses: Pulse[] = reps.map(([a, b]) => {
+    const w = all.filter(x => x[0] >= a && x[0] <= b)
+    const mean = w.length ? w.reduce((t, x) => t + x[1], 0) / w.length : 0, peak = w.length ? Math.max(...w.map(x => x[1])) : 0
+    return { start: r1((a - from) / 1000), dur: r1((b - a) / 1000), mean: r1(Math.max(0, mean)), peak: r1(Math.max(0, peak)) }
+  })
+  // The whole set at 20 readings a second, lead-in and run-out included.
+  const lb: number[] = []
+  for (let t = from; t < to; t += 50) { const w = all.filter(x => x[0] >= t && x[0] < t + 50); if (w.length) lb.push(r1(w.reduce((s0, x) => s0 + x[1], 0) / w.length)); else lb.push(lb.length ? lb[lb.length - 1] : 0) }
+  return { pulses, mean_lb: r1(pulses.reduce((t, x) => t + x.mean, 0) / pulses.length), peak_lb: Math.max(...pulses.map(x => x.peak)), trace: { from: new Date(from).toISOString(), hz: 20, lb } }
+}
+
 export const sensor = {
   get: () => state,
   subscribe: (f: () => void) => { subs.add(f); return () => { subs.delete(f) } },
@@ -147,6 +177,12 @@ export const sensor = {
       dev = await connectTindeq(samples => {
         const s = state.settings.invert ? samples.map(x => ({ ...x, lb: -x.lb })) : samples
         if (state.recording) buf.push(...s)
+        // Every reading with its clock time: the last ten minutes stay in memory (a set's stretch is cut out when it is logged),
+        // and everything goes to the workout's recording.
+        const now0 = Date.now(), tEnd = s.at(-1)!.t
+        const stamped = s.map(x => [Math.round(now0 - (tEnd - x.t) * 1000), x.lb] as [number, number])
+        ring.push(...stamped); while (ring.length && ring[0][0] < now0 - RING_MS) ring.shift()
+        recorder.add('tindeq', stamped)
         streams.forEach(f => f(s))
         // The sensor sends ~80 readings a second; repaint the live number about 10 times a second.
         const now = Date.now()

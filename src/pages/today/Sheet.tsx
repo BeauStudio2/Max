@@ -14,6 +14,8 @@ import BarPanel from './BarPanel'
 import CamPanel from './CamPanel'
 import { camera } from '../../lib/camera'
 import { imu, summarize as barSummary } from '../../lib/imuLink'
+import { assistPerRep } from '../../lib/tindeq'
+import { recorder } from '../../lib/record'
 import { predictionMiss, type Probe, type SetObs } from '../../lib/learn'
 import { recordObservations } from '../../lib/observations'
 import RestOverlay from './RestOverlay'
@@ -576,7 +578,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   const pastStop = !r && !!target && ((L.floor !== null && target < L.floor) || (L.plan.max_sets != null && idx > L.plan.max_sets))
   const below = L.floor !== null && est !== null && est < L.floor
 
-  async function commit(patch: { sub?: boolean; goal?: string; setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null; touch?: string }) {
+  async function commit(patch: { sub?: boolean; goal?: string; setup?: LoadSetup; plates?: number | null; reps?: string; a?: boolean; f?: boolean; stack?: number[] | null; sp?: boolean; spotted?: string; assist?: string; trace?: Pulse[] | null; tempo?: Tempo | null; touch?: string; tension?: { from: string; hz: number; lb: number[] } }) {
     const s = patch.setup ?? setup, pl = patch.plates !== undefined ? patch.plates : plates
     const user = patch.touch && !mine.includes(patch.touch) ? [...mine, patch.touch] : mine
     if (user !== mine) setMine(user)
@@ -591,6 +593,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
       setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [], user,
         stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null),
         submax: patch.sub ?? sub, goal_reps: numOrNull(patch.goal ?? goalIn),
+        // The spotter line's tension through the whole set (20 readings a second), when the Tindeq was on.
+        ...(patch.tension ? { tension: patch.tension } : {}),
         spot: (patch.sp ?? sp) ? { on: true, mode: 'all', spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined, tempo: (patch.tempo !== undefined ? patch.tempo : tempo) ?? undefined } : null } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
@@ -608,6 +612,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
           ended_at: bar && bar.reps.length === row.reps ? new Date(bar.ended_ms).toISOString() : null,
           bar_speed: bar && barSum ? { n: barSum.n, first_mps: r3(barSum.first_mps), last_mps: r3(barSum.last_mps), best_mps: r3(barSum.best_mps), loss_pct: Math.round(barSum.loss_pct * 10) / 10, rom_from: bar.reps[0]?.raw_rom_m != null ? 'profile' : 'sensor', unrack_dropped: !!bar.unrack, agrees: bar.reps.length === row.reps, reps: bar.reps.map(x => ({ mean_mps: r3(x.mean_mps), peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) })) } : null } })
       if (saved?.id && saved.session_id && bar) recordObservations(bar.reps.map((x, k) => ({ session_id: saved.session_id!, set_id: saved.id!, rep_index: k + 1, source: 'inertiometer' as const, metric: 'mean_velocity_mps', value: r3(x.mean_mps), data: { peak_mps: r3(x.peak_mps), rom_m: r3(x.rom_m), dur_s: r3(x.dur_s), ...(x.raw_rom_m != null ? { raw_rom_m: r3(x.raw_rom_m) } : {}) } })))
+      recorder.flush()
       // The phone's raw readings over the set (the last two minutes), whether or not it read the reps right.
       if (saved?.id && saved.session_id) { const raw = imu.raw(120); if (raw) recordObservations([{ session_id: saved.session_id, set_id: saved.id, source: 'inertiometer' as const, metric: 'raw_accel', value: raw.n, data: { ...raw, typed_reps: row.reps, sensor_reps: bar?.reps.length ?? null } }]) }
       // Film of the set from the laptop camera: the exact set when a sensor timed it, otherwise the last stretch before logging.
@@ -660,6 +665,18 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   useEffect(() => autoBar && !r ? imu.onSet(s => {
     const v = String(s.reps.length); setReps(v); sensedSet.set({ idx })
     live.ack = [live.who ?? '', `${/squat/i.test(label) ? 'Squat' : /bench/i.test(label) ? 'Bench' : label} set ${idx}, ${v} ${v === '1' ? 'rep' : 'reps'}`].filter(Boolean)
+    // The spotter line's help, rep by rep: the line's tension while the bar went up on each rep the phone timed. No trigger and
+    // no zero: whatever the line was doing between sets (a weight hanging on it, or slack), each rep gets what it actually got.
+    const ls = imu.get().lastSet, closed = s.closed ?? s.ended
+    const wall = (t: number) => (ls?.at ?? Date.now()) - (closed - t) * 1000
+    const help = assistPerRep(s.reps.map(x => [wall(x.at - x.dur_s), wall(x.at)] as [number, number]))
+    if (help) {
+      setTrace(help.pulses)
+      const n = String(help.pulses.length), avg = String(help.mean_lb)
+      if (tinRef.current.sp) { setSpotted(n); setAssist(avg) }
+      setTimeout(() => commitRef.current({ reps: v, trace: help.pulses, tension: help.trace, ...(tinRef.current.sp ? { spotted: n, assist: avg } : {}) }), 350)
+      return
+    }
     setTimeout(() => {
       // The Tindeq feels the unrack as a pull too: when the phone left the unrack out and the Tindeq has exactly one pull more, its first goes as well.
       const { trace: tr, sp: spot } = tinRef.current

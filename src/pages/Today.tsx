@@ -1,4 +1,5 @@
 import { crOf, fitQualifies, learn, type CrLogEntry } from '../lib/creatine'
+import { recorder } from '../lib/record'
 import { Fragment, useEffect, useRef, useState, useMemo } from 'react'
 import { live } from './today/live'
 import { supabase } from '../supabase'
@@ -267,6 +268,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
   // Done per session (recomputed from the numbers before it as more sets come in), logged on the lifter, and undoable on Profile.
   // The workout clock runs from Start workout to Finish. A set logged after Finish means the workout carried on, so the clock (and rest timer) keep running.
   const running = !!session?.started_at && (!session?.ended_at || sets.some(x => !!x.created_at && x.created_at > session.ended_at!))
+  // While a workout is running, every sensor reading is saved (the workout's recording), tagged with whose it is.
+  useEffect(() => { recorder.want('log', running); return () => recorder.want('log', false) }, [running])
+  useEffect(() => { recorder.tag({ lifter_id: lifter?.id ?? null, session_id: session?.id ?? null, label: lifter?.name }) }, [lifter?.id, session?.id])
   // ---- Learning: beliefs, test sets, and the update after each session ----
   const beliefs: Record<string, Belief> = { ...Object.fromEntries(BELIEFS.map(d => [d.key, d.key === 'fatigue_rep_pct' ? { ...d.init, value: perRep(ladderPlan) } : d.init])), ...(st.beliefs?.[lift] ?? {}) }
   const recentMiss: number | null = (() => { const m = (st.pred_miss?.[lift] ?? []) as { miss: number }[]; return m.length ? m.slice(0, 3).reduce((t, x) => t + x.miss, 0) / Math.min(3, m.length) : null })()
