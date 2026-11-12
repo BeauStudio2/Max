@@ -645,7 +645,8 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   const sensedHere = !!r && sensedNow?.idx === idx
   useEffect(() => sensedHere ? onCommand(c => {
     if (c.kind !== 'reps') return
-    const v = String(c.n); setReps(v); sensedSet.set(null); speak(['Set', String(idx), v, 'reps']); commitRef.current({ reps: v })
+    // (Closed a moment later, so the same spoken number isn't also taken by the next set's row.)
+    const v = String(c.n); setReps(v); setTimeout(() => sensedSet.set(null), 100); speak(['Set', String(idx), v, 'reps']); commitRef.current({ reps: v })
   }) : undefined, [sensedHere])
   // A later set being logged closes the correction too.
   useEffect(() => { if (sensedHere && L.logged.some(x => x.set_index > idx)) sensedSet.set(null) })
