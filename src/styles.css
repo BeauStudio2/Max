@@ -742,3 +742,8 @@ td .probetag { margin: 2px 0 0; }
 .clearday { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 button.danger { color: #fff; background: var(--err); border: 1px solid var(--err); border-radius: 8px; padding: 6px 12px; font-weight: 700; cursor: pointer; }
 .small.ok { color: var(--ok, #3fb950); }
+
+.camcell { position: relative; display: inline-flex; align-items: center; }
+.camst { position: absolute; left: 2px; bottom: 1px; font-size: 9px; line-height: 1; padding: 1px 3px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff; pointer-events: none; }
+.camrow { display: block; height: 90px; border-radius: 6px; background: #000; }
+.camtable input { min-width: 140px; }

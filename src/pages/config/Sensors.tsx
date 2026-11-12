@@ -93,30 +93,39 @@ function PhoneBar() {
 }
 
 
-/** The laptop camera that films heavy sets: which camera, how much to keep per set, and a picture to aim it by. */
+/** The cameras that film heavy sets: which to use, the station each looks at, how much to keep per set, and a picture to aim by. */
 function Camera() {
   const s = useCamera()
-  useEffect(() => { camera.resume() }, [])
+  useEffect(() => { camera.resume(); camera.find() }, [])
+  const STATIONS = ['Squat rack', 'Bench', 'Smith', 'Deadlift platform']
   return (
     <>
-      <h3><T tip="Films each heavy set and saves the clip with the set, as raw material for tracking the bar: true bar speed and path, depth, sticking point. Nothing is analysed yet. Aim it side-on to the bar, at about bar height, with the whole lift in view. A strip of bright tape on the end of the bar makes it much easier to track." pos="right">Camera</T></h3>
+      <h3><T tip="Films each heavy set and saves the clip with the set, as raw material for tracking the bar: true bar speed and path, depth, sticking point. Nothing is analysed yet. With two cameras, give each a station: when a set is logged, the camera that saw the most movement during it says which station the set was on, and its film is the one kept. Aim each camera side-on to its bar, at about bar height, with the whole lift in view." pos="right">Cameras</T></h3>
       <div className="sensrow">
         <span className={'dot ' + (s.status === 'rec' ? 'on' : s.status === 'starting' ? 'connecting' : '')} />
-        <span>{s.status === 'rec' ? <>Filming <b>{s.size}</b></> : s.status === 'starting' ? 'Starting…' : 'Off'}</span>
+        <span>{s.status === 'rec' ? <>Filming with <b>{s.cams.filter(c => c.status === 'rec').length}</b> camera{s.cams.filter(c => c.status === 'rec').length > 1 ? 's' : ''}</> : s.status === 'starting' ? 'Starting…' : 'Off'}</span>
         <button className={(s.on ? 'ghost' : 'primary') + ' small'} onClick={() => camera.setOn(!s.on)}>{s.on ? 'Turn off' : 'Turn on'}</button>
+        <button className="ghost small" onClick={() => camera.find()} data-tip="Look again for cameras, after plugging one in." data-pos="right">Find cameras</button>
         {s.clips > 0 && <span className="small">{s.clips} clips saved this visit · {Math.round(s.bytes / 1e6)} MB</span>}
       </div>
       {s.error && <p className="small err">{s.error}</p>}
-      <CamPreview className="campreview" />
+      <datalist id="stations">{STATIONS.map(x => <option key={x} value={x} />)}</datalist>
+      <div className="tablewrap"><table className="sheet cfg camtable">
+        <thead><tr><th className="stick">Camera</th><th data-tip="Film with this camera while cameras are on.">Use</th><th data-tip="The station this camera looks at. A set seen mostly by this camera is noted as done there.">Station</th><th data-tip="How much is moving in this camera's picture now. Wave at it to tell the cameras apart.">Movement</th><th>Picture</th></tr></thead>
+        <tbody>
+          {s.cams.filter(c => c.deviceId !== '' || c.use).map(c => (
+            <tr key={c.deviceId || 'default'}>
+              <td className="stick">{c.label || 'Camera'}{c.size && <div className="sub2">{c.size}</div>}{c.error && <div className="small err">{c.error}</div>}</td>
+              <td><button type="button" className={'switch' + (c.use ? ' on' : '')} aria-pressed={c.use} onClick={() => camera.setCam(c.deviceId, { use: !c.use })}>{c.use ? 'On' : 'Off'}</button></td>
+              <td><input list="stations" defaultValue={c.station} placeholder="e.g. Squat rack" onBlur={e => { if (e.target.value.trim() !== c.station) camera.setCam(c.deviceId, { station: e.target.value.trim() }) }} /></td>
+              <td className="num">{c.status === 'rec' ? c.motion.toFixed(1) : ''}</td>
+              <td><CamPreview className="camrow" deviceId={c.deviceId} /></td>
+            </tr>
+          ))}
+          {!s.cams.some(c => c.deviceId !== '' || c.use) && <tr><td colSpan={5} className="small muted">No cameras listed yet. Press Find cameras and allow camera access.</td></tr>}
+        </tbody>
+      </table></div>
       <div className="planfields sensfields">
-        {s.devices.length > 1 && (
-          <label><T tip="Which camera to film with, if the laptop has more than one (for example a USB camera).">Camera</T>
-            <select value={s.deviceId} onChange={e => camera.setDevice(e.target.value)}>
-              <option value="">Default</option>
-              {s.devices.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
-            </select>
-          </label>
-        )}
         <label><T tip="How much film to keep for a set when no sensor timed it: this many seconds before the moment you log it. 10 to 180. About 1 MB for every 8 seconds.">Seconds per set</T>
           <input inputMode="numeric" defaultValue={s.clip_s} key={s.clip_s} onBlur={e => camera.setClipS(Number(e.target.value))} />
         </label>

@@ -159,7 +159,7 @@ export const saySeconds = (sec: number) => { const s = Math.max(0, Math.round(se
 /** Everything Max can say, for recording ahead of time. */
 export function allPhrases() {
   const c = state.settings.cues
-  const words = [c.warn.word, c.lift.word, c.over.word, c.rack.word, 'Go', 'Record', 'Stop', 'Tare', 'Done', 'Each side', 'Chains', 'No chains', 'half', 'five eighths', 'seconds']
+  const words = [c.warn.word, c.lift.word, c.over.word, c.rack.word, 'Go', 'Record', 'Stop', 'Tare', 'Done', 'Each side', 'Chains', 'No chains', 'half', 'five eighths', 'seconds', 'reps', 'Squat', 'Bench', 'Deadlift', ...people]
   const nums = Array.from({ length: 31 }, (_, i) => String(i))
   for (let n = 31; n <= 600; n++) nums.push(String(n))   // any whole weight, with chains and clamps too
   const halves: string[] = []
@@ -218,7 +218,23 @@ export async function addLibraryVoice(v: LibVoice): Promise<string> {
 
 /* ---------- listening ---------- */
 
-export type Command = { kind: 'go' | 'stop' | 'pain' | 'tare' | 'click' | 'next' | 'plates' | 'time' } | { kind: 'reps'; n: number }
+export type Command = { kind: 'go' | 'stop' | 'pain' | 'tare' | 'click' | 'next' | 'plates' | 'time' } | { kind: 'reps'; n: number } | { kind: 'lifter'; name: string }
+/** The people who can be switched to by voice ("Max, Wyatt"). Set by the app once the lifters are loaded. */
+let people: string[] = []
+export const setPeople = (names: string[]) => { people = names }
+/** A name with its vowels and soft letters taken out, so "Mallen" matches "malin" / "mellon" and "Beau" matches "bo" / "bow". */
+const skeleton = (x: string) => x.toLowerCase().replace(/[^a-z]/g, '').replace(/ph/g, 'f').replace(/ck/g, 'k').replace(/c/g, 'k').replace(/[aeiouwhy]/g, '').replace(/(.)\1+/g, '$1')
+/** The person a heard word means, if it clearly means exactly one of them. */
+export function matchPerson(heard: string, names = people): string | null {
+  const h = heard.toLowerCase().replace(/[^a-z]/g, '')
+  if (!h) return null
+  const exact = names.find(n => n.toLowerCase() === h)
+  if (exact) return exact
+  // Everyday words that happen to sound like a name are never taken as one.
+  if (['what', 'why', 'be', 'by', 'bye', 'boy', 'but', 'me', 'my'].includes(h)) return null
+  const close = names.filter(n => skeleton(n) === skeleton(h) && n[0].toLowerCase() === h[0])
+  return close.length === 1 ? close[0] : null
+}
 const handlers = new Set<(c: Command) => void>()
 /** Pages register for spoken commands; returns the unsubscribe. */
 export const onCommand = (f: (c: Command) => void) => { handlers.add(f); return () => { handlers.delete(f) } }
@@ -239,7 +255,10 @@ export function parseCommand(transcript: string, wake = state.settings.wake): Co
   if (a in NUM && a !== 'zero') return { kind: 'reps', n: NUM[a] }
   if (a === 'zero' && w[i + 2] === 'reps') return { kind: 'reps', n: 0 }
   const k = WORDS[a]
-  return k ? { kind: k } as Command : null
+  if (k) return { kind: k } as Command
+  // "Max, Wyatt": switch the log to that person. Two-word hearings ("why it") are tried joined.
+  const who = matchPerson(a) ?? (w[i + 2] ? matchPerson(a + w[i + 2]) : null)
+  return who ? { kind: 'lifter', name: who } : null
 }
 
 let rec: any = null

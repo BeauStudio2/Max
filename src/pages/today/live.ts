@@ -5,7 +5,11 @@
 export interface NextSet { lb: number; goal: number | null; stack: number[] | null; chains: { half: number; big: number } | null; rackLb: number | null
   /** Spotter set: the rep count after which Max says "Rack". */
   rackAt?: number | null }
-export const live: { next: NextSet | null } = { next: null }
+export const live: { next: NextSet | null
+  /** The person whose log is on screen. */
+  who: string | null
+  /** A set the bar sensor has just logged, to be said before the next set's weight: person, lift, set number, reps. */
+  ack: string[] | null } = { next: null, who: null, ack: null }
 
 const plate = (p: number) => (p === 2.5 ? '2 and a half' : p === 1.25 ? '1 and a quarter' : String(p))
 /** "285", "2" — then, with plates, "Each side", "45", "45", "10", "Chains", "half". Each piece is a phrase recorded ahead of time. */

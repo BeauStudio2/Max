@@ -1,5 +1,6 @@
 import { crOf, fitQualifies, learn, type CrLogEntry } from '../lib/creatine'
 import { Fragment, useEffect, useRef, useState, useMemo } from 'react'
+import { live } from './today/live'
 import { supabase } from '../supabase'
 import { templateFor, useStore } from '../lib/store'
 import { perRep } from './today/Ladder'
@@ -29,6 +30,7 @@ const pick = <T,>(...vals: (T | null | undefined)[]) => vals.find(v => v !== nul
 export default function Today({ lifterId }: { lifterId: string }) {
   const { templates, lifters, exercises, reload, cfg } = useStore()
   const lifter = lifters.find(l => l.id === lifterId)
+  live.who = lifter?.name ?? null
   const st = lifter?.settings ?? {}
   const [date, setDate] = useState(localDate())
   const tpl = templateFor(templates, lifterId, weekdayOf(date), date)

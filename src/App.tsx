@@ -9,6 +9,7 @@ import Profile from './pages/Profile'
 import Config from './pages/Config'
 import TipLayer from './TipLayer'
 import Phone from './pages/Phone'
+import { onCommand, setPeople, speak } from './lib/voice'
 
 type Tab = 'today' | 'profile' | 'plan' | 'config'
 const TABS: { id: Tab; label: string; coach?: boolean }[] = [
@@ -43,6 +44,14 @@ function Shell() {
   const [lifterId, setLifterId] = useState<string>(myLifter?.id ?? lifters[0]?.id ?? '')
 
   useEffect(() => { history.replaceState(null, '', '#' + tab) }, [tab])
+  // "Max, Wyatt" switches to that person; Max says the name back so a wrong hearing is caught at once.
+  const names = lifters.map(l => l.name).join('|')
+  useEffect(() => { setPeople(lifters.map(l => l.name)) }, [names])
+  useEffect(() => onCommand(c => {
+    if (c.kind !== 'lifter') return
+    const l = lifters.find(x => x.name === c.name)
+    if (l) { setLifterId(l.id); speak(l.name) }
+  }), [names])
   // In-page links such as #config switch tabs.
   useEffect(() => {
     const on = () => { const h = location.hash.slice(1) as Tab; if (TABS.some(t => t.id === h)) setTab(h) }
