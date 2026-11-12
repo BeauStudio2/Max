@@ -339,6 +339,29 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
     const set = () => card.style.setProperty('--sheet-top', `${Math.round(parseFloat(getComputedStyle(bar).top) + bar.offsetHeight)}px`)
     set(); const ro = new ResizeObserver(set); ro.observe(bar); return () => ro.disconnect()
   }, [])
+  // Narrow screens: the table scrolls sideways in its own box, which stops its headings sticking to the page. So the page
+  // scrolls the table as one, and the headings are moved down to sit just under the top bar while the table passes under it.
+  const wrapRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    let raf = 0
+    const place = () => {
+      raf = 0
+      const table = wrap.querySelector('table.sheet') as HTMLTableElement | null, head = table?.tHead
+      if (!table || !head) return
+      if (window.innerWidth >= 900) { table.style.removeProperty('--head-y'); return }
+      const topBar = document.querySelector('.top')?.getBoundingClientRect().bottom ?? 0
+      const r = table.getBoundingClientRect()
+      const y = Math.max(0, Math.min(topBar - r.top, r.height - head.offsetHeight))
+      table.style.setProperty('--head-y', `${Math.round(y)}px`)
+    }
+    const queue = () => { if (!raf) raf = requestAnimationFrame(place) }
+    place()
+    window.addEventListener('scroll', queue, { passive: true }); window.addEventListener('resize', queue)
+    const ro = new ResizeObserver(queue); ro.observe(wrap)
+    return () => { window.removeEventListener('scroll', queue); window.removeEventListener('resize', queue); ro.disconnect(); if (raf) cancelAnimationFrame(raf) }
+  }, [])
   const nextMain = seq.find(x => (x.kind === 'main' || x.kind === 'pull') && !x.r) as Extract<Item, { kind: 'main' | 'pull' }> | undefined
   // The phone on the bar logs only into heavy sets: it can't tell which bar it is on, so speed and support rows are never filled from it.
   const nextBar = seq.find(x => x.kind === 'main' && !x.r)
@@ -414,7 +437,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
         {L && <TindeqPanel auto={running} minLb={L!.plan.assist_min_lb} minS={L!.plan.assist_min_s} onCapture={(pulses, tempo) => setCapture({ id: Date.now(), pulses, tempo })} />}
       </div>
 
-      <div className="tablewrap sheetwrap">
+      <div className="tablewrap sheetwrap" ref={wrapRef}>
         <ProbeCtx.Provider value={{ probes, skip: onSkipProbe }}><SpotCtx.Provider value={{ rows: spotRows, set: onSpotRow }}><RestCtx.Provider value={liveP0}><CaptureCtx.Provider value={capture}><ColsCtx.Provider value={cols}>
         <table className="sheet">
           <thead>
