@@ -12,6 +12,19 @@ interface Slot { key: string; slot: string | null; exerciseId: string; setIndex:
 export type SupportSlot = Slot
 export type SupportCtl = ReturnType<typeof useSupportSlots>
 
+/** Drops to suggest: the plan's or profile's count, else the steps from the start weight down to the lifter's minimum (min_lb). */
+export function defaultDrops(d: any): number | undefined {
+  if (d?.drops != null) return d.drops
+  if (d?.start_lb == null || !d?.step_lb || d?.min_lb == null || d.start_lb <= d.min_lb) return undefined
+  return Math.floor((d.start_lb - d.min_lb) / d.step_lb)
+}
+
+/** The loads a run-the-rack goes through, never below the lifter's minimum for the exercise. */
+export function rackLoads(start: number | null, step: number | null, drops: number | null, min?: number): string {
+  if (start === null || !step || !drops) return ''
+  return Array.from({ length: Math.min(drops, 30) + 1 }, (_, i) => Math.max(min ?? 0, start - i * step)).join('→')
+}
+
 /** The day's support work as slots: plan exercises, extra sets and added exercises, each logged or not yet. */
 export function useSupportSlots(support: any, sets: SetRow[], api: Api, resetKey = '', persist?: { hidden: string[]; setHidden: (h: string[]) => void }, maxSets?: Record<string, number>, swap?: Record<string, string>) {
   const { exercises } = useStore()
@@ -87,7 +100,7 @@ export function SupportRow({ slot, api, onAddSet, onRemove, onSaved, mode = 'edi
     scheme: e?.scheme ?? d.scheme ?? '',
     start: e?.start_weight_lb?.toString() ?? d.start_lb?.toString() ?? '',
     step: e?.step_lb?.toString() ?? d.step_lb?.toString() ?? '',
-    drops: e?.drops?.toString() ?? d.drops?.toString() ?? '',
+    drops: e?.drops?.toString() ?? defaultDrops(d)?.toString() ?? '',
     reps: e?.reps?.toString() ?? '',
     notes: e?.notes ?? '',
   })
@@ -96,11 +109,7 @@ export function SupportRow({ slot, api, onAddSet, onRemove, onSaved, mode = 'edi
   const set = (k: keyof ReturnType<typeof init>) => (ev: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV({ ...v, [k]: ev.target.value })
 
   const n = (s: string) => (s.trim() === '' ? null : Number(s))
-  const loads = (() => {
-    const start = n(v.start), step = n(v.step), drops = n(v.drops)
-    if (start === null || !step || !drops) return ''
-    return Array.from({ length: Math.min(drops, 30) + 1 }, (_, i) => Math.max(0, start - i * step)).join('→')
-  })()
+  const loads = rackLoads(n(v.start), n(v.step), n(v.drops), d.min_lb)
 
   const auto = mode === 'edit' || !!e
   async function save(next = v, force = false) {

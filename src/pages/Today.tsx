@@ -383,8 +383,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const speedFor = useMemo(() => (speedBase || speedItems.length ? { ...(speedBase ?? { lift: speedKey }), items: speedItems } : null), [speedBase, speedItemsKey])
   const supportFrozen = past && snap?.spec?.support?.group === supportKey ? snap.spec.support : null
   const supportPlan = (spec.support?.group === supportKey ? spec.support : null) ?? supportOptions.get(supportKey) ?? null
-  // The lifter's own starting weight for a support exercise (settings.support_defaults) replaces the shared day plan's.
-  const supportOwn: Record<string, { start_lb?: number }> = st.support_defaults ?? {}
+  // The lifter's own starting weight, step and minimum for a support exercise (settings.support_defaults) replace the shared day plan's.
+  const supportOwn: Record<string, { start_lb?: number; step_lb?: number; min_lb?: number }> = st.support_defaults ?? {}
   const supportOwnKey = JSON.stringify(supportOwn)
   // This day only: support exercises added to the list (kept on the session). Ones taken off are in support_hidden.
   const supportAdded: { name: string }[] = sp.support_added ?? []

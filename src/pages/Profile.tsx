@@ -470,7 +470,7 @@ function OwnDefaults({ lifterId }: { lifterId: string }) {
   const lifter = lifters.find(l => l.id === lifterId)
   const st = lifter?.settings ?? {}
   const speed: Record<string, { load_lb?: number; reps?: number }> = st.speed_defaults ?? {}
-  const support: Record<string, { start_lb?: number }> = st.support_defaults ?? {}
+  const support: Record<string, { start_lb?: number; step_lb?: number; min_lb?: number }> = st.support_defaults ?? {}
   const [add, setAdd] = useState('')
   // What the shared plans say, to show beside each box and to offer exercises to add.
   const planSpeed = new Map<string, any>(), planSupport = new Map<string, any>()
@@ -482,7 +482,7 @@ function OwnDefaults({ lifterId }: { lifterId: string }) {
   const num = (v: string) => (v.trim() === '' || isNaN(Number(v)) ? undefined : Number(v))
   const clean = <V extends Record<string, any>>(o: Record<string, V>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined))]).filter(([, v]) => Object.keys(v as object).length)) as Record<string, V>
   const setSpeed = (nm: string, p: { load_lb?: number; reps?: number }) => save({ speed_defaults: clean({ ...speed, [nm]: { ...speed[nm], ...p } }) })
-  const setSupport = (nm: string, p: { start_lb?: number }) => save({ support_defaults: clean({ ...support, [nm]: { ...support[nm], ...p } }) })
+  const setSupport = (nm: string, p: { start_lb?: number; step_lb?: number; min_lb?: number }) => save({ support_defaults: clean({ ...support, [nm]: { ...support[nm], ...p } }) })
   const speedNames = Object.keys(speed).sort(), supportNames = Object.keys(support).sort()
   const options = [...new Set([...planSpeed.keys(), ...planSupport.keys(), ...exercises.filter(e => e.category === 'support').map(e => e.name)])]
     .filter(nm => !(nm in speed) && !(nm in support)).sort()
@@ -492,17 +492,18 @@ function OwnDefaults({ lifterId }: { lifterId: string }) {
     : <b>{value ?? plan ?? ''}</b>
   return (
     <section className="card">
-      <h2><T tip="The day plans are shared by everyone. A number set here is used for this person in place of the plan's: the weight and reps a speed exercise starts at, and the starting weight of a support exercise. Grey numbers in an empty box are the shared plan's." pos="right">Own speed and support numbers</T></h2>
+      <h2><T tip="The day plans are shared by everyone. A number set here is used for this person in place of the plan's: the weight and reps a speed exercise starts at, and a support exercise's starting weight, step per drop and lowest weight. Grey numbers in an empty box are the shared plan's." pos="right">Own speed and support numbers</T></h2>
       {!speedNames.length && !supportNames.length && <p className="small muted">None yet: this person uses the shared plan's numbers.</p>}
       {(speedNames.length > 0 || supportNames.length > 0) && (
         <div className="tablewrap"><table className="sheet cfg owndef">
-          <thead><tr><th className="stick">Exercise</th><th data-tip="Speed: the weight. Support: the starting (heaviest) weight.">lb</th><th data-tip="Speed exercises only: the reps suggested in the row.">Reps</th><th className="c-del" /></tr></thead>
+          <thead><tr><th className="stick">Exercise</th><th data-tip="Speed: the weight. Support: the starting (heaviest) weight.">lb</th><th data-tip="Speed exercises only: the reps suggested in the row.">Reps</th><th data-tip="Support only: weight taken off at each drop (e.g. 10 for Beau, 5 for someone else).">Step</th><th data-tip="Support only: the lightest weight a run-the-rack goes down to. Sets the default number of drops.">Min</th><th className="c-del" /></tr></thead>
           <tbody>
             {speedNames.map(nm => (
               <tr key={'s' + nm}>
                 <td className="stick"><span className="tagdot s" />{nm}</td>
                 <td>{box(speed[nm].load_lb, planSpeed.get(nm)?.load_lb, v => setSpeed(nm, { load_lb: v }))}</td>
                 <td>{box(speed[nm].reps, planSpeed.get(nm)?.reps, v => setSpeed(nm, { reps: v }))}</td>
+                <td className="muted small">—</td><td className="muted small">—</td>
                 <td className="c-del">{isCoach && <DelBtn tip="Go back to the shared plan's numbers for this exercise" onConfirm={() => { const { [nm]: _, ...rest } = speed; save({ speed_defaults: rest }) }} />}</td>
               </tr>
             ))}
@@ -511,7 +512,9 @@ function OwnDefaults({ lifterId }: { lifterId: string }) {
                 <td className="stick">{nm}</td>
                 <td>{box(support[nm].start_lb, planSupport.get(nm)?.start_lb, v => setSupport(nm, { start_lb: v }))}</td>
                 <td className="muted small">—</td>
-                <td className="c-del">{isCoach && <DelBtn tip="Go back to the shared plan's starting weight for this exercise" onConfirm={() => { const { [nm]: _, ...rest } = support; save({ support_defaults: rest }) }} />}</td>
+                <td>{box(support[nm].step_lb, planSupport.get(nm)?.step_lb, v => setSupport(nm, { step_lb: v }))}</td>
+                <td>{box(support[nm].min_lb, undefined, v => setSupport(nm, { min_lb: v }))}</td>
+                <td className="c-del">{isCoach && <DelBtn tip="Go back to the shared plan's numbers for this exercise" onConfirm={() => { const { [nm]: _, ...rest } = support; save({ support_defaults: rest }) }} />}</td>
               </tr>
             ))}
           </tbody>

@@ -6,7 +6,7 @@ import { e1rm, e1rmFromRpe, expectedReps, lostReps, repGoal, loadSide, platesPer
 import type { Equipment, SetRow } from '../../lib/types'
 import { CLAMPS, CHAIN_CLAMP, setupOf, type Ladder } from './Ladder'
 import { type DeadliftCtl, type PullRowDef } from './Deadlift'
-import { type SupportCtl, type SupportSlot } from './Support'
+import { type SupportCtl, type SupportSlot, defaultDrops } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
 import VoiceBar from './VoiceBar'
@@ -899,7 +899,7 @@ function SupportTable({ S, api, slots }: { S: SupportCtl; api: Api; slots?: Supp
       <h3><span className="hastip" data-tip="Accessory work. Log the start weight and reps at that weight; drops follow the scheme." data-pos="left">Support</span></h3>
       <div className="tablewrap">
         <table className="sheet">
-          <thead><tr><th className="stick" data-tip="Pick from the library; the plan's default is preselected." data-pos="left">Exercise</th><th data-tip="Starting weight (the first, heaviest load).">Start</th><th data-tip="Reps at the start weight.">Reps</th><th data-tip="Reps at each drop, e.g. 3+3+3 for a run-the-rack.">Each drop</th><th data-tip="Reps at the last drop.">Final</th><th className="c-setup" data-tip="F = to failure · TF = technical failure · DS×n = n drops · ST = strip set · RP = rest-pause · RTR = run the rack. Tap the scheme for details.">Scheme</th><th className="c-exp" data-tip="Weight removed at each drop.">Step</th><th className="c-exp" data-tip="Number of drops after the start weight.">Drops</th><th className="c-side">Note</th><th className="c-rest"></th></tr></thead>
+          <thead><tr><th className="stick" data-tip="Pick from the library; the plan's default is preselected." data-pos="left">Exercise</th><th data-tip="Starting weight (the first, heaviest load).">Start</th><th data-tip="Reps at the start weight.">Reps</th><th className="c-setup" data-tip="F = to failure · TF = technical failure · DS×n = n drops · ST = strip set · RP = rest-pause · RTR = run the rack. Tap the scheme for details.">Scheme</th><th className="c-exp" data-tip="Weight removed at each drop.">Step</th><th className="c-exp" data-tip="Number of drops after the start weight.">Drops</th><th className="c-side">Note</th><th className="c-rest"></th></tr></thead>
           <tbody>{(slots ?? S.slots).map(slot => <SupportTr key={slot.key} slot={slot} S={S} api={api} />)}</tbody>
         </table>
       </div>
@@ -915,40 +915,22 @@ function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: Suppo
   const { exercises, templates } = useStore()
   const schemeOptions = Array.from(new Set([...SCHEMES, ...templates.flatMap(t => (t.spec?.support?.items ?? []).map((i: any) => i.scheme).filter(Boolean))]))
   const e = slot.existing, d = slot.defaults ?? {}
-  const init = () => {
-    const dr: number[] = e?.setup?.drop_reps ?? []
-    return {
-      ex: slot.exerciseId, scheme: e?.scheme ?? d.scheme ?? '',
-      start: e?.start_weight_lb?.toString() ?? d.start_lb?.toString() ?? '', step: e?.step_lb?.toString() ?? d.step_lb?.toString() ?? '',
-      drops: e?.drops?.toString() ?? d.drops?.toString() ?? '', reps: e?.reps?.toString() ?? '',
-      each: dr.length > 1 ? (new Set(dr.slice(0, -1)).size === 1 ? String(dr[0]) : dr.slice(0, -1).join(',')) : '',
-      final: e?.setup?.final_reps?.toString() ?? (dr.length ? String(dr.at(-1)) : ''),
-      notes: e?.notes ?? '',
-    }
-  }
+  // Reps are logged at the start weight only; reps at each drop aren't asked for.
+  const init = () => ({
+    ex: slot.exerciseId, scheme: e?.scheme ?? d.scheme ?? '',
+    start: e?.start_weight_lb?.toString() ?? d.start_lb?.toString() ?? '', step: e?.step_lb?.toString() ?? d.step_lb?.toString() ?? '',
+    drops: e?.drops?.toString() ?? defaultDrops(d)?.toString() ?? '', reps: e?.reps?.toString() ?? '',
+    notes: e?.notes ?? '',
+  })
   const adding = useRef<Promise<any> | null>(null), made = useRef<string | null>(null)
   const [v, setV] = useState(init)
   useEffect(() => { setV(init()); if (!e) made.current = null }, [e?.id, e?.exercise_id, e?.reps, e ? '' : slot.exerciseId, e ? '' : d.start_lb])
   const num = (s: string) => (s.trim() === '' ? null : Number(s))
-  const drops = num(v.drops)
-  const loads = (() => {
-    const start = num(v.start), step = num(v.step)
-    if (start === null || !step || !drops) return ''
-    return Array.from({ length: Math.min(drops, 30) + 1 }, (_, i) => Math.max(0, start - i * step)).join('→')
-  })()
-
   async function save(nv = v) {
     if (!nv.ex) return
-    const dn = num(nv.drops)
-    let dropReps: number[] | null = null
-    if (dn && (nv.each || nv.final)) {
-      const list = nv.each.split(/[ ,]+/).filter(Boolean).map(Number)
-      const middle = list.length > 1 ? list.slice(0, dn - 1) : Array(Math.max(0, dn - 1)).fill(list[0] ?? null)
-      dropReps = [...middle, num(nv.final) ?? list.at(-1) ?? null]
-    }
     const patch = {
-      exercise_id: nv.ex, scheme: nv.scheme || null, start_weight_lb: num(nv.start), step_lb: num(nv.step), drops: dn, reps: num(nv.reps),
-      notes: nv.notes.trim() || null, setup: { ...(e?.setup ?? {}), slot: slot.slot, drop_reps: dropReps, final_reps: num(nv.final) },
+      exercise_id: nv.ex, scheme: nv.scheme || null, start_weight_lb: num(nv.start), step_lb: num(nv.step), drops: num(nv.drops), reps: num(nv.reps),
+      notes: nv.notes.trim() || null, setup: { ...(e?.setup ?? {}), slot: slot.slot },
     }
     // A second field typed while the first is still being saved must update that same set, not log another.
     if (!e?.id && adding.current) made.current = (await adding.current)?.id ?? made.current
@@ -982,8 +964,6 @@ function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: Suppo
           </label>
           <label className={so('start', d.start_lb)} data-tip="Starting weight (the first, heaviest load).">Start{field('start')}</label>
           <label className="o-user" data-tip="Reps at the start weight.">Reps{field('reps')}</label>
-          <label className="opt" data-tip="Reps at each drop, e.g. 3 or 3,3,4.">Each drop{field('each', true, false)}</label>
-          <label className="opt" data-tip="Reps at the last drop.">Final{field('final')}</label>
           <div className="field opt"><span className="flabel">Scheme</span>{scheme}</div>
           <label className={'opt ' + so('step', d.step_lb)} data-tip="Weight removed at each drop.">Step{field('step')}</label>
           <label className={'opt ' + so('drops', d.drops)} data-tip="Number of drops after the start weight.">Drops{field('drops')}</label>
@@ -1006,7 +986,7 @@ function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: Suppo
           {slot.setIndex > 1 && <span className="small muted"> set {slot.setIndex}</span>}
           {d.note && <div className="sub2 wrap">{d.note}</div>}
         </td>
-        <td>{field('start')}</td><td>{field('reps')}</td><td>{field('each', true, false)}</td><td>{field('final')}</td>
+        <td>{field('start')}</td><td>{field('reps')}</td>
         <td className="c-setup">{scheme}</td>
         <td className="c-exp">{field('step')}</td><td className="c-exp">{field('drops')}</td>
         <td className="c-side">{note}</td>
@@ -1014,7 +994,7 @@ function SupportTr({ slot, S, api, inline, next }: { slot: SupportSlot; S: Suppo
           <DelBtn label="Remove" tip="Remove this exercise or set" onConfirm={() => S.remove(slot)} /></td>
       </tr>
       {more && (
-        <tr className="morerow"><td className="stick" /><td colSpan={9}>
+        <tr className="morerow"><td className="stick" /><td colSpan={7}>
           <div className="morebox">
             <div className="field"><span className="flabel">Scheme</span>{scheme}</div>
             <label>Step{field('step')}</label><label>Drops{field('drops')}</label>
