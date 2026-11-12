@@ -750,3 +750,13 @@ button.danger { color: #fff; background: var(--err); border: 1px solid var(--err
 
 .capgrid.caps4 { grid-template-columns: auto minmax(0, 1fr) 72px 34px; }
 .capgrid .capx { height: 36px; min-height: 36px; padding: 0; width: 34px; font-size: 18px; line-height: 1; }
+
+/* Phones and narrow tablets: the rest/metronome bar scrolls away with the page instead of pinning to the top, and the
+   sets table becomes its own scroll box (both directions) so the column headings stay pinned at its top while the
+   set column stays pinned on the left. The box fills the screen between the top bar and the bottom tabs. */
+@media (max-width: 899px) {
+  .sheetbar { position: static; }
+  .sheetwrap { overflow: auto; max-height: calc(100dvh - 69px - 72px); overscroll-behavior: contain; }
+  .sheetwrap table.sheet thead th { top: 0; z-index: 3; }
+  .sheetwrap table.sheet thead .stick { z-index: 4; }
+}
