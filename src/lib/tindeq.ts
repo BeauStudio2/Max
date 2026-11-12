@@ -52,6 +52,8 @@ export async function connectTindeq(onSamples: (s: Sample[]) => void, onGone: ()
     ctrl = await service.getCharacteristic(CTRL)
     data.addEventListener('characteristicvaluechanged', onValue)
     await data.startNotifications()
+    // Battery is asked once, before measuring starts: a question during measuring can stop the readings.
+    try { await send(CMD_BATTERY); await new Promise(r => setTimeout(r, 250)) } catch { /* older firmware: carry on */ }
     await send(CMD_START)
   }
   await open()
@@ -68,7 +70,7 @@ export async function connectTindeq(onSamples: (s: Sample[]) => void, onGone: ()
   return {
     name: device.name ?? 'Progressor',
     tare: async () => { await send(CMD_STOP); await send(CMD_TARE); await send(CMD_START) },
-    battery: async () => { await send(CMD_BATTERY) },
+    battery: async () => { await send(CMD_STOP); await send(CMD_BATTERY); await new Promise(r => setTimeout(r, 250)); await send(CMD_START) },
     disconnect: () => { closed = true; send(CMD_STOP).catch(() => {}).finally(() => { if (device.gatt.connected) device.gatt.disconnect(); else onGone() }) },
   }
 }
@@ -148,10 +150,6 @@ export const sensor = {
       want(true)
       set({ status: 'on', name: dev.name, lastAt: 0, hz: 0 })
       note('connected')
-      // Battery now and every five minutes.
-      const d = dev; d.battery().catch(() => {})
-      if (batteryTimer) clearInterval(batteryTimer)
-      batteryTimer = setInterval(() => { if (dev === d && state.status === 'on') d.battery().catch(() => {}) }, 300_000)
     } catch (e: any) {
       // Closing the browser's device picker is not an error.
       set({ status: 'off', error: known || e?.name === 'NotFoundError' ? null : e?.message ?? 'Could not connect' })
