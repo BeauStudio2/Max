@@ -747,3 +747,6 @@ button.danger { color: #fff; background: var(--err); border: 1px solid var(--err
 .camst { position: absolute; left: 2px; bottom: 1px; font-size: 9px; line-height: 1; padding: 1px 3px; border-radius: 3px; background: rgba(0,0,0,.6); color: #fff; pointer-events: none; }
 .camrow { display: block; height: 90px; border-radius: 6px; background: #000; }
 .camtable input { min-width: 140px; }
+
+.capgrid.caps4 { grid-template-columns: auto minmax(0, 1fr) 72px 34px; }
+.capgrid .capx { height: 36px; min-height: 36px; padding: 0; width: 34px; font-size: 18px; line-height: 1; }
