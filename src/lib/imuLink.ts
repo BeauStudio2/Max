@@ -103,7 +103,7 @@ export const imu = {
   },
   onRep: (f: (r: BarRep, n: number) => void) => { repSubs.add(f); return () => { repSubs.delete(f) } },
   setRom(m: number | null) { rom = m && m > 0.05 ? m : null },
-  setTopStart(on: boolean) { topStart = on },
+  setTopStart(on: boolean) { topStart = on; tracker.setTopStart(on) },
   /** Seconds without a rep that end a set: longer for lifts with long pauses between reps. */
   setGap(s: number) { tracker.setGap(s) },
   /** Called when a set ends, while logging sets by itself is on. */

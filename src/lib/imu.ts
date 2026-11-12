@@ -2,10 +2,14 @@
  * Bar motion from a phone on the bar. Input is vertical acceleration (m/s², up positive, gravity removed) with the phone's
  * own timestamps; output is each lift's reps with how fast and how far the bar moved up.
  *
- * Acceleration is summed into velocity, which drifts, so the bar being still is the anchor: a "movement" runs from still to
- * still, its velocity is straightened so it starts and ends at zero, and reps are read from that. While a movement is still
- * going on, reps are reported straight away from the unstraightened velocity (good enough to count and call out), then
- * replaced by the corrected ones when the bar comes to rest.
+ * Acceleration summed into velocity drifts, and over a long set the drift is far bigger than the lifting. So reps are read
+ * from the shape of the motion, not from the bar coming to rest:
+ *   1. The slow drift is taken out of the velocity (its own 4-second average is subtracted), which leaves the down-and-up of
+ *      each rep. Every stretch of upward travel is a candidate rep.
+ *   2. Each candidate is then measured again on its own, from the top of the rep before it to its own top. The bar is still at
+ *      both tops and at the same height, which pins down the drift inside that one rep. A real rep comes out near full travel;
+ *      a wobble, or the unrack, comes out near zero.
+ * A hit (the bar going into the hooks) ends the movement just before it.
  */
 export interface ImuSample { t: number; a: number }                       // seconds, m/s²
 export interface BarRep { mean_mps: number; peak_mps: number; rom_m: number; dur_s: number; at: number
@@ -20,144 +24,185 @@ export interface BarSet { reps: BarRep[]; started: number; ended: number
   closed?: number }
 
 export interface ImuOptions {
-  /** The bar counts as still when acceleration stays inside ± this (m/s²)... */
+  /** The bar counts as at rest when acceleration stays inside ± this (m/s²)... */
   still_a: number
-  /** ...for this long (s), while it is also barely moving (a slow grind has almost no acceleration but is not still)... */
+  /** ...for this long (s). A movement (unrack to rack, or one run of reps) ends then. */
   still_s: number
-  /** ...or stays that quiet for this long whatever the speed estimate says (it drifts). */
-  still_max_s: number
-  /** A rep has to travel up at least this far (m). */
+  /** A rep has to travel up at least this far (m), and at least a quarter as far as the set's typical rep. */
   min_rom_m: number
   /** A set is over when no rep has finished for this long (s). */
   set_gap_s: number
   /** Swinging past this (m/s²) both up and down within 0.15 s is a hit (hooks, clang), not lifting. */
   impact_a: number
+  /** The drift is taken as the velocity's own average over this long (s). */
+  drift_s: number
 }
-export const IMU_DEFAULTS: ImuOptions = { still_a: 0.45, still_s: 0.35, still_max_s: 4, min_rom_m: 0.12, set_gap_s: 6, impact_a: 10 }
+export const IMU_DEFAULTS: ImuOptions = { still_a: 0.45, still_s: 2.5, min_rom_m: 0.08, set_gap_s: 6, impact_a: 10, drift_s: 4 }
 
-/** Reps in a stretch of velocity: each run of upward travel that goes far enough. */
-function repsIn(t: number[], v: number[], minRom: number): BarRep[] {
-  const out: BarRep[] = []
-  let i0 = -1, rom = 0, peak = 0, down = 0, downAt = 0
-  const close = (i1: number) => {
-    const dur = t[i1] - t[i0]
-    // A run too short to be a rep doesn't use up the descent before it.
-    // Not a rep: too short, or a slow drift (many seconds long, barely moving, or further than a bar can travel).
-    if (rom >= minRom && dur >= 0.15 && dur <= 6 && rom <= 1.1 && peak >= 0.12) { out.push({ mean_mps: rom / dur, peak_mps: peak, rom_m: rom, dur_s: dur, at: t[i1], down_m: downAt }); down = 0 }
-    else down = downAt
-    i0 = -1
+/**
+ * The reps in one movement. `t` in seconds, `a` in m/s² with the resting offset already taken off. `closeFirst`: the movement
+ * starts at the top (bench, squat), so the first rep also returns to where it began; false for a lift from the floor.
+ */
+export function readReps(t: number[], a: number[], o: ImuOptions = IMU_DEFAULTS, closeFirst = true): BarRep[] {
+  const n = t.length
+  if (n < 8) return []
+  const v = new Array<number>(n).fill(0)
+  for (let i = 1; i < n; i++) v[i] = v[i - 1] + ((a[i] + a[i - 1]) / 2) * (t[i] - t[i - 1])
+  // 1. Velocity with its slow drift removed: minus its average over drift_s around each moment.
+  const pre = new Array<number>(n + 1).fill(0)
+  for (let i = 0; i < n; i++) pre[i + 1] = pre[i] + v[i]
+  const vh = new Array<number>(n)
+  let lo = 0, hi = 0
+  for (let i = 0; i < n; i++) {
+    while (t[i] - t[lo] > o.drift_s / 2) lo++
+    while (hi < n - 1 && t[hi + 1] - t[i] <= o.drift_s / 2) hi++
+    vh[i] = v[i] - (pre[hi + 1] - pre[lo]) / (hi + 1 - lo)
   }
-  for (let i = 1; i < t.length; i++) {
-    const up = v[i] > 0.03
-    if (up && i0 < 0) { i0 = i - 1; rom = 0; peak = 0; downAt = down }
+  const cand: [number, number][] = []
+  let i0 = -1, rom = 0
+  for (let i = 1; i < n; i++) {
+    const up = vh[i] > 0.03
+    if (up && i0 < 0) { i0 = i - 1; rom = 0 }
     if (i0 >= 0) {
-      if (up) { rom += ((v[i] + v[i - 1]) / 2) * (t[i] - t[i - 1]); peak = Math.max(peak, v[i]) }
-      else close(i - 1)
+      if (up) rom += ((vh[i] + vh[i - 1]) / 2) * (t[i] - t[i - 1])
+      if (!up || i === n - 1) { const i1 = up ? i : i - 1; if (rom >= 0.05 && t[i1] - t[i0] >= 0.2) cand.push([i0, i1]); i0 = -1 }
     }
-    if (v[i] < -0.03) down += (-(v[i] + v[i - 1]) / 2) * (t[i] - t[i - 1])
   }
-  if (i0 >= 0) close(t.length - 1)
-  return out
+  // 2. Measure each candidate again from the top before it to its own top.
+  const out: BarRep[] = []
+  let start = 0
+  for (let c = 0; c < cand.length; c++) {
+    const end = cand[c][1], m = end - start
+    if (m < 3) continue
+    const T = t[end] - t[start]
+    const sv = new Array<number>(m + 1), sx = new Array<number>(m + 1)
+    sv[0] = 0; sx[0] = 0
+    for (let k = 1; k <= m; k++) { sv[k] = v[start + k] - v[start]; sx[k] = sx[k - 1] + ((sv[k] + sv[k - 1]) / 2) * (t[start + k] - t[start + k - 1]) }
+    // Drift inside the stretch: still at both ends, and (when it starts at a top) back at the same height.
+    const closed = closeFirst || c > 0
+    const q2 = closed ? ((sv[m] * T) / 2 - sx[m]) * 6 / T ** 3 : 0
+    const q1 = closed ? (sv[m] - q2 * T * T) / T : sv[m] / T
+    let x = 0, xMin = 0, kb = 0, prev = 0
+    const cv = new Array<number>(m + 1); cv[0] = 0
+    for (let k = 1; k <= m; k++) {
+      const tau = t[start + k] - t[start]
+      cv[k] = sv[k] - (q1 * tau + q2 * tau * tau)
+      x += ((cv[k] + prev) / 2) * (t[start + k] - t[start + k - 1]); prev = cv[k]
+      if (x < xMin) { xMin = x; kb = k }
+    }
+    let peak = 0
+    for (let k = kb; k <= m; k++) if (cv[k] > peak) peak = cv[k]
+    const up = x - xMin, dur = t[end] - t[start + kb]
+    if (dur > 0) out.push({ mean_mps: up / dur, peak_mps: peak, rom_m: up, dur_s: dur, at: t[end], down_m: -xMin })
+    start = end
+  }
+  // A rep travels a fair share of what the set's real reps do; anything much shorter is a wobble or the unrack.
+  const big = out.map(r => r.rom_m).filter(x => x >= 0.15).sort((p, q) => p - q)
+  const need = Math.max(o.min_rom_m, big.length ? 0.25 * big[Math.floor(big.length / 2)] : 0)
+  return out.filter(r => r.rom_m >= need && r.dur_s >= 0.15 && r.dur_s <= 6 && r.rom_m <= 1.3)
 }
 
 export class BarTracker {
   private o: ImuOptions
-  private t: number[] = []; private a: number[] = []; private v: number[] = []     // the movement in progress
+  private t: number[] = []; private a: number[] = []           // the movement in progress (offset already taken off a)
   private moving = false
-  private stillSince: number | null = null
+  private quietSince: number | null = null
   private last: ImuSample | null = null
-  private live: BarRep[] = []                 // reps seen so far in the movement in progress (uncorrected)
-  private set: BarRep[] = []                  // corrected reps of finished movements in the current set
+  private live: BarRep[] = []                 // reps read so far in the movement in progress
+  private liveAt = -Infinity
+  private set: BarRep[] = []                  // reps of finished movements in the current set
   private setStart = 0
   private lastRepAt = -Infinity
-  /** The sensor's resting offset, learned whenever the bar is still, and taken off every reading. */
+  private topStart = true
+  /** The sensor's resting offset, learned whenever the bar is at rest, and taken off every reading. */
   private bias = 0
   /** The last few readings, to spot a hit. */
   private recent: ImuSample[] = []
   /** The bar was hit and is ringing: nothing is read until it is calm again. */
   private settling = false
-  /** Latest velocity (m/s), for a live readout. */
+  /** Latest velocity (m/s), for a live readout (it forgets over a couple of seconds, so it can't drift away). */
   velocity = 0
 
   constructor(private on: { rep?: (r: BarRep, n: number) => void; set?: (s: BarSet) => void }, opts: Partial<ImuOptions> = {}) { this.o = { ...IMU_DEFAULTS, ...opts } }
 
-  /** Reps counted so far in the set under way (corrected ones plus any in the movement still going). */
+  /** Reps counted so far in the set under way. */
   get reps(): BarRep[] { return [...this.set, ...this.live] }
+  /** How long the bar must go without a rep before the set is over (s). */
+  setGap(s: number) { this.o = { ...this.o, set_gap_s: s } }
+  /** Whether the lift starts at the top (bench, squat) or from the floor (deadlift). */
+  setTopStart(on: boolean) { this.topStart = on }
 
   push(s: ImuSample) {
-    // (s may be replaced below while the bar rings after a hit)
     const prev = this.last
     if (prev && s.t <= prev.t + 1e-6) return                                          // a repeated or out-of-order reading
     this.last = s
     if (!prev || s.t - prev.t > 0.5) { this.reset(); return }                         // first reading, or a gap in the stream
-    // Racking the bar: the hit is far harder than any lifting, and summing its ringing would wreck the speeds of the whole set.
-    // Its readings (and the ringing just after) are left out; the bar coming to rest in the hooks then straightens the movement.
-    // A hit (the bar going into the hooks, or clanging): within a moment the reading swings hard both ways, which no lift does
-    // (a bounce off the chest only pushes up). The movement is closed just before the hit, where the bar was about still, and
-    // readings are then ignored until the bar has settled.
-    this.recent.push(s); if (this.recent.length > 15) this.recent.shift()
+    const dt = s.t - prev.t
+    const x = s.a - this.bias
+    const quiet = Math.abs(x) < this.o.still_a
+    if (quiet) { if (this.quietSince === null) this.quietSince = prev.t } else this.quietSince = null
+    const rested = this.quietSince !== null && s.t - this.quietSince >= this.o.still_s
+
+    // A hit: within a moment the reading swings hard both ways, which no lift does (a bounce off the chest only pushes up).
+    this.recent.push(s); while (this.recent.length && this.recent[0].t < s.t - 0.15) this.recent.shift()
     if (this.settling) {
-      const calm = Math.abs(s.a - this.bias) < this.o.still_a
-      if (calm) { if (this.stillSince === null) this.stillSince = s.t } else this.stillSince = null
-      if (this.stillSince !== null && s.t - this.stillSince >= this.o.still_s) { this.settling = false; this.stillSince = null }
-      if (this.set.length && s.t - this.lastRepAt >= this.o.set_gap_s) this.endSet(s.t)
+      if (this.quietSince !== null && s.t - this.quietSince >= 0.35) { this.settling = false; this.recent = [] }
+      this.endSetIfDue(s.t)
       return
     }
     let hi = -Infinity, lo = Infinity
-    for (const r of this.recent) { const x = r.a - this.bias; if (x > hi) hi = x; if (x < lo) lo = x }
+    for (const r of this.recent) { const y = r.a - this.bias; if (y > hi) hi = y; if (y < lo) lo = y }
     if (hi > this.o.impact_a && lo < -this.o.impact_a) {
       if (this.moving) {
         const t0 = this.recent[0].t
-        while (this.t.length > 2 && this.t[this.t.length - 1] >= t0) { this.t.pop(); this.a.pop(); this.v.pop() }
+        while (this.t.length > 2 && this.t[this.t.length - 1] >= t0) { this.t.pop(); this.a.pop() }
         this.endMovement()
       }
-      this.settling = true; this.stillSince = null; this.velocity = 0; this.recent = []
+      this.settling = true; this.quietSince = null; this.velocity = 0
       return
     }
-    const dt = s.t - prev.t
-    const quiet = Math.abs(s.a - this.bias) < this.o.still_a
-    if (quiet) { if (this.stillSince === null) this.stillSince = prev.t } else this.stillSince = null
-    const quietFor = this.stillSince === null ? 0 : s.t - this.stillSince
-    const still = (quietFor >= this.o.still_s && Math.abs(this.velocity) < 0.07) || quietFor >= this.o.still_max_s
 
     if (!this.moving) {
       this.velocity = 0
-      if (quiet) this.bias += (s.a - this.bias) * Math.min(1, dt / 1.5)        // resting: track the offset
-      if (!quiet) { this.moving = true; this.t = [prev.t]; this.a = [0]; this.v = [0]; this.live = []; if (!this.set.length) this.setStart = prev.t }
+      if (quiet) this.bias += (s.a - this.bias) * Math.min(1, dt / 1.5)        // at rest: track the offset
+      else { this.moving = true; this.t = [prev.t]; this.a = [0]; this.live = []; this.liveAt = -Infinity; if (!this.set.length) this.setStart = prev.t }
     }
     if (this.moving) {
-      const v = this.v[this.v.length - 1] + ((s.a + prev.a) / 2 - this.bias) * dt
-      this.t.push(s.t); this.a.push(s.a); this.v.push(v); this.velocity = v
-      // Reps as they happen, from the velocity so far.
-      const now = repsIn(this.t, this.v, this.o.min_rom_m)
-      const done = now.length && this.v[this.v.length - 1] <= 0.03 ? now.length : now.length - 1   // the last run may still be going up
-      while (this.live.length < done) { const r = now[this.live.length]; this.live.push(r); this.lastRepAt = r.at; this.on.rep?.(r, this.set.length + this.live.length) }
-      if (still) this.endMovement()
+      this.t.push(s.t); this.a.push(x)
+      this.velocity = (this.velocity + x * dt) * Math.exp(-dt / 2)
+      // Reps as they happen: read the movement so far a few times a second. Only reps finished a moment ago count (the newest
+      // stretch may still be going up), and the count never goes back down while the movement lasts.
+      if (s.t - this.liveAt >= 0.25) {
+        this.liveAt = s.t
+        const now = readReps(this.t, this.a, this.o, this.topStart).filter(r => r.at <= s.t - 0.5)
+        if (now.length > this.live.length) {
+          const from = this.live.length
+          this.live = now
+          for (let k = from; k < now.length; k++) { this.lastRepAt = now[k].at; this.on.rep?.(now[k], this.set.length + k + 1) }
+        }
+      }
+      if (rested) this.endMovement()
     }
-    if (!this.moving && this.set.length && s.t - this.lastRepAt >= this.o.set_gap_s) this.endSet(s.t)
+    this.endSetIfDue(s.t)
   }
 
-  /** The bar has come to rest: straighten the movement's velocity so it ends at zero, and keep its corrected reps. */
+  /** The bar has come to rest (or been racked): read the whole movement once more and keep its reps. */
   private endMovement() {
-    const n = this.t.length, T = this.t[n - 1] - this.t[0]
-    const drift = this.v[n - 1]
-    const v = this.v.map((x, i) => x - drift * ((this.t[i] - this.t[0]) / Math.max(1e-6, T)))
-    const reps = repsIn(this.t, v, this.o.min_rom_m)
-    // A rep the live count missed (or over-counted) is settled here; announce any extra ones.
-    for (let k = this.live.length; k < reps.length; k++) { this.lastRepAt = reps[k].at; this.on.rep?.(reps[k], this.set.length + k + 1) }
+    const reps = this.t.length > 8 ? readReps(this.t, this.a, this.o, this.topStart) : []
+    if (reps.length) this.lastRepAt = Math.max(this.lastRepAt, reps[reps.length - 1].at)
+    for (let k = this.live.length; k < reps.length; k++) this.on.rep?.(reps[k], this.set.length + k + 1)
     this.set.push(...reps)
-    this.live = []; this.moving = false; this.velocity = 0; this.t = []; this.a = []; this.v = []
+    this.live = []; this.moving = false; this.velocity = 0; this.t = []; this.a = []
   }
+  private endSetIfDue(t: number) { if (!this.moving && this.set.length && t - this.lastRepAt >= this.o.set_gap_s) this.endSet(t) }
   private endSet(t: number) {
     const s = { reps: this.set, started: this.setStart, ended: this.lastRepAt, closed: t }
     this.set = []; this.lastRepAt = -Infinity
     if (s.reps.length) this.on.set?.(s)
   }
-  /** How long the bar must go without a rep before the set is over (s). */
-  setGap(s: number) { this.o = { ...this.o, set_gap_s: s } }
   /** End the set now (for example on "Max stop"). */
   flush() { if (this.moving) this.endMovement(); if (this.set.length) this.endSet(this.last?.t ?? 0) }
-  private reset() { this.moving = false; this.stillSince = null; this.live = []; this.t = []; this.a = []; this.v = []; this.velocity = 0 }
+  private reset() { this.moving = false; this.quietSince = null; this.live = []; this.t = []; this.a = []; this.velocity = 0; this.recent = []; this.settling = false }
 }
 
 /** What a set's reps say at a glance: first-rep and last-rep speed, and how much speed was lost across the set. */

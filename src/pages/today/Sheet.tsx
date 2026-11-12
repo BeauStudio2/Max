@@ -1,6 +1,6 @@
 import { perRep } from './Ladder'
 import { ALL_PLATES } from '../../lib/load'
-import { useRef, Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { useRef, Fragment, createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useStore } from '../../lib/store'
 import { e1rm, e1rmFromRpe, expectedReps, lostReps, repGoal, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
 import type { Equipment, SetRow } from '../../lib/types'
@@ -18,7 +18,7 @@ import { predictionMiss, type Probe, type SetObs } from '../../lib/learn'
 import { recordObservations } from '../../lib/observations'
 import RestOverlay from './RestOverlay'
 import { cue, cueWord, onCommand, sayLb, saySeconds, speak, voice } from '../../lib/voice'
-import { live, nextPhrases, platePhrases } from './live'
+import { sensedSet, live, nextPhrases, platePhrases } from './live'
 const cueOn = (k: 'next' | 'plates' | 'ack') => voice.get().settings.cues[k]?.on !== false
 /** Rest taken so far and how full creatine is getting, for the next spotter set's prediction. */
 const RestCtx = createContext<number | null>(null)
@@ -638,11 +638,24 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
   // Spoken reps ("Max five") log this set when it's the next one to do.
   const commitRef = useRef(commit); commitRef.current = commit
   // A short wait first, so a spotter set the Tindeq is closing at the same moment fills this row before it's saved.
-  useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps') { const v = String(c.n); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
+  // While the sensor's last count can still be corrected, a spoken number goes to that set, not to this one.
+  useEffect(() => voiceTarget ? onCommand(c => { if (c.kind === 'reps' && !sensedSet.get()) { const v = String(c.n); setReps(v); cue('ack', v); setTimeout(() => commitRef.current({ reps: v }), 350) } }) : undefined, [voiceTarget])
+  // This set was logged by the bar sensor and the next set hasn't started: the count is open to correction, by typing or by voice.
+  const sensedNow = useSyncExternalStore(sensedSet.subscribe, sensedSet.get)
+  const sensedHere = !!r && sensedNow?.idx === idx
+  useEffect(() => sensedHere ? onCommand(c => {
+    if (c.kind !== 'reps') return
+    const v = String(c.n); setReps(v); sensedSet.set(null); speak(['Set', String(idx), v, 'reps']); commitRef.current({ reps: v })
+  }) : undefined, [sensedHere])
+  // A later set being logged closes the correction too.
+  useEffect(() => { if (sensedHere && L.logged.some(x => x.set_index > idx)) sensedSet.set(null) })
+  // The next set starting (the bar goes through a rep again) closes the correction.
+  useEffect(() => sensedHere ? imu.onRep(() => sensedSet.set(null)) : undefined, [sensedHere])
   // The phone on the bar logs this set by itself when it sees the set end: its rep count goes in, and its speeds are saved with it.
   const tinRef = useRef({ trace, sp }); tinRef.current = { trace, sp }
-  useEffect(() => autoBar && !r ? imu.onSet(s => {
-    const v = String(s.reps.length); setReps(v)
+  // Spotter sets are never logged by the sensor: its count on them has not been proven on a real session yet.
+  useEffect(() => autoBar && !r && !sp ? imu.onSet(s => {
+    const v = String(s.reps.length); setReps(v); sensedSet.set({ idx })
     live.ack = [live.who ?? '', /squat/i.test(label) ? 'Squat' : /bench/i.test(label) ? 'Bench' : label, String(idx), v, 'reps'].filter(Boolean)
     setTimeout(() => {
       // The Tindeq feels the unrack as a pull too: when the phone left the unrack out and the Tindeq has exactly one pull more, its first goes as well.
@@ -653,7 +666,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
         else commitRef.current({ reps: v, trace: t2 })
       } else commitRef.current({ reps: v })
     }, 350)
-  }) : undefined, [autoBar, !r])
+  }) : undefined, [autoBar, !r, sp])
   const fixed = fixedWeight(setup, eq)
   const [more, setMore] = useState(false)
   const hasBar = !!L.plan.bar
@@ -694,7 +707,7 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
       <td className={mine.includes('lb') || mine.includes('plates') ? 'o-user' : 'o-dyn'}><CellNum value={plates === null ? null : plates + fixed} onSave={v => { const pl = v === null ? null : Math.max(0, v - fixed); setPlates(pl); commit({ plates: pl, touch: 'lb' }) }} />
         <div className="sub2 side-inline">{hasBar ? sideText(plates, L.kept, undefined, stack) : loadNote(L.plan)}{setup.bands?.length ? ` · ${bandLabel(setup.bands)}` : ''}</div></td>
       <td className="num c-exp o-dyn">{pred ? <span data-tip={`Spotter set: Max's reps for this set, all done with the spotter helping on every rep as needed (until creatine is spent).`} data-pos="center">{pred.unaided + pred.spotted}</span> : exp !== null ? exp.toFixed(1) : ''}{!pred && diff !== null && <div className={'sub2 ' + (diff >= 0 ? 'up' : 'down')} data-tip="Reps done (less any failed rep and the uncredited half of an assisted rep) minus expected.">{diff >= 0 ? '+' : ''}{diff.toFixed(1)}</div>}</td>
-      <td className="o-user ph-dyn"><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); commit({ reps: v }) }} />
+      <td className={'o-user ph-dyn' + (sensedHere ? ' sensed' : '')} data-tip={sensedHere ? 'Counted by the bar sensor. If it is wrong, type the right number here or say "Max" and the number, any time before the next set starts.' : undefined} data-pos="center"><CellText value={reps} narrow placeholder={goal !== null ? String(goal) : ''} numeric onSave={v => { setReps(v); if (sensedHere) sensedSet.set(null); commit({ reps: v }) }} />
         {sp && <div className="spotin" data-tip="Average help per rep in lb. The Tindeq fills it when it reads the set; otherwise type your best guess or leave it." data-pos="left">
           <span className="small muted">avg help</span><CellText value={assist} narrow numeric placeholder="lb" onSave={v => { setAssist(v); commit({ assist: v }) }} />
         </div>}</td>

@@ -767,3 +767,6 @@ button.danger { color: #fff; background: var(--err); border: 1px solid var(--err
 
 /* No pinch zoom: the app is laid out for the screen it's on. */
 html { touch-action: pan-x pan-y; }
+
+/* A count the bar sensor made, still open to correction */
+td.sensed input { outline: 2px solid #f5a524; outline-offset: -2px; background: rgba(245,165,36,.14); }

@@ -30,3 +30,15 @@ export function platePhrases(n: NextSet) {
   }
   return out
 }
+
+/**
+ * The heavy set the bar sensor last logged by itself, while its count can still be corrected: until the next set starts
+ * (the bar moves through a new rep, or another set is logged). Typing in the row or saying a number replaces the count.
+ */
+let sensed: { idx: number } | null = null
+const sensedSubs = new Set<() => void>()
+export const sensedSet = {
+  get: () => sensed,
+  set(v: { idx: number } | null) { if (v?.idx === sensed?.idx) return; sensed = v; sensedSubs.forEach(f => f()) },
+  subscribe: (f: () => void) => { sensedSubs.add(f); return () => { sensedSubs.delete(f) } },
+}
