@@ -293,7 +293,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   // The rest clock restarts only for a heavy set: when it was logged, or from its last rep when a sensor timed that set. A Tindeq reading
   // before the reps are typed counts only on a spotter day; speed and support sets never move it.
   const restFrom = spotMode && capture?.tempo.ended_at && (!lastEnd || capture.tempo.ended_at > lastEnd) ? capture.tempo.ended_at : lastEnd
-  const rest = useClock(running ? restFrom : null)
+  // Once heavy is ended, nothing is waiting on a heavy set: the rest clock and its cues stop.
+  const heavyLive = running && !L?.plan.heavy_ended
+  const rest = useClock(heavyLive ? restFrom : null)
   const lastSpot = lastMain?.setup?.spot?.on ? lastMain : null
   const crRest = (() => {
     if (!L || !lastSpot) return null
@@ -394,13 +396,13 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   // Spoken cues: "Ten seconds" before rest is up, "Lift" when it is, "Overtime" a minute later. Each once per rest.
   const said = useRef<{ from: string | null; warn?: boolean; lift?: boolean; over?: boolean }>({ from: null })
   useEffect(() => {
-    if (!running || !restFrom || restTarget <= 0) return
+    if (!heavyLive || !restFrom || restTarget <= 0) return
     if (said.current.from !== restFrom) said.current = { from: restFrom }
     const S = said.current
     if (restTarget > 15 && rest >= restTarget - 10 && rest < restTarget && !S.warn) { S.warn = true; cue('warn') }
     if (rest >= restTarget && !S.lift) { S.warn = true; S.lift = true; cue('lift') }
     if (rest >= restTarget + 60 && !S.over) { S.over = true; cue('over') }
-  }, [rest, restFrom, running, restTarget])
+  }, [rest, restFrom, heavyLive, restTarget])
   // After each heavy set is logged: the next weight and rep goal, then the plates and chains. The next set's row publishes these (live.next).
   const announce = (plates: boolean) => {
     const n = live.next
@@ -446,7 +448,7 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
 
   return (
     <section className="card sheetcard" ref={cardRef}>
-      {running && restFrom && restTarget > 0 && <RestOverlay rest={rest} target={restTarget} />}
+      {heavyLive && restFrom && restTarget > 0 && <RestOverlay rest={rest} target={restTarget} />}
       <div className="sheetbar" ref={barRef}>
         <div><span className="small muted hastip" data-tip={`Time since the last heavy set / the rest target${speedAllow ? `: ${fmt(restBase)} rest + ${fmt(speedAllow)} for ${speedBetween} speed set${speedBetween > 1 ? 's' : ''} in between` : ''}. Only a heavy set restarts it. Turns green when it's time.`} data-pos="left">Rest</span>{nextProbe && <span className="probetag" data-tip={`Test rest: deliberately ${nextProbe.variant} (${fmt(nextProbe.rest_s)} instead of ${fmt(restS)}) so Max can learn how fast you recover. Lift when it's up. Skip it with the × on the set's row.`} data-pos="left">test · {nextProbe.variant}</span>}<b className={running && lastMain && rest >= restTarget ? 'ready' : ''}>{!running ? <span className="muted" data-tip="Press Start workout to run the rest timer." data-pos="left">— / {fmt(restTarget)}</span> : restFrom ? <>{fmt(rest)} / {fmt(restTarget)}{rest > restTarget && <span className="over" data-tip="Over the rest target. The rest is recorded as taken, and the next spotter set's expected reps allow for the extra recovery." data-pos="left"> +{fmt(rest - restTarget)}</span>}</> : `0:00 / ${fmt(restTarget)}`}</b>{crRest && <span className="small muted" data-tip="Creatine at the end of the last set, and the rest needed to refill it to the target." data-pos="left">creatine {Math.round(crRest.Pend * 100)}% → {Math.round(L!.cr.target * 100)}%</span>}</div>
         <div><span className="small muted hastip" data-tip="The next heavy set still to do." data-pos="left">Next {liftLabel}</span><b>{nextMain ? nextMain.kind === 'main' ? `#${nextMain.p?.idx ?? ''}` : nextMain.row.step : 'done'}</b></div>

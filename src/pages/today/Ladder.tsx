@@ -35,6 +35,8 @@ export interface LadderPlan {
   change_plate: number
   /** Most heavy sets to do today; null = as many as the ladder plans. */
   max_sets: number | null
+  /** Heavy ended early by hand (or at Finish): no more heavy sets are planned. */
+  heavy_ended?: { at: string; after_set: number; reason?: string } | null
   /** Set 1 weight on the bar (plates); null = calculated. */
   set1_lb: number | null
   /** This lifter's fitted creatine numbers for this lift, if any. */
@@ -130,7 +132,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
   const set1 = good[0] ?? plan.planned_e1rm
   const floor = set1 ? (set1 * plan.stop_pct) / 100 : null
   const lastActual = good.at(-1) ?? null
-  const stopped = logged.length > 0 && floor !== null && lastActual !== null && lastActual < floor
+  const stopped = !!plan.heavy_ended || (logged.length > 0 && floor !== null && lastActual !== null && lastActual < floor)
 
   // Auto spotter: rep 1 is set at a fraction of strength at the start of the set (creatine at the recovery target after set 1).
   // The target max comes from the last measured set, which was taken at that set's own starting level.
@@ -169,7 +171,7 @@ export function useLadder(plan: LadderPlan, sets: SetRow[]) {
     }
     // The sheet never runs out: past the stop line or the max sets there is still one open row, planned from the last good set
     // less the fatigue steps since, so another set can always be logged by hand.
-    if (!ideal.length && nextTarget0) ideal.push(row((logged.at(-1)?.set_index ?? 0) + 1, nextTarget0))
+    if (!ideal.length && nextTarget0 && !plan.heavy_ended) ideal.push(row((logged.at(-1)?.set_index ?? 0) + 1, nextTarget0))
     const working = [...logged.map(r => r.weight_lb ?? 0), ...ideal.map(p => p.weight)].filter(w => w > 0)
     const on = plan.plates_on?.length ? plan.plates_on : ALL_PLATES
     const change = on.includes(plan.change_plate) ? plan.change_plate : ([...on].sort((x, y) => x - y).find(p => p >= plan.change_plate) ?? 10)

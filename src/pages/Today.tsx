@@ -227,6 +227,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     chains_on: pick(sp.chains_on, f.chains_on, H.chains_on) ?? true,
     change_plate: pick(sp.change_plate, f.change_plate, H.change_plate) ?? 10,
     max_sets: pick(sp.max_sets) ?? null,
+    heavy_ended: sp.heavy_ended ?? null,
     set1_lb: pick(sp.set1_lb, f.set1_lb) ?? null,
     // Auto spotter is off until switched on in the plan panel; set 1 is a normal set either way.
     spotter: pick(sp.spotter, f.spotter, H.spotter) ?? false,
@@ -459,6 +460,21 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const addSupport = (name: string) => savePlanned({ support_hidden: hiddenNow.filter(n => n !== name), support_added: hiddenNow.includes(name) || supportAdded.some(a => a.name === name) ? supportAdded : [...supportAdded, { name }], support_max: clean({ ...supportMax, [name]: null }) })
   const [planOpen, setPlanOpen] = useState(false)
 
+  // ---- End heavy: stop the heavy ladder early without a blank set counting against it ----
+  const heavyEnded = sp.heavy_ended as { at: string; after_set: number; reason?: string } | undefined
+  const canEndHeavy = lift !== 'deadlift' && !!L && L.logged.length > 0 && L.projected.length > 0
+  const markEnded = (reason: string) => ({ heavy_ended: { at: new Date().toISOString(), after_set: L!.logged.at(-1)!.set_index, reason } })
+  async function endHeavy() {
+    if (!canEndHeavy) return
+    const reason = window.prompt(`End heavy after set ${L!.logged.at(-1)!.set_index}? Reason (optional, e.g. time):`, 'time')
+    if (reason === null) return
+    await savePlanned(markEnded(reason.trim()))
+  }
+  async function finish() {
+    const s = canEndHeavy && !heavyEnded ? await savePlanned(markEnded('finished')) : session
+    if (s !== null) await ensureSession({ ended_at: new Date().toISOString() })
+  }
+
   // ---- Injuries: saved on the lifter, picked per session ----
   const injuries = injuriesOf(st)
   const sessionInjury = session?.hurt ? injuries.find(i => i.name === session.hurt) ?? null : injury && pending ? injury : null
@@ -569,7 +585,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
           ) : !session.ended_at ? (
             <>
               <div><span className="small muted">Started {clock(session.started_at)}</span><b className="elapsed">{fmt(elapsed)}</b></div>
-              <button className="ghost" data-tip="Stops the clock and records the end time." data-pos="right" onClick={() => ensureSession({ ended_at: new Date().toISOString() })}>■ Finish</button>
+              <button className="ghost" data-tip="Stops the clock and records the end time. A heavy set still waiting is ended, not counted as missed." data-pos="right" onClick={finish}>■ Finish</button>
             </>
           ) : (
             <>
@@ -580,6 +596,13 @@ export default function Today({ lifterId }: { lifterId: string }) {
             </>
           )}
         </div>
+        {lift !== 'deadlift' && (heavyEnded ? (
+          <div className="row wrap"><span className="small muted">Heavy ended after set {heavyEnded.after_set}{heavyEnded.reason ? ` (${heavyEnded.reason})` : ''}.</span>
+            <button type="button" className="ghost small" onClick={() => savePlanned({ heavy_ended: undefined })} data-tip="Brings the remaining heavy sets back." data-pos="right">Undo</button></div>
+        ) : canEndHeavy && (
+          <div className="row wrap"><button type="button" className="ghost small" onClick={endHeavy}
+            data-tip="Stops the heavy sets here (out of time, or done). Nothing is counted as missed; speed and support carry on." data-pos="right">End heavy</button></div>
+        ))}
         <div className="clearday">
           {clearing === 'ask' ? (
             <>
