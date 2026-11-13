@@ -46,7 +46,8 @@ export default function Recording() {
         if (!cur) return
         const s = (sess ?? []).find((x: any) => x.id === cur!.p.session_id)
         const lift = String(s?.primary_lift ?? ''), rom = Number(s?.planned?.snap?.plan?.rom_in) || null
-        const found = readRecording(cur.imu, tq, { rom_m: rom ? rom * 0.0254 : null, topStart: !/deadlift/i.test(lift), set_gap_s: /squat/i.test(lift) ? 12 : 6 })
+        const found = readRecording(cur.imu, tq, { rom_m: rom ? rom * 0.0254 : null, topStart: !/deadlift/i.test(lift), set_gap_s: /squat/i.test(lift) ? 12 : 6,
+          lineOnBar: !!s?.planned?.snap?.plan?.spotter || Object.values(s?.planned?.spot_rows ?? {}).some(Boolean) })
         for (const f of found) {
           // Logged at the time? A sensor-logged set carries the moment its last rep ended; a typed one only when it was saved.
           const m = (logged ?? []).filter((x: any) => x.session_id === cur!.p.session_id).map((x: any) => ({ x, d: Math.abs(new Date(x.setup?.ended_at ?? x.created_at).getTime() - f.to) })).sort((a: any, b: any) => a.d - b.d)[0]
@@ -61,9 +62,9 @@ export default function Recording() {
       }
       done()
       setRows(out)
-      const sets = out.filter(r => !r.ignored)
+      const sets = out.filter(r => !r.ignored && !r.lineOnly)
       setInfo(`${pieces.length} pieces · ${Math.round(pieces.filter(p => p.source === 'imu').reduce((t, p) => t + (new Date(p.to_at).getTime() - new Date(p.from_at).getTime()), 0) / 60000)} min of bar readings · ${sets.length} sets found, ${sets.filter(r => !r.logged).length} not logged at the time`)
-      await supabase.from('settings').upsert({ key: 'reread:' + date, value: out.map(r => ({ at: new Date(r.from).toISOString(), to: new Date(r.to).toISOString(), who: r.who, lift: r.lift, reps: r.reps.length, ignored: r.ignored, mps: r.reps.map(x => x.mean_mps), travel_m: r.reps.map(x => x.raw_rom_m ?? x.rom_m), help: r.help, logged: r.logged })) })
+      await supabase.from('settings').upsert({ key: 'reread:' + date, value: out.map(r => ({ at: new Date(r.from).toISOString(), to: new Date(r.to).toISOString(), who: r.who, lift: r.lift, reps: r.reps.length, ignored: r.ignored, why: r.why, line_only: r.lineOnly, mps: r.reps.map(x => x.mean_mps), travel_m: r.reps.map(x => x.raw_rom_m ?? x.rom_m), help: r.help, logged: r.logged })) })
     } catch (e: any) { setErr(e?.message ?? String(e)) }
     setBusy('')
   }
@@ -89,9 +90,9 @@ export default function Recording() {
           <tbody>{rows.map((r, i) => (
             <tr key={i} className={r.ignored ? 'muted' : r.logged ? '' : 'missed'}>
               <td>{time(r.from)}</td><td>{r.who} {r.lift}</td>
-              <td>{r.ignored ? <span data-tip="The bar moved, but not far enough to be the lift (a plate change, or the bar being shifted).">not a set</span> : <b>{r.reps.length}</b>}</td>
+              <td>{r.lineOnly ? <b className="err" data-tip="The spotter line was worked for a set's length here, but the phone on the bar recorded no reps: a set it did not see.">? (line worked {Math.round((r.to - r.from) / 1000)} s)</b> : r.ignored ? <span data-tip={r.why === 'line' ? 'The phone moved, but the spotter line stayed taut and dead still, so the bar did not move.' : 'The bar moved, but not far enough to be the lift (a plate change, or the bar being shifted).'}>{r.why === 'line' ? 'phone moved, bar did not' : 'not a set'}</span> : <b>{r.reps.length}</b>}</td>
               <td>{r.reps.length ? `${r.reps[0].mean_mps.toFixed(2)} → ${r.reps[r.reps.length - 1].mean_mps.toFixed(2)} m/s · ${(Math.max(...r.reps.map(x => x.raw_rom_m ?? x.rom_m)) * IN).toFixed(0)} in` : ''}</td>
-              <td>{r.help ? r.help.map(h => h.toFixed(0)).join(', ') : r.ignored ? '' : <span className="muted">no Tindeq</span>}</td>
+              <td>{r.help ? r.help.map(h => h.toFixed(0)).join(', ') : r.ignored || r.lineOnly ? '' : <span className="muted">no Tindeq</span>}</td>
               <td>{r.ignored ? '' : r.logged ? <>set {r.logged.set_index}{r.logged.reps !== r.reps.length ? <b className="err"> · {r.logged.reps ?? '?'} reps</b> : ' ✓'}</> : <b className="err">not logged</b>}</td>
             </tr>
           ))}</tbody>

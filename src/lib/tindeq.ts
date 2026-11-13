@@ -121,6 +121,9 @@ function note(what: LinkEvent['what']) {
 }
 let batteryTimer: ReturnType<typeof setInterval> | null = null
 
+/** Every reading as it arrives, as [clock time in ms, lb]. */
+const stampedSubs = new Set<(r: [number, number][]) => void>()
+export function onReadings(f: (r: [number, number][]) => void) { stampedSubs.add(f); return () => { stampedSubs.delete(f) } }
 /** The last ten minutes of readings: [clock time in ms, lb]. */
 const ring: [number, number][] = [], RING_MS = 600_000
 /** Line tension between two clock times (ms): the readings, for working out the help on each rep of a set. Null when none were taken then. */
@@ -167,6 +170,7 @@ export const sensor = {
         const stamped = s.map(x => [Math.round(now0 - (tEnd - x.t) * 1000), x.lb] as [number, number])
         ring.push(...stamped); while (ring.length && ring[0][0] < now0 - RING_MS) ring.shift()
         recorder.add('tindeq', stamped)
+        stampedSubs.forEach(f => f(stamped))
         streams.forEach(f => f(s))
         // The sensor sends ~80 readings a second; repaint the live number about 10 times a second.
         const now = Date.now()

@@ -4,6 +4,7 @@
  */
 import { BarTracker, calibrate, dropUnrack, isLiftSet, type BarRep } from './imu'
 import type { Pulse } from './creatine'
+import { LineWatch, lineSaysBarStill } from './fuse'
 
 export type Reading = [number, number]   // [clock time in ms, value]
 
@@ -44,11 +45,16 @@ export interface FoundSet {
   reps: BarRep[]
   /** Help on each rep (lb) when the Tindeq was recording, and the set's average. */
   help: number[] | null; help_lb: number | null
-  /** A movement too short to be the lift (a plate change, the bar being shifted): found, but not a set. */
-  ignored: boolean
+  /** A movement that was not the lift: too short (a plate change, the bar being shifted), or the phone moved while the
+   *  spotter line, taut, did not ('line'). Found, but not a set. */
+  ignored: boolean; why?: 'short' | 'line'
+  /** No reps from the phone, but the spotter line was worked for this long: a set the phone did not see. */
+  lineOnly?: boolean
   unrack: boolean
 }
-export interface RereadOptions { rom_m: number | null; topStart: boolean; set_gap_s: number }
+export interface RereadOptions { rom_m: number | null; topStart: boolean; set_gap_s: number
+  /** The spotter line was on this bar, so the Tindeq can check the phone and the phone the Tindeq. */
+  lineOnBar?: boolean }
 
 /**
  * Every set in a stretch of recording. `imu` is the phone's readings ([clock ms, m/s² along the vertical]) in time order,
@@ -64,11 +70,14 @@ export function readRecording(imu: Reading[], tindeq: Reading[], o: RereadOption
     set: s0 => {
       const u = dropUnrack(s0.reps, o.rom_m, o.topStart), reps = calibrate(u.reps, o.rom_m)
       if (!reps.length) return
-      const real = isLiftSet(reps, seen, o.rom_m)
+      const spans0 = reps.map(r => [wall(r.at - r.dur_s), wall(r.at)] as [number, number])
+      const long = isLiftSet(reps, seen, o.rom_m)
+      const still = long && !!o.lineOnBar && lineSaysBarStill(tindeq.filter(x => x[0] >= spans0[0][0] - 500 && x[0] <= spans0[spans0.length - 1][1] + 500))
+      const real = long && !still
       if (real) { seen.push(...reps.map(r => r.raw_rom_m ?? r.rom_m)); if (seen.length > 60) seen.splice(0, seen.length - 60) }
       const spans = reps.map(r => [wall(r.at - r.dur_s), wall(r.at)] as [number, number])
       const h = real ? helpPerRep(tindeq, spans) : null
-      out.push({ from: spans[0][0], to: spans[spans.length - 1][1], reps, help: h ? h.pulses.map(p => p.mean) : null, help_lb: h ? h.mean_lb : null, ignored: !real, unrack: u.unrack })
+      out.push({ from: spans[0][0], to: spans[spans.length - 1][1], reps, help: h ? h.pulses.map(p => p.mean) : null, help_lb: h ? h.mean_lb : null, ignored: !real, ...(real ? {} : { why: still ? 'line' as const : 'short' as const }), unrack: u.unrack })
     },
   })
   tr.setTopStart(o.topStart); tr.setGap(o.set_gap_s)
@@ -81,6 +90,18 @@ export function readRecording(imu: Reading[], tindeq: Reading[], o: RereadOption
     tr.push({ t, a }); last = t
   }
   tr.flush()
+  // Stretches where the line was worked and the phone found nothing.
+  if (o.lineOnBar && tindeq.length) {
+    const lo = imu[0][0], hi = imu[imu.length - 1][0]
+    const w = new LineWatch(e => {
+      if (e.from < lo || e.to > hi) return
+      if (out.some(f => f.from <= e.to + 6000 && f.to >= e.from - 6000)) return
+      out.push({ from: e.from, to: e.to, reps: [], help: null, help_lb: null, ignored: false, lineOnly: true, unrack: false })
+    })
+    for (const [ms, lb] of tindeq) w.push(ms, lb)
+    w.flush()
+    out.sort((a, b) => a.from - b.from)
+  }
   return out
 }
 

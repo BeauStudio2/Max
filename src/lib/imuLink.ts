@@ -8,6 +8,8 @@ import { useSyncExternalStore } from 'react'
 import { supabase } from '../supabase'
 import { BarTracker, calibrate, dropUnrack, isLiftSet, summarize, type BarRep, type BarSet } from './imu'
 import { recorder } from './record'
+import { onReadings, tension } from './tindeq'
+import { LineWatch, lineSaysBarStill } from './fuse'
 
 /** Readings from the phone: [seconds, vertical m/s²] pairs, and how the phone is lying (which way is up, in its own axes). */
 type Batch = { s: [number, number][]; hz?: number; g?: [number, number, number] }
@@ -61,10 +63,12 @@ export interface ImuState {
   /** Which way is up in the phone's own axes (unit vector), when the phone sends it: tells how the phone is lying on the bar. */
   gravity: [number, number, number] | null
   /** The last movement that was not taken as a set (too short to be the lift: a plate change, or the bar being moved), and when. */
-  ignored: { at: number; n: number; travel_m: number } | null
+  ignored: { at: number; n: number; travel_m: number; why: 'short' | 'line' } | null
+  /** The spotter line was worked for a set's length and the phone logged nothing: a set it did not see (clock ms, seconds). */
+  unseen: { at: number; from: number; seconds: number } | null
 }
 const FLIP = 'max.imu.flip', AUTO = 'max.imu.autolog'
-let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, gravity: null, ignored: null, autolog: (() => { try { return localStorage.getItem(AUTO) !== '0' } catch { return true } })(), flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
+let state: ImuState = { listening: false, hz: 0, lastAt: 0, velocity: 0, reps: [], lastSet: null, gravity: null, ignored: null, unseen: null, autolog: (() => { try { return localStorage.getItem(AUTO) !== '0' } catch { return true } })(), flip: (() => { try { return localStorage.getItem(FLIP) === '1' } catch { return false } })() }
 const subs = new Set<() => void>()
 const set = (p: Partial<ImuState>) => { state = { ...state, ...p }; subs.forEach(f => f()) }
 const repSubs = new Set<(r: BarRep, n: number) => void>()
@@ -76,11 +80,30 @@ let rom: number | null = null
 /** The lift on screen starts at the top (bench, squat), so the bar goes down before each rep; false for lifts from the floor. */
 let topStart = true
 const seen: number[] = []
+/** The spotter line is on this bar (the next heavy set is a spotter set), so the Tindeq can vouch for what the phone reports. */
+let lineOnBar = false
+/** The phone reported these reps: did the line, taut the whole time, not move at all? Then the bar did not either. */
+function lineStill(s: BarSet): boolean {
+  const end = Date.now() - ((s.closed ?? s.ended) - s.reps[s.reps.length - 1].at) * 1000
+  const start = end - (s.reps[s.reps.length - 1].at - (s.reps[0].at - s.reps[0].dur_s)) * 1000
+  const line = tension(start - 500, end + 500)
+  return !!line && lineSaysBarStill(line)
+}
+// The other way round: the line was worked for a set's length. If the phone logged no set over that stretch, say so.
+const watch = new LineWatch(e => {
+  if (!lineOnBar || !state.listening || !state.autolog || Date.now() - state.lastAt > 5000) return
+  setTimeout(() => {
+    const within = (ms: number | undefined | null) => ms != null && ms >= e.from - 6000 && ms <= e.to + 12000
+    if (within(state.lastSet?.ended_ms) || within(state.ignored?.at) || state.reps.length) return
+    set({ unseen: { at: Date.now(), from: e.from, seconds: Math.round((e.to - e.from) / 1000) } })
+  }, 9000)
+})
+onReadings(rs => { for (const [ms, lb] of rs) watch.push(ms, lb) })
 const isLift = (reps: BarRep[]) => isLiftSet(reps, seen, rom)
 const clean = (reps: BarRep[]) => calibrate(dropUnrack(reps, rom, topStart).reps, rom)
 const tracker = new BarTracker({
   rep: (r, n) => { set({ reps: clean(tracker.reps) }); repSubs.forEach(f => f(r, n)) },
-  set: s0 => { const u = dropUnrack(s0.reps, rom, topStart), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } if (!isLift(s.reps)) { set({ reps: [], ignored: { at: Date.now(), n: s.reps.length, travel_m: Math.max(...s.reps.map(r => r.raw_rom_m ?? r.rom_m)) } }); return } seen.push(...s.reps.map(r => r.raw_rom_m ?? r.rom_m)); if (seen.length > 60) seen.splice(0, seen.length - 60); set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); anySetSubs.forEach(f => f(state.lastSet!)); if (state.autolog && !anySetSubs.size) setSubs.forEach(f => f(s)) },
+  set: s0 => { const u = dropUnrack(s0.reps, rom, topStart), s = { ...s0, reps: calibrate(u.reps, rom), unrack: u.unrack }; if (!s.reps.length) { set({ reps: [] }); return } if (!isLift(s.reps)) { set({ reps: [], ignored: { at: Date.now(), n: s.reps.length, travel_m: Math.max(...s.reps.map(r => r.raw_rom_m ?? r.rom_m)), why: 'short' } }); return } if (lineOnBar && lineStill(s)) { set({ reps: [], ignored: { at: Date.now(), n: s.reps.length, travel_m: Math.max(...s.reps.map(r => r.raw_rom_m ?? r.rom_m)), why: 'line' } }); return } seen.push(...s.reps.map(r => r.raw_rom_m ?? r.rom_m)); if (seen.length > 60) seen.splice(0, seen.length - 60); set({ reps: [], lastSet: { ...s, at: Date.now(), ended_ms: Date.now() - Math.max(0, ((s.closed ?? s.ended) - s.ended) * 1000), taken: false } }); anySetSubs.forEach(f => f(state.lastSet!)); if (state.autolog && !anySetSubs.size) setSubs.forEach(f => f(s)) },
 })
 let count = 0, countFrom = 0, lastPaint = 0
 // The last few minutes of raw readings, kept so a set's own stretch can be saved with it (for checking and improving the rep reading).
@@ -115,6 +138,8 @@ export const imu = {
   /** (A different range of motion means a different lift or lifter: what counted as a full rep before no longer applies.) */
   setRom(m: number | null) { const next = m && m > 0.05 ? m : null; if (next !== rom) seen.length = 0; rom = next },
   setTopStart(on: boolean) { topStart = on; tracker.setTopStart(on) },
+  /** Whether the spotter line is on the bar being lifted (so the Tindeq can check the phone, and the phone the Tindeq). */
+  setLineOnBar(on: boolean) { lineOnBar = on },
   /** Seconds without a rep that end a set: longer for lifts with long pauses between reps. */
   setGap(s: number) { tracker.setGap(s) },
   /** Called when a set ends, while logging sets by itself is on. */

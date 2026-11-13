@@ -387,6 +387,9 @@ export default function SessionSheet({ api, liftLabel, L, D, heavyExerciseId, re
   const barGap = nextBar && /squat/i.test(liftLabel) ? 12 : 6
   useEffect(() => { imu.setGap(barGap) }, [barGap])
   useEffect(() => { imu.setTopStart(!/deadlift/i.test(liftLabel)) }, [liftLabel])
+  // The spotter line is on the bar when the next heavy set is a spotter set: then the two sensors check each other.
+  const lineOn = !!L && !!nextBar && nextBar.kind === 'main' && !!(spotRows[String(nextBar.p?.idx ?? '')] ?? (L.plan.spotter && (nextBar.p?.idx ?? 0) > 1))
+  useEffect(() => { imu.setLineOnBar(lineOn); return () => imu.setLineOnBar(false) }, [lineOn])
 
   // Spoken cues: "Ten seconds" before rest is up, "Lift" when it is, "Overtime" a minute later. Each once per rest.
   const said = useRef<{ from: string | null; warn?: boolean; lift?: boolean; over?: boolean }>({ from: null })
