@@ -6,6 +6,7 @@ import { findPulses, type Pulse, type Sample } from '../../lib/creatine'
 import { cue, onCommand } from '../../lib/voice'
 import { metronomeRepSeconds } from './Metronome'
 import { live } from './live'
+import { useImu } from '../../lib/imuLink'
 
 /** Tempo of a recorded set: the metronome's seconds per rep (null if it was off) and the measured time from one spotted rep to the next. */
 export interface Tempo { beat_s: number | null; rep_s: number | null
@@ -31,16 +32,21 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
   // Connected but silent for 2 s: say so, so a set is never "recorded" with nothing coming in.
   useClock(st.status === 'on' ? new Date(0).toISOString() : null)
   const stale = st.status === 'on' && Date.now() - (st.lastAt || 0) > 2000
+  // While the phone on the bar is sending and logging sets itself, each set's help is read from the line's tension during the
+  // reps the phone timed (see Sheet). This panel then starts and ends nothing by itself and says no "Rack": with a weight hanging
+  // on the line between sets its own start-and-stop never works. It still listens to "Max go" / "Max stop" and its buttons.
+  const bar = useImu()
+  const phone = bar.listening && bar.autolog && Date.now() - bar.lastAt < 5000
   const [armed, setArmed] = useState(false)
   const [last, setLast] = useState<Pulse[] | null>(null)
   const [tempo, setTempo] = useState<Tempo | null>(null)
   const fresh = () => ({ armed: false, startMs: 0, buf: [] as Sample[], pre: [] as Sample[], beat: null as number | null,
-    open: false, sum: 0, n: 0, pStart: 0, lastAbove: -Infinity, pulses: 0, racked: false })
+    open: false, sum: 0, n: 0, pStart: 0, lastAbove: -Infinity, pulses: 0, racked: false, byItself: false })
   const W = useRef(fresh())
 
-  function arm(startMs: number) {
+  function arm(startMs: number, byItself = false) {
     const pre = W.current.pre
-    W.current = { ...fresh(), armed: true, startMs, buf: [...pre], beat: metronomeRepSeconds() }
+    W.current = { ...fresh(), armed: true, byItself, startMs, buf: [...pre], beat: metronomeRepSeconds() }
     setArmed(true); setLast(null)
   }
   function finish() {
@@ -55,7 +61,9 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
     const t: Tempo = { beat_s: w.beat ?? metronomeRepSeconds(), rep_s: repGap(pulses), rec_at: new Date(w.startMs).toISOString(), ended_at: new Date(endedMs).toISOString() }
     setLast(pulses); setTempo(t); onCapture(pulses, t)
   }
-  const fn = useRef({ arm, finish, auto, minLb, minS }); fn.current = { arm, finish, auto, minLb, minS }
+  const fn = useRef({ arm, finish, auto: auto && !phone, minLb, minS }); fn.current = { arm, finish, auto: auto && !phone, minLb, minS }
+  // The phone has taken over: drop a set this panel started by itself.
+  useEffect(() => { if (phone && W.current.armed && W.current.byItself) { W.current = fresh(); setArmed(false) } }, [phone])
 
   // Every reading: keep a short lead-in, start a set on its first assisted rep, watch each rep's assist, end the set after the slack.
   useEffect(() => sensor.onSamples(s => {
@@ -66,7 +74,7 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
     for (const x of s) {
       const w = W.current
       if (x.lb >= minLb) {
-        if (!w.armed && auto) { arm(Date.now() - (s.at(-1)!.t - x.t) * 1000); continue }
+        if (!w.armed && auto) { arm(Date.now() - (s.at(-1)!.t - x.t) * 1000, true); continue }
         if (!w.open) { w.open = true; w.sum = 0; w.n = 0; w.pStart = x.t }
         w.sum += x.lb; w.n++; w.lastAbove = x.t
       } else if (w.open && x.t - w.lastAbove > 0.2) {
@@ -75,7 +83,7 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
           w.pulses++
           // Every rep of a spotter set is assisted, so each pulse is a rep: "Rack" once Max's rep count is done.
           const at = live.next?.rackAt, rack = live.next?.rackLb
-          if (!w.racked && ((at != null && w.pulses >= at) || (rack != null && w.sum / w.n >= rack))) { w.racked = true; cue('rack') }
+          if (!w.racked && fn.current.auto && ((at != null && w.pulses >= at) || (rack != null && w.sum / w.n >= rack))) { w.racked = true; cue('rack') }
         }
       }
     }
@@ -113,7 +121,8 @@ export default function TindeqPanel({ onCapture, minLb, minS, auto }: { onCaptur
               data-tip="Backup for when voice isn't on: start and end a set by hand." data-pos="center">{armed ? '■ Stop' : '● Record'}</button>
           </>}
       </div>
-      {last && <span className="small muted">{last.length ? `${last.length} reps read · avg help ${Math.round(last.reduce((t, p) => t + p.mean, 0) / last.length)} lb` : 'no reps read'}
+      {phone && <span className="small muted hastip" data-tip="The phone on the bar is timing each rep, so the help on each rep is taken from the line's tension during it and saved with the set. Nothing needs starting or stopping, and a weight hanging on the line between sets does not matter." data-pos="right">help read per rep with the bar sensor</span>}
+      {last && !phone && <span className="small muted">{last.length ? `${last.length} reps read · avg help ${Math.round(last.reduce((t, p) => t + p.mean, 0) / last.length)} lb` : 'no reps read'}
         {last.length > 1 && tempo?.rep_s != null && <span className="hastip" data-tip="Time from the start of one spotted rep to the start of the next (middle value), against the metronome's time per rep when it was running." data-pos="right"> · {tempo.rep_s.toFixed(1)} s/rep{tempo.beat_s ? <> vs <span className={Math.abs(tempo.rep_s - tempo.beat_s) / tempo.beat_s > 0.15 ? 'down' : 'up'}>{tempo.beat_s.toFixed(1)} s</span> beat</> : ''}</span>}</span>}
     </div>
   )

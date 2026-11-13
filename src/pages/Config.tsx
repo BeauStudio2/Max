@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { useStore } from '../lib/store'
 import Sensors from './config/Sensors'
 import TestBench from './config/TestBench'
+import Recording from './config/Recording'
 import VoiceCfg from './config/Voice'
 import Keys from './config/Keys'
 import type { Equipment } from '../lib/types'
@@ -75,6 +76,7 @@ export default function Config() {
 
 
       <TestBench />
+      <Recording />
       <Sensors />
       <VoiceCfg />
       <Keys />

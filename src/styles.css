@@ -786,3 +786,8 @@ td.sensed input { outline: 2px solid #f5a524; outline-offset: -2px; background: 
 .trace { display: block; }
 .trace polyline { fill: none; stroke: currentColor; stroke-width: 1; opacity: .85; }
 .trace line { stroke: currentColor; opacity: .2; stroke-width: 1; }
+
+/* Config → Recording: the workout read again */
+.recording .metrorow { gap: 8px; align-items: center; }
+.rereads tr.missed td { background: color-mix(in srgb, var(--err, #f85149) 12%, transparent); }
+.rereads tr.muted td { opacity: 0.55; }

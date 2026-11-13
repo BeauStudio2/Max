@@ -14,7 +14,7 @@ import BarPanel from './BarPanel'
 import CamPanel from './CamPanel'
 import { camera } from '../../lib/camera'
 import { imu, summarize as barSummary } from '../../lib/imuLink'
-import { assistPerRep } from '../../lib/tindeq'
+import { assistPerRep, tensionLately } from '../../lib/tindeq'
 import { recorder } from '../../lib/record'
 import { predictionMiss, type Probe, type SetObs } from '../../lib/learn'
 import { recordObservations } from '../../lib/observations'
@@ -593,8 +593,9 @@ function MainTr({ L, api, r, p, exerciseId, label, next, voiceTarget, autoBar }:
       setup: { ...(r?.setup ?? {}), bar: s.bar, clamp: s.clamp, chain_half: s.chain_half, chain_5_8: s.chain_5_8, rom_in: s.rom_in ?? null, hang_in: s.hang_in ?? null, bands: s.bands ?? [], user,
         stack, kept: r?.setup?.kept ?? (L.plan.bar ? { base: L.kept.base, change: L.kept.change } : null),
         submax: patch.sub ?? sub, goal_reps: numOrNull(patch.goal ?? goalIn),
-        // The spotter line's tension through the whole set (20 readings a second), when the Tindeq was on.
-        ...(patch.tension ? { tension: patch.tension } : {}),
+        // The spotter line's tension through the whole set (20 readings a second), when the Tindeq was on. A set typed in by hand
+        // has no rep times, so it keeps the last minute and a half, to be read later.
+        ...(patch.tension ? { tension: patch.tension } : !r && tensionLately(90) ? { tension: tensionLately(90)! } : {}),
         spot: (patch.sp ?? sp) ? { on: true, mode: 'all', spotted: numOrNull(patch.spotted ?? spotted), assist_lb: numOrNull(patch.assist ?? assist), pulses: (patch.trace !== undefined ? patch.trace : trace) ?? undefined, tempo: (patch.tempo !== undefined ? patch.tempo : tempo) ?? undefined } : null } }
     if (r) await api.updateSet(r.id!, row)
     else if (row.reps !== null && exerciseId) {
