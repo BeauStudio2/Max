@@ -13,6 +13,7 @@ import SessionSheet, { type Block, type Placement } from './today/Sheet'
 import { useSupportSlots } from './today/Support'
 import { DeadliftPlanFields, useDeadlift, type DeadliftPlan } from './today/Deadlift'
 import { DelBtn, ExercisePicker, Num, T, fmt, useClock, type Api } from './today/shared'
+import { activeInjury, changesFor, describeChanges, injuriesOf, INJURY_KEYS, overridesFrom, type Injury } from '../lib/injury'
 
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 const DL_CYCLE_START = '2026-11-07'
@@ -57,6 +58,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const [history, setHistory] = useState<SummaryRow[]>([])
   const [prevPlan, setPrevPlan] = useState<Record<string, any>>({})
   const [err, setErr] = useState<string | null>(null)
+  // An active injury: a new session today (or later) for a lift it has changes for starts with them, marked injured.
+  const injury = activeInjury(st)
+  const pending = !session && date >= localDate() ? changesFor(injury, lift) : null
 
   // A session whose data was corrected by hand and must not be removed from the app.
   const LOCKED = ['0def149c-5840-425a-817e-68e42f847301']
@@ -106,7 +110,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setHistory((h as SummaryRow[]) ?? [])
     // The plan carries forward from the last session of the same exercise (a substitute has its own history).
     const exOf = (x: any) => x?.planned?.heavy_exercise ?? LIFT_EXERCISE[x?.primary_lift ?? lift]
-    const heavyNow = (s as any)?.planned?.heavy_exercise ?? LIFT_EXERCISE[lift]
+    const pend = !s && date >= localDate() ? changesFor(activeInjury(st), lift) : null
+    const heavyNow = (s as any)?.planned?.heavy_exercise ?? pend?.heavy_exercise ?? LIFT_EXERCISE[lift]
     const prev = (p ?? []).find(x => exOf(x) === heavyNow)
     const heavyId = exercises.find(e => e.name === heavyNow)?.id
     // Only results carry forward (planned max, fatigue); program settings come from the Plan page.
@@ -129,7 +134,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     setPrevPlan(carried)
     shownRef.current = want; setShown(want)
   }
-  useEffect(() => { if (lifterId) load() }, [lifterId, date, lift])
+  useEffect(() => { if (lifterId) load() }, [lifterId, date, lift, injury?.id])
 
   async function ensureSession(patch: Partial<Session> = {}): Promise<Session | null> {
     if (session) {
@@ -138,10 +143,13 @@ export default function Today({ lifterId }: { lifterId: string }) {
       if (error) { setErr(error.message); return null }
       setSession(data as Session); return data as Session
     }
+    // The first save of a day the active injury changes brings its changes and its name with it.
+    const inj = pending && injury ? { hurt: injury.name, extra: { injury: { id: injury.id, applied: Object.keys(pending) } } } : {}
     const { data, error } = await supabase.from('sessions').insert({
       lifter_id: lifterId, session_date: date, primary_lift: lift, template_id: tpl?.id ?? null,
       source: 'app',
-      planned: {}, ...patch,
+      planned: pending ?? {}, ...inj, ...patch,
+      ...(patch.extra || (inj as any).extra ? { extra: { ...((inj as any).extra ?? {}), ...(patch.extra ?? {}) } } : {}),
     }).select().single()
     if (error) { setErr(error.message); return null }
     setSession(data as Session); return data as Session
@@ -176,7 +184,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   }
 
   // Inheritance: this session's own edits → (once past) the plan frozen at its first set → the day's Plan → lifter → defaults.
-  const { snap, ...sp } = (session?.planned ?? {}) as Record<string, any>
+  const { snap, ...sp } = (session?.planned ?? pending ?? {}) as Record<string, any>
   const past = date < localDate()
   const frozen: Record<string, any> = past && snap?.plan ? snap.plan : {}
   const spec: any = (past && snap?.spec) ? snap.spec : tpl?.spec ?? {}
@@ -345,7 +353,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     if (error) setErr(error.message); else await reload()
   }
   // Saving writes only what was edited, so everything else keeps following the Plan page.
-  const own = () => (session?.planned ?? {}) as Record<string, any>
+  const own = () => (session?.planned ?? pending ?? {}) as Record<string, any>
   const savePlan = (_base: Record<string, any>) => (patch: Record<string, any>) => ensureSession({ planned: strip({ ...own(), ...patch }) })
   async function freeze(s: Session) {
     const plan = { ...strip(lift === 'deadlift' ? dlPlanRef.current : ladderPlanRef.current), speed_placement: placement, support_interleave: supInter, block_order: order }
@@ -451,6 +459,65 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const addSupport = (name: string) => savePlanned({ support_hidden: hiddenNow.filter(n => n !== name), support_added: hiddenNow.includes(name) || supportAdded.some(a => a.name === name) ? supportAdded : [...supportAdded, { name }], support_max: clean({ ...supportMax, [name]: null }) })
   const [planOpen, setPlanOpen] = useState(false)
 
+  // ---- Injuries: saved on the lifter, picked per session ----
+  const injuries = injuriesOf(st)
+  const sessionInjury = session?.hurt ? injuries.find(i => i.name === session.hurt) ?? null : injury && pending ? injury : null
+  const injMark = (session?.extra as any)?.injury as { id: string; applied: string[]; undone?: boolean } | undefined
+  const bannerChanges: Record<string, any> | null = session
+    ? (injMark && !injMark.undone && injMark.applied?.length ? Object.fromEntries(injMark.applied.map(k => [k, sp[k]]).filter(([, v]) => v != null)) : null)
+    : pending
+  const bannerList = bannerChanges ? describeChanges(bannerChanges) : []
+  async function saveInjuries(list: Injury[]) {
+    if (!lifter) return false
+    const { error } = await supabase.from('lifters').update({ settings: { ...st, injuries: list } }).eq('id', lifter.id)
+    if (error) { setErr(error.message); return false }
+    await reload(); return true
+  }
+  async function chooseInjury(v: string) {
+    const now = new Date().toISOString()
+    const off = (i: Injury) => (i.active ? { ...i, active: false, cleared_at: now } : i)
+    if (v === '') {
+      if (!(await saveInjuries(injuries.map(off)))) return
+      if (session) await ensureSession({ hurt: null })
+      return
+    }
+    let inj: Injury | undefined, list: Injury[]
+    if (v === '__new') {
+      const name = window.prompt('Name the injury (e.g. adductor magnus strain)')?.trim()
+      if (!name) return
+      inj = injuries.find(i => i.name.toLowerCase() === name.toLowerCase())
+      if (!inj) {
+        inj = { id: crypto.randomUUID(), name, active: true, created_at: now, cleared_at: null, overrides: {} }
+        list = [...injuries.map(off), inj]
+      } else list = injuries.map(i => (i.id === inj!.id ? { ...i, active: true, cleared_at: null } : off(i)))
+    } else {
+      inj = injuries.find(i => i.id === v)
+      if (!inj) return
+      list = injuries.map(i => (i.id === inj!.id ? { ...i, active: true, cleared_at: null } : off(i)))
+    }
+    if (!(await saveInjuries(list))) return
+    // A day already saved only gets the name: its workout is never changed. A new day starts with the injury's changes.
+    if (session) await ensureSession({ hurt: inj.name })
+    else {
+      const ch = changesFor(inj, lift) ?? {}
+      await ensureSession({ planned: ch, hurt: inj.name, extra: { injury: { id: inj.id, applied: Object.keys(ch) } } })
+      await load()
+    }
+  }
+  const [injSaved, setInjSaved] = useState(false)
+  async function saveToInjury() {
+    if (!sessionInjury) return
+    const o = overridesFrom(own())
+    const list = injuries.map(i => (i.id === sessionInjury.id ? { ...i, overrides: { ...i.overrides, [lift]: o } } : i))
+    if (await saveInjuries(list)) { setInjSaved(true); setTimeout(() => setInjSaved(false), 2500) }
+  }
+  async function undoInjury() {
+    const rest = Object.fromEntries(Object.entries(own()).filter(([k]) => !(INJURY_KEYS as readonly string[]).includes(k)))
+    const mark = { ...(injMark ?? { id: injury?.id, applied: Object.keys(pending ?? {}) }), undone: true }
+    await ensureSession({ planned: rest, ...(session ? {} : { hurt: injury?.name ?? null }), extra: { ...((session?.extra as any) ?? {}), injury: mark } } as any)
+    await load()
+  }
+
   return (
     <div className="stack today">
       <section className="card">
@@ -488,7 +555,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
             </Fragment>
           ))}
         </div>
-        <Status session={session} save={ensureSession} />
+        {bannerList.length > 0 && (
+          <div className="injbanner">
+            <span className="small"><b>{(sessionInjury ?? injury)?.name}</b> changed today's workout: {bannerList.join('; ')}.</span>
+            {sets.length === 0 && <button type="button" className="ghost small" onClick={undoInjury} data-tip="Puts today back to the normal plan. The injury stays on for other days." data-pos="right">Undo for today</button>}
+          </div>
+        )}
+        <Status session={session} save={ensureSession} injuries={injuries} current={sessionInjury} onChoose={chooseInjury}
+          onSaveToInjury={sessionInjury ? saveToInjury : null} saved={injSaved} lift={lift} />
         <div className="timer">
           {!session?.started_at ? (
             <button className="primary" data-tip="Starts the session clock. Duration, calories and the earliest next session come from it." data-pos="center" onClick={() => ensureSession({ started_at: new Date().toISOString(), ended_at: null })}>▶ Start workout</button>
@@ -594,12 +668,14 @@ export default function Today({ lifterId }: { lifterId: string }) {
   )
 }
 
-function Status({ session, save }: { session: Session | null; save: (p: Partial<Session>) => Promise<Session | null> }) {
-  const [hurt, setHurt] = useState(session?.hurt ?? '')
+function Status({ session, save, injuries, current, onChoose, onSaveToInjury, saved, lift }: {
+  session: Session | null; save: (p: Partial<Session>) => Promise<Session | null>
+  injuries: Injury[]; current: Injury | null; onChoose: (v: string) => void; onSaveToInjury: (() => void) | null; saved: boolean; lift: Lift
+}) {
   const [notes, setNotes] = useState(session?.notes ?? '')
-  useEffect(() => {
-    setHurt(session?.hurt ?? ''); setNotes(session?.notes ?? '')
-  }, [session?.id])
+  useEffect(() => { setNotes(session?.notes ?? '') }, [session?.id])
+  // Older days were described in free text: show that text as its own choice so nothing is lost.
+  const legacy = session?.hurt?.trim() && !current ? session.hurt.trim() : null
   const [excl, setExcl] = useState(session?.exclude_reason ?? '')
   useEffect(() => setExcl(session?.exclude_reason ?? ''), [session?.id])
   const excluded = !!session?.sick || !!session?.hurt || !!session?.exclude_reason
@@ -607,11 +683,24 @@ function Status({ session, save }: { session: Session | null; save: (p: Partial<
     <div className="status">
       <div className="row wrap">
         <label className="check"><input type="checkbox" checked={!!session?.sick} onChange={e => save({ sick: e.target.checked })} /> <T tip="Sick sessions are left out of maxes, fatigue fits and the next session's plan.">Sick</T></label>
-        <label className="grow"><T tip="Anything written here marks the session injured: it's left out of maxes, fatigue fits and planning.">Injury (describe)</T>
-          <input value={hurt} placeholder="blank = no injury" onChange={e => setHurt(e.target.value)}
-            onBlur={() => hurt !== (session?.hurt ?? '') && save({ hurt: hurt.trim() || null })} />
+        <label className="grow"><T tip="An injury marks the session injured (left out of maxes, fatigue fits and planning). While one is on, new days for a lift it has saved changes for start with them; None clears it.">Injury</T>
+          <select value={legacy ? '__legacy' : current?.id ?? ''} onChange={e => e.target.value !== '__legacy' && onChoose(e.target.value)}>
+            <option value="">None</option>
+            {legacy && <option value="__legacy">{legacy}</option>}
+            {injuries.map(i => <option key={i.id} value={i.id}>{i.name}{i.active ? '' : ' (cleared)'}</option>)}
+            <option value="__new">+ New injury…</option>
+          </select>
         </label>
       </div>
+      {onSaveToInjury && (
+        <div className="row wrap">
+          <button type="button" className="ghost small" onClick={onSaveToInjury}
+            data-tip={`Stores today's heavy exercise, set caps and added or removed exercises as this injury's ${lift} changes, used on every new ${lift} day while it's on.`} data-pos="left">
+            Save today's changes to this injury
+          </button>
+          {saved && <span className="small ok">Saved for {lift}.</span>}
+        </div>
+      )}
       <label><T tip="For bad data or equipment problems. Any text here leaves the session out of maxes and fatigue, like sick or injured.">Exclude for another reason (blank = count it)</T>
         <input value={excl} placeholder="e.g. bad data, equipment problem" onChange={e => setExcl(e.target.value)}
           onBlur={() => excl !== (session?.exclude_reason ?? '') && save({ exclude_reason: excl.trim() || null })} />

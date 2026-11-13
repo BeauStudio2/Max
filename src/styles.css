@@ -791,3 +791,4 @@ td.sensed input { outline: 2px solid #f5a524; outline-offset: -2px; background: 
 .recording .metrorow { gap: 8px; align-items: center; }
 .rereads tr.missed td { background: color-mix(in srgb, var(--err, #f85149) 12%, transparent); }
 .rereads tr.muted td { opacity: 0.55; }
+.injbanner { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warn); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
