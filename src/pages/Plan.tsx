@@ -8,6 +8,8 @@ import { T } from './today/shared'
 
 const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF', '3×10 not to max']
 const BANDS = ['', 'Orange', 'Red', 'Blue', 'Green', 'Black', 'Purple', 'Silver']
+/** New plans start with a bracketed name, which sorts above every lettered name until it is renamed. */
+const NEW_PLAN = '(New plan)'
 const num = (v: string) => (v.trim() === '' ? undefined : Number(v))
 
 /**
@@ -24,10 +26,17 @@ export default function Plan({ lifterId }: { lifterId: string }) {
     const { error } = await supabase.from('day_templates').update({ spec, ...extra }).eq('id', t.id)
     if (error) setErr(error.message); else await reload()
   }
+  // The plan just made: pinned to the top with its name selected, so it can be renamed straight away.
+  const [fresh, setFresh] = useState<string | null>(null)
+  const [making, setMaking] = useState<'busy' | 'done' | null>(null)
   async function create(name: string, spec: any, lifter_id: string | null) {
-    setErr(null)
-    const { error } = await supabase.from('day_templates').insert({ name, spec, lifter_id, weekday: null, active_from: '2000-01-01' })
-    if (error) setErr(error.message); else await reload()
+    setErr(null); setMaking('busy')
+    const { data, error } = await supabase.from('day_templates').insert({ name, spec, lifter_id, weekday: null, active_from: '2000-01-01' }).select('id').single()
+    if (error) { setErr(error.message); setMaking(null); return }
+    await reload()
+    setFresh(data.id); setMaking('done')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    setTimeout(() => setMaking(m => (m === 'done' ? null : m)), 2000)
   }
   async function remove(t: Template) {
     setErr(null)
@@ -43,18 +52,20 @@ export default function Plan({ lifterId }: { lifterId: string }) {
         {!isCoach && ' The coach edits the plans.'}
       </p>
       {err && <p className="err">{err}</p>}
-      {isCoach && <button className="ghost small" onClick={() => create('New plan', { heavy: { lift: 'bench' }, order: ['speed', 'heavy', 'support'] }, null)}>+ New plan</button>}
-      {plansFor(templates, lifterId).map(t => (
-        <DayCard key={t.id} t={t} ro={!isCoach} lifterName={lifterName} save={(spec, extra) => save(t, spec, extra)}
+      {isCoach && <button className={making === 'done' ? 'small' : 'ghost small'} disabled={making === 'busy'}
+        onClick={() => create(NEW_PLAN, { heavy: { lift: 'bench' }, order: ['speed', 'heavy', 'support'] }, null)}>
+        {making === 'busy' ? 'Creating…' : making === 'done' ? '✓ Plan created: name it below' : '+ New plan'}</button>}
+      {[...plansFor(templates, lifterId)].sort((a, b) => (b.id === fresh ? 1 : 0) - (a.id === fresh ? 1 : 0)).map(t => (
+        <DayCard key={t.id} t={t} fresh={t.id === fresh} ro={!isCoach} lifterName={lifterName} save={(spec, extra) => save(t, spec, extra)}
           onOnly={only => save(t, t.spec, { lifter_id: only ? lifterId : null })}
-          onCopy={() => create(t.name + ' (copy)', t.spec, t.lifter_id)} onDelete={() => remove(t)} />
+          onCopy={() => create('(Copy) ' + t.name, t.spec, t.lifter_id)} onDelete={() => remove(t)} />
       ))}
     </div>
   )
 }
 
-function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete }: {
-  t: Template; ro: boolean; save: (spec: any, extra?: Partial<Template>) => void
+function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete, fresh = false }: {
+  t: Template; fresh?: boolean; ro: boolean; save: (spec: any, extra?: Partial<Template>) => void
   lifterName: string; onOnly: (only: boolean) => void; onCopy: () => void; onDelete: () => void
 }) {
   const [askDel, setAskDel] = useState(false)
@@ -78,10 +89,11 @@ function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete }: {
   const isDl = H.lift === 'deadlift'
 
   return (
-    <section className="card dayplan">
+    <section className={'card dayplan' + (fresh ? ' today' : '')}>
       <div className="dayhead">
-        {ro ? <h2>{t.name}</h2> : <input className="dayname" defaultValue={t.name} key={t.name} aria-label="Day name"
+        {ro ? <h2>{t.name}</h2> : <input className="dayname" defaultValue={t.name} key={t.name} aria-label="Day name" autoFocus={fresh} onFocus={e => fresh && e.target.select()}
           onBlur={e => e.target.value.trim() && e.target.value !== t.name && save(s, { name: e.target.value.trim() })} />}
+        {fresh && <span className="pill">new</span>}
         {t.lifter_id && <span className="pill">{lifterName} only</span>}
       </div>
       {!ro && <div className="row wrap small">
