@@ -3,15 +3,15 @@ import { recorder } from '../lib/record'
 import { Fragment, useEffect, useRef, useState, useMemo } from 'react'
 import { live } from './today/live'
 import { supabase } from '../supabase'
-import { templateFor, useStore } from '../lib/store'
+import { planFor, plansFor, useStore } from '../lib/store'
 import { perRep } from './today/Ladder'
 import { BELIEFS, learnOne, measureFatigue, measureRecovery, planProbes, predictionMiss, probeBudget, type Belief, type LearnEntry, type Measurement, type SetObs } from '../lib/learn'
-import { ALL_PLATES, LIFT_EXERCISE, fitFatigue, localDate, round, roundTo, weekdayOf } from '../lib/load'
+import { ALL_PLATES, LIFT_EXERCISE, fitFatigue, localDate, round, roundTo } from '../lib/load'
 import type { Lift, Session, SetRow, SummaryRow } from '../lib/types'
 import { LadderPlanFields, useLadder, type LadderPlan } from './today/Ladder'
 import SessionSheet, { type Block, type Placement } from './today/Sheet'
 import { useSupportSlots } from './today/Support'
-import { DeadliftPlanFields, useDeadlift, type DeadliftPlan } from './today/Deadlift'
+import { DeadliftPlanFields, useDeadlift, type DeadliftPlan, type DeadliftScheme, type MaxRepsDay } from './today/Deadlift'
 import { DelBtn, ExercisePicker, Num, T, fmt, useClock, type Api } from './today/shared'
 import { activeInjury, changesFor, describeChanges, injuriesOf, INJURY_KEYS, overridesFrom, type Injury } from '../lib/injury'
 
@@ -48,10 +48,36 @@ export default function Today({ lifterId }: { lifterId: string }) {
   live.who = lifter?.name ?? null
   const st = lifter?.settings ?? {}
   const [date, setDate] = useState(localDate())
-  const tpl = templateFor(templates, lifterId, weekdayOf(date), date)
-  const planLift: Lift = tpl?.spec?.heavy?.lift ?? 'bench'
-  const [lift, setLift] = useState<Lift>(planLift)
-  useEffect(() => setLift(planLift), [planLift, date])
+  // Plans are named days, not weekdays: the day's plan is picked in the log and saved on the session.
+  const [planId, setPlanId] = useState<string | null>(null)
+  const planIdRef = useRef<string | null>(null); planIdRef.current = planId
+  // True once the plan was picked by hand for this day: a session found afterwards takes the pick instead of overriding it.
+  const pickedRef = useRef(false)
+  const tpl = planFor(templates, planId)
+  const planLift: Lift | null = tpl?.spec?.heavy?.lift ?? null
+  const [lift, setLift] = useState<Lift>(planLift ?? 'bench')
+  // A new person or day: open the plan and lift of that day's first session, or no plan yet.
+  useEffect(() => {
+    pickedRef.current = false
+    let off = false
+    supabase.from('sessions').select('primary_lift, template_id').eq('lifter_id', lifterId).eq('session_date', date)
+      .order('created_at').limit(1).then(({ data }) => {
+        if (off) return
+        const s = data?.[0]
+        setPlanId(s?.template_id ?? null)
+        if (s?.primary_lift) setLift(s.primary_lift as Lift)
+      })
+    return () => { off = true }
+  }, [lifterId, date])
+  /** Pick the day's plan: its heavy lift becomes the lift, and a session already started for it is moved onto the plan. */
+  function choosePlan(id: string | null) {
+    pickedRef.current = true
+    setPlanId(id)
+    const t = planFor(templates, id)
+    const l = t?.spec?.heavy?.lift as Lift | undefined
+    if (l && l !== lift) setLift(l)
+    else if (session && session.template_id !== id) ensureSession({ template_id: id })
+  }
 
   const [session, setSession] = useState<Session | null>(null)
   const [sets, setSets] = useState<SetRow[]>([])
@@ -94,7 +120,16 @@ export default function Today({ lifterId }: { lifterId: string }) {
       .eq('lifter_id', lifterId).eq('session_date', date).eq('primary_lift', lift).maybeSingle()
     if (stale()) return
     if (error) { setErr(error.message); return }
-    setSession(s as Session | null)
+    let sess = s as Session | null
+    if (sess) {
+      // A plan picked by hand moves this session onto it; otherwise the session's own plan is the day's plan.
+      if (pickedRef.current && planIdRef.current && sess.template_id !== planIdRef.current) {
+        const { data: u } = await supabase.from('sessions').update({ template_id: planIdRef.current }).eq('id', sess.id).select().single()
+        if (stale()) return
+        if (u) sess = u as Session
+      } else if (sess.template_id && sess.template_id !== planIdRef.current) setPlanId(sess.template_id)
+    }
+    setSession(sess)
     if (s) {
       const { data } = await supabase.from('sets').select('*').eq('session_id', s.id).order('set_index')
       if (stale()) return
@@ -146,7 +181,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
     // The first save of a day the active injury changes brings its changes and its name with it.
     const inj = pending && injury ? { hurt: injury.name, extra: { injury: { id: injury.id, applied: Object.keys(pending) } } } : {}
     const { data, error } = await supabase.from('sessions').insert({
-      lifter_id: lifterId, session_date: date, primary_lift: lift, template_id: tpl?.id ?? null,
+      lifter_id: lifterId, session_date: date, primary_lift: lift, template_id: planIdRef.current,
       source: 'app',
       planned: pending ?? {}, ...inj, ...patch,
       ...(patch.extra || (inj as any).extra ? { extra: { ...((inj as any).extra ?? {}), ...(patch.extra ?? {}) } } : {}),
@@ -197,7 +232,9 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const currentMax = isMainEx && valid[0] ? Number(valid[0].set1_e1rm_lb) : null
 
   // The heavy block's settings come from today's plan, or from the day that programs this lift if heavy was switched.
-  const H: any = hv.lift === lift ? hv : templates.map(t => t.spec?.heavy).find(h => h?.lift === lift) ?? {}
+  // Plans this lifter can use, their own first: fallbacks below never borrow another lifter's private plan.
+  const usable = [...templates.filter(t => t.lifter_id === lifterId), ...templates.filter(t => t.lifter_id === null)]
+  const H: any = hv.lift === lift ? hv : usable.map(t => t.spec?.heavy).find(h => h?.lift === lift) ?? {}
   const f = frozen
   const ladderPlan: LadderPlan = {
     planned_e1rm: pick(sp.planned_e1rm, f.planned_e1rm, prevPlan.planned_e1rm, isMainEx ? st.planned_e1rm?.[lift] : st.planned_e1rm?.[heavyEx], currentMax) ?? null,
@@ -246,16 +283,22 @@ export default function Today({ lifterId }: { lifterId: string }) {
     return 'def'
   }
 
-  const dlWeek = (() => {
+  // Deadlift is the 6-week cycle unless the plan says max reps (a top set every session, no cycle).
+  const dlScheme: DeadliftScheme = H.scheme === 'max_reps' ? 'max_reps' : 'cycle_6wk'
+  const dlDay: MaxRepsDay | undefined = dlScheme === 'max_reps'
+    ? { backoff: H.backoff, backoff_exercise: H.backoff_exercise, backoff_setup: H.backoff_setup, flywheel_sets: H.flywheel_sets, top_reps: H.top_reps } : undefined
+  const dlWeek = dlScheme === 'max_reps' ? null : (() => {
     const days = Math.round((Date.parse(date) - Date.parse(DL_CYCLE_START)) / 86400000)
     return days < 0 ? null : (Math.floor(days / 7) % 6) + 1
   })()
-  const cycle: any[] | undefined = spec.deadlift_cycle ?? tpl?.spec?.deadlift_cycle ?? templates.find(t => t.spec?.deadlift_cycle)?.spec?.deadlift_cycle
+  const cycle: any[] | undefined = spec.deadlift_cycle ?? tpl?.spec?.deadlift_cycle ?? usable.find(t => t.spec?.deadlift_cycle)?.spec?.deadlift_cycle
   const wk = dlWeek && cycle ? cycle.find(c => c.week === dlWeek) : null
   const best = st.deadlift_best_conventional_lb as number | undefined
   const dlPlan: DeadliftPlan = {
-    planned_top_lb: pick(sp.planned_top_lb, frozen.planned_top_lb, dlDefaultTop(dlWeek, st.deadlift_planned_top_lb ?? (best ? best * 0.825 : null), best)) ?? null,
-    bar_lb: pick(sp.bar_lb, frozen.bar_lb) ?? (String(wk?.bar ?? wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
+    planned_top_lb: pick(sp.planned_top_lb, frozen.planned_top_lb, dlScheme === 'max_reps'
+      ? (H.top_lb ?? st.deadlift_planned_top_lb ?? (best ? roundTo(best * 0.87, 5) : null))
+      : dlDefaultTop(dlWeek, st.deadlift_planned_top_lb ?? (best ? best * 0.825 : null), best)) ?? null,
+    bar_lb: pick(sp.bar_lb, frozen.bar_lb) ?? (dlScheme === 'max_reps' ? 45 : String(wk?.bar ?? wk?.pull ?? '').toLowerCase().includes('trap') ? 85 : 45),
     rest_s: pick(sp.rest_s, frozen.rest_s, H.rest_s) ?? 180,
     plates_on: pick(sp.plates_on, frozen.plates_on, H.plates_on, st.plates_on) ?? ALL_PLATES,
   }
@@ -373,7 +416,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   // Every block is a choice: the day's plan is the default, any other day's block can be picked instead.
   const speedOptions = new Map<string, any>()
   const supportOptions = new Map<string, any>()
-  for (const t of [...templates].sort((a, b) => a.weekday - b.weekday)) {
+  for (const t of usable) {
     if (t.spec?.speed?.lift && !speedOptions.has(t.spec.speed.lift)) speedOptions.set(t.spec.speed.lift, t.spec.speed)
     if (t.spec?.support?.group && !supportOptions.has(t.spec.support.group)) supportOptions.set(t.spec.support.group, t.spec.support)
   }
@@ -443,7 +486,7 @@ export default function Today({ lifterId }: { lifterId: string }) {
   const speedMax: Record<string, number> = sp.speed_max ?? {}
   const supportMax: Record<string, number> = sp.support_max ?? {}
   const clean = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null && v !== undefined && v !== ''))
-  const D = useDeadlift({ week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
+  const D = useDeadlift({ scheme: dlScheme, day: dlDay, week: dlWeek, cycle, plan: dlPlan, sets: sets.filter(s => s.block === 'deadlift'), api, exerciseName: heavyEx, resetKey: date + lift })
   const S = useSupportSlots(support, sets.filter(s => s.block === 'support'), api, date + lift + supportKey,
     { hidden: (sp.support_hidden as string[] | undefined) ?? [], setHidden: h => { savePlanned({ support_hidden: h }) } }, supportMax, sp.support_ex)
   const supportNames = [...new Set(S.slots.map(x => x.slot ?? '').filter(n => n && !n.startsWith('extra:')))]
@@ -539,6 +582,11 @@ export default function Today({ lifterId }: { lifterId: string }) {
       <section className="card">
         <div className="row wrap">
           <label className="grow">Date<input type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
+          <label className="grow"><T tip="The day's plan. Plans are designed days, not weekdays: pick the one for today. It sets the heavy lift and the default speed and support, and is saved with the session.">Plan</T>
+            <select value={planId ?? ''} onChange={e => choosePlan(e.target.value || null)}>
+              <option value="">{planId ? 'No plan' : 'Pick a plan…'}</option>
+              {plansFor(templates, lifterId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select></label>
         </div>
         <div className="choices">
           {order.map((blk, i) => (

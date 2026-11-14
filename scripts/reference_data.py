@@ -54,43 +54,43 @@ def day(wd, name, heavy, speed, support, logic, extra=None):
     return (wd, name, spec)
 
 SPEED_BENCH = {'lift': 'bench', 'items': [
-    {'name': 'Smith throw', 'sets': 8, 'rule': 'Up to 7 reps; a rep counts only if the bar hits the bell (38 in); set ends at first miss', 'load_lb': 70},
-    {'name': 'Banded bench', 'sets': 8, 'reps': 3, 'rule': 'Light 22 lb bar, bands doubled, anchor 19 in below safeties; stop when the top slows',
+    {'name': 'Bench Press - Smith throw', 'sets': 8, 'rule': 'Up to 7 reps; a rep counts only if the bar hits the bell (38 in); set ends at first miss', 'load_lb': 70},
+    {'name': 'Bench Press - banded', 'sets': 8, 'reps': 3, 'rule': 'Light 22 lb bar, bands doubled, anchor 19 in below safeties; stop when the top slows',
      'band': 'Blue (test)', 'bands_per_side': 1}]}
 SPEED_SQUAT = {'lift': 'squat', 'items': [
-    {'name': 'Squat jump, band resisted', 'sets': 5, 'reps': 5, 'rule': 'Alternate with assisted (contrast pair)'},
-    {'name': 'Squat jump, band assisted', 'sets': 5, 'reps': 5}]}
+    {'name': 'Squat jump - band resisted', 'sets': 5, 'reps': 5, 'rule': 'Alternate with assisted (contrast pair)'},
+    {'name': 'Squat jump - band assisted', 'sets': 5, 'reps': 5}]}
 templates = [
     day(1, 'Mon: heavy squat + speed bench + quads', {'lift': 'squat', 'ladder': True, 'target_reps': 15}, SPEED_BENCH,
         {'group': 'Quads', 'items': [{'name': 'Leg extension', 'scheme': 'RTR', 'start_lb': 200, 'step_lb': 10, 'drops': 16},
-                                     {'name': 'Strap lean-back squat', 'scheme': 'F + DS×2', 'drops': 2}]},
+                                     {'name': 'Squat - strap lean-back', 'scheme': 'F + DS×2', 'drops': 2}]},
         'Very intense quad work builds the knee drive the deadlift goal needs. Two exercises is a full day after the ladder.'),
     day(2, 'Tue: heavy bench + speed squat + back', {'lift': 'bench', 'ladder': True, 'target_reps': 5}, SPEED_SQUAT,
-        {'group': 'Back', 'items': [{'name': 'Barbell row', 'scheme': '15 to TF + ST×2', 'drops': 2},
+        {'group': 'Back', 'items': [{'name': 'Row - barbell', 'scheme': '15 to TF + ST×2', 'drops': 2},
                                     {'name': 'Pull-up', 'scheme': 'F + RP×2 (15 s)', 'drops': 2},
                                     {'name': 'Lat pulldown', 'scheme': 'F + DS×2', 'drops': 2},
                                     {'name': 'Curl', 'scheme': 'F + DS×2', 'drops': 2}]},
         'Main back day on a lighter bench day; four days before deadlift.'),
     day(3, 'Wed: heavy squat + speed bench + glutes & hamstrings', {'lift': 'squat', 'ladder': True, 'target_reps': 15}, SPEED_BENCH,
-        {'group': 'Glutes & hamstrings', 'items': [{'name': 'Reverse hyperextension (machine)', 'scheme': 'F + DS×2', 'drops': 2},
+        {'group': 'Glutes & hamstrings', 'items': [{'name': 'Reverse hyperextension - machine', 'scheme': 'F + DS×2', 'drops': 2},
                                                   {'name': 'Leg curl', 'scheme': 'RTR', 'start_lb': 80, 'step_lb': 10, 'drops': 4},
-                                                  {'name': 'GHD glute-ham raise', 'scheme': 'F + DS×2', 'drops': 2},
-                                                  {'name': 'Flywheel harness jump squat', 'scheme': '1×F', 'note': 'eccentric overload, end of session'}]},
+                                                  {'name': 'Glute-ham raise - GHD', 'scheme': 'F + DS×2', 'drops': 2},
+                                                  {'name': 'Squat jump - flywheel harness', 'scheme': '1×F', 'note': 'eccentric overload, end of session'}]},
         'Hip extension and knee flexion squats miss; three days before deadlift.'),
     day(4, 'Thu: heavy bench + speed squat + triceps', {'lift': 'bench', 'ladder': True, 'target_reps': 5}, SPEED_SQUAT,
-        {'group': 'Triceps', 'items': [{'name': 'Weighted dip', 'scheme': 'F + DS×2', 'step_lb': 10, 'drops': 2},
-                                       {'name': 'JM press (Smith)', 'scheme': 'RTR', 'step_lb': 10, 'drops': 7},
-                                       {'name': 'Overhead triceps extension', 'scheme': 'RTR', 'step_lb': 10},
-                                       {'name': 'Chest-supported row', 'scheme': '15 to TF + ST×2', 'drops': 2}]},
+        {'group': 'Triceps', 'items': [{'name': 'Dip - weighted', 'scheme': 'F + DS×2', 'step_lb': 10, 'drops': 2},
+                                       {'name': 'JM press - Smith', 'scheme': 'RTR', 'step_lb': 10, 'drops': 7},
+                                       {'name': 'Triceps extension - overhead', 'scheme': 'RTR', 'step_lb': 10},
+                                       {'name': 'Row - chest-supported', 'scheme': '15 to TF + ST×2', 'drops': 2}]},
         'Lockout strength with the most recovery before Sunday; second row 48 h after Tuesday.'),
     day(5, 'Fri: heavy squat + speed bench + chest', {'lift': 'squat', 'ladder': True, 'target_reps': 15}, SPEED_BENCH,
-        {'group': 'Chest', 'items': [{'name': 'Incline DB press', 'scheme': 'RTR', 'step_lb': 5, 'drops': 7},
-                                     {'name': 'Smith sliding-handle press', 'scheme': 'F + DS×2', 'drops': 2},
-                                     {'name': 'Dumbbell fly', 'scheme': 'F + DS×2', 'drops': 2}]},
+        {'group': 'Chest', 'items': [{'name': 'Chest press - incline dumbbell', 'scheme': 'RTR', 'step_lb': 5, 'drops': 7},
+                                     {'name': 'Chest press - Smith sliding-handle', 'scheme': 'F + DS×2', 'drops': 2},
+                                     {'name': 'Fly - dumbbell', 'scheme': 'F + DS×2', 'drops': 2}]},
         'Stretch, squeeze and upper chest 48 h before Sunday; no back or hinge work before deadlift.'),
     day(6, 'Sat: deadlift cycle + traps', {'lift': 'deadlift', 'cycle': 'deadlift_6wk'}, None,
         {'group': 'Traps', 'items': [{'name': 'Shrugs', 'scheme': 'F + DS×2', 'drops': 2},
-                                     {'name': 'Flywheel harness jump squat', 'scheme': '1×F'}]},
+                                     {'name': 'Squat jump - flywheel harness', 'scheme': '1×F'}]},
         'Only deadlift day; top single first. Shrugs finish the traps with a week to recover.',
         {'deadlift_cycle': [
             {'week': 1, 'pull': 'Trap bar, 14 in handles, stand on 4 in block, straps', 'top': 'RPE 8', 'backoff': '3×3 @ 55% on 8 in block', 'flywheel_sets': 4},
@@ -100,10 +100,10 @@ templates = [
             {'week': 5, 'pull': 'Conventional, position practice', 'top': 'singles @ 85% of best', 'backoff': None, 'flywheel_sets': 2},
             {'week': 6, 'pull': 'MAX: straight conventional', 'top': 'opener 92%, 2nd 97%, 3rd PR', 'backoff': None, 'flywheel_sets': 0}]}),
     day(0, 'Sun: heavy bench + speed squat + shoulders', {'lift': 'bench', 'ladder': True, 'target_reps': 5}, SPEED_SQUAT,
-        {'group': 'Shoulders', 'items': [{'name': 'Smith sliding-handle overhead press', 'scheme': 'F + DS×2', 'drops': 2},
-                                         {'name': 'DB lateral raise', 'scheme': 'RTR', 'step_lb': 5, 'drops': 4},
-                                         {'name': 'Flywheel lateral raise', 'scheme': 'F + DS×2', 'drops': 2},
-                                         {'name': 'Rear-delt fly (DB + lateral band)', 'scheme': 'F + DS×2', 'drops': 2}]},
+        {'group': 'Shoulders', 'items': [{'name': 'Overhead press - Smith sliding-handle', 'scheme': 'F + DS×2', 'drops': 2},
+                                         {'name': 'Lateral raise - dumbbell', 'scheme': 'RTR', 'step_lb': 5, 'drops': 4},
+                                         {'name': 'Lateral raise - flywheel', 'scheme': 'F + DS×2', 'drops': 2},
+                                         {'name': 'Fly - rear delt, dumbbell + lateral band', 'scheme': 'F + DS×2', 'drops': 2}]},
         'Front, side and rear delts after a day with no pressing; Monday bench is speed only.'),
 ]
 
@@ -122,7 +122,7 @@ out.append('insert into public.garmin_daily (lifter_id, day, steps, resting_hr, 
            ") as v(d, st, rhr, hrv, sl) where l.name = 'Beau'\non conflict (lifter_id, day) do update set steps = excluded.steps, resting_hr = excluded.resting_hr, hrv_ms = excluded.hrv_ms, sleep_h = excluded.sleep_h;")
 names = {it['name'] for _, _, s in templates for blk in ('speed', 'support') if s.get(blk) for it in s[blk]['items']}
 out.append('insert into public.exercises (name, category) values\n' + ',\n'.join(f"  ({q(n)}, 'support')" for n in sorted(names)) + '\non conflict (name) do nothing;')
-out.append("update public.exercises set category = 'speed' where name in ('Smith throw','Banded bench','Squat jump, band resisted','Squat jump, band assisted');")
+out.append("update public.exercises set category = 'speed' where name in ('Bench Press - Smith throw','Bench Press - banded','Squat jump - band resisted','Squat jump - band assisted');")
 out.append('delete from public.day_templates where lifter_id is null and version = 1;')
 out.append('insert into public.day_templates (lifter_id, weekday, name, version, active_from, spec) values\n' + ',\n'.join(
     f"  (null, {wd}, {q(n)}, 1, '2026-11-09', {jq(s)})" for wd, n, s in templates) + ';')

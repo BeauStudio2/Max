@@ -1,49 +1,63 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import { useStore, templateFor } from '../lib/store'
+import { useStore, plansFor } from '../lib/store'
 import type { Template } from '../lib/types'
 import { CellText } from './today/Sheet'
 import SchemePicker from './today/SchemePicker'
 import { T } from './today/shared'
 
-const DAYS = [1, 2, 3, 4, 5, 6, 0]
 const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF', '3×10 not to max']
 const BANDS = ['', 'Orange', 'Red', 'Blue', 'Green', 'Black', 'Purple', 'Silver']
 const num = (v: string) => (v.trim() === '' ? undefined : Number(v))
 
 /**
- * The weekly plan: one card per weekday. Sessions inherit from it live — an edit here changes today and every
- * future session of that day, except fields a session edited itself and sessions already past.
+ * The plans: named, individually designed days (no weekdays). The log picks one per session, and sessions inherit
+ * from it live — an edit here changes every session on that plan, except fields a session edited itself and past sessions.
  */
 export default function Plan({ lifterId }: { lifterId: string }) {
-  const { templates, isCoach, reload } = useStore()
+  const { templates, lifters, isCoach, reload } = useStore()
   const [err, setErr] = useState<string | null>(null)
-  const today = new Date().getDay()
+  const lifterName = lifters.find(l => l.id === lifterId)?.name ?? 'this lifter'
 
   async function save(t: Template, spec: any, extra: Partial<Template> = {}) {
     setErr(null)
     const { error } = await supabase.from('day_templates').update({ spec, ...extra }).eq('id', t.id)
     if (error) setErr(error.message); else await reload()
   }
+  async function create(name: string, spec: any, lifter_id: string | null) {
+    setErr(null)
+    const { error } = await supabase.from('day_templates').insert({ name, spec, lifter_id, weekday: null, active_from: '2000-01-01' })
+    if (error) setErr(error.message); else await reload()
+  }
+  async function remove(t: Template) {
+    setErr(null)
+    const { error } = await supabase.from('day_templates').delete().eq('id', t.id)
+    if (error) setErr(error.message); else await reload()
+  }
 
   return (
     <div className="stack planpage">
       <p className="small muted">
-        <T tip="Each session inherits from its weekday here. Fields a session changed itself, and sessions already past, keep their own values.">How edits apply</T>:
-        {' '}changes here flow to today and every future session of that day. A session's own edits and past sessions are left alone.
-        {!isCoach && ' The coach edits the plan.'}
+        <T tip="Each session inherits from the plan picked for it in the Log. Fields a session changed itself, and sessions already past, keep their own values.">How edits apply</T>:
+        {' '}plans are designed days, picked in the Log. Changes here flow to every session on that plan; a session's own edits and past sessions are left alone.
+        {!isCoach && ' The coach edits the plans.'}
       </p>
       {err && <p className="err">{err}</p>}
-      {DAYS.map(wd => {
-        const t = templateFor(templates, lifterId, wd, '9999-12-31')
-        if (!t) return null
-        return <DayCard key={t.id} t={t} today={wd === today} ro={!isCoach} save={(spec, extra) => save(t, spec, extra)} />
-      })}
+      {isCoach && <button className="ghost small" onClick={() => create('New plan', { heavy: { lift: 'bench' }, order: ['speed', 'heavy', 'support'] }, null)}>+ New plan</button>}
+      {plansFor(templates, lifterId).map(t => (
+        <DayCard key={t.id} t={t} ro={!isCoach} lifterName={lifterName} save={(spec, extra) => save(t, spec, extra)}
+          onOnly={only => save(t, t.spec, { lifter_id: only ? lifterId : null })}
+          onCopy={() => create(t.name + ' (copy)', t.spec, t.lifter_id)} onDelete={() => remove(t)} />
+      ))}
     </div>
   )
 }
 
-function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: boolean; save: (spec: any, extra?: Partial<Template>) => void }) {
+function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete }: {
+  t: Template; ro: boolean; save: (spec: any, extra?: Partial<Template>) => void
+  lifterName: string; onOnly: (only: boolean) => void; onCopy: () => void; onDelete: () => void
+}) {
+  const [askDel, setAskDel] = useState(false)
   const { exercises } = useStore()
   const s = t.spec ?? {}
   const H = s.heavy ?? {}
@@ -64,12 +78,20 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
   const isDl = H.lift === 'deadlift'
 
   return (
-    <section className={'card dayplan' + (today ? ' today' : '')}>
+    <section className="card dayplan">
       <div className="dayhead">
         {ro ? <h2>{t.name}</h2> : <input className="dayname" defaultValue={t.name} key={t.name} aria-label="Day name"
           onBlur={e => e.target.value.trim() && e.target.value !== t.name && save(s, { name: e.target.value.trim() })} />}
-        {today && <span className="pill">today</span>}
+        {t.lifter_id && <span className="pill">{lifterName} only</span>}
       </div>
+      {!ro && <div className="row wrap small">
+        <label className="check" data-tip="On: only this lifter sees and picks this plan. Off: shared with everyone." data-pos="left">
+          <input type="checkbox" checked={!!t.lifter_id} onChange={e => onOnly(e.target.checked)} /> Only {lifterName}</label>
+        <button className="ghost small" onClick={onCopy} data-tip="Make a copy to design a variation">Duplicate</button>
+        {askDel
+          ? <><button className="ghost small" onClick={() => { setAskDel(false); onDelete() }}>Delete this plan</button><button className="ghost small" onClick={() => setAskDel(false)}>Keep</button></>
+          : <button className="ghost small" onClick={() => setAskDel(true)} data-tip="Delete the plan. Past sessions keep the plan they were logged with.">Delete…</button>}
+      </div>}
       {ro ? (s.logic && <p className="small muted">{s.logic}</p>) : (
         <textarea className="logic small" rows={1} defaultValue={s.logic ?? ''} key={s.logic ?? ''} placeholder="Why this day is built this way"
           onBlur={e => e.target.value !== (s.logic ?? '') && save({ ...s, logic: e.target.value.trim() || undefined })} />
@@ -97,8 +119,10 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
         </tr></thead>
         <tbody><tr>
           <td data-l="Lift">{ro ? <span className="cap">{H.lift}</span> : (
-            <select className="mini" value={H.lift ?? 'bench'} onChange={e => setHeavy({ lift: e.target.value })}>
-              <option value="bench">Bench</option><option value="squat">Squat</option><option value="deadlift">Deadlift (6-week cycle)</option>
+            <select className="mini" value={isDl && H.scheme === 'max_reps' ? 'deadlift:max_reps' : H.lift ?? 'bench'}
+              onChange={e => { const [lift, scheme] = e.target.value.split(':'); setHeavy({ lift, scheme: scheme ?? undefined }) }}>
+              <option value="bench">Bench</option><option value="squat">Squat</option>
+              <option value="deadlift">Deadlift (6-week cycle)</option><option value="deadlift:max_reps">Deadlift (top set, max reps)</option>
             </select>)}</td>
           {!isDl && <>
             <td data-l="Target reps">{cell(H.target_reps, v => setHeavy({ target_reps: num(v) }), { numeric: true })}</td>
@@ -111,7 +135,25 @@ function DayCard({ t, today, ro, save }: { t: Template; today: boolean; ro: bool
           <td data-l="Rest s">{cell(H.rest_s, v => setHeavy({ rest_s: num(v) }), { numeric: true, placeholder: isDl ? '180' : '100' })}</td>
         </tr></tbody>
       </table></div>
-      {isDl && <p className="small muted">Week-by-week pulls, back-offs and flywheel sets are on Config → Deadlift cycle.</p>}
+      {isDl && H.scheme !== 'max_reps' && <p className="small muted">Week-by-week pulls, back-offs and flywheel sets are on Config → Deadlift cycle.</p>}
+      {isDl && H.scheme === 'max_reps' && (
+        <div className="tablewrap"><table className="sheet cfg plantable">
+          <thead><tr>
+            <th data-tip="Top-set weight (about a 5-rep max). Blank = the lifter's planned top. The set goes to technical failure.">Top lb</th>
+            <th data-tip="Back-offs off the top set, written sets×reps @ % (e.g. 3×3 @ 60%). Blank = none.">Back-off</th>
+            <th data-tip="Exercise for the back-offs. Blank = deadlift.">Back-off exercise</th>
+            <th data-tip="Flywheel deadlift sets after the pulls.">Flywheel</th>
+            <th>Back-off note</th>
+          </tr></thead>
+          <tbody><tr>
+            <td data-l="Top lb">{cell(H.top_lb, v => setHeavy({ top_lb: num(v) }), { numeric: true })}</td>
+            <td data-l="Back-off">{cell(H.backoff, v => setHeavy({ backoff: v.trim() || undefined }), { placeholder: '3×3 @ 60%' })}</td>
+            <td data-l="Back-off exercise"><ExSel value={H.backoff_exercise ?? 'Deadlift'} onChange={v => setHeavy({ backoff_exercise: v === 'Deadlift' ? undefined : v })} /></td>
+            <td data-l="Flywheel">{cell(H.flywheel_sets, v => setHeavy({ flywheel_sets: num(v) }), { numeric: true, placeholder: '0' })}</td>
+            <td className="wrapcell" data-l="Back-off note">{cell(H.backoff_setup, v => setHeavy({ backoff_setup: v || undefined }), { wide: true })}</td>
+          </tr></tbody>
+        </table></div>
+      )}
 
       <h3><T tip="Speed work done around the heavy sets. Blank = no speed this day.">Speed</T>
         {!ro && <select className="mini inline" value={s.speed?.lift ?? ''} onChange={e => setSpeed(e.target.value ? speedItems : [], { lift: e.target.value || undefined })} aria-label="Speed lift">

@@ -5,7 +5,7 @@ import { useStore } from '../../lib/store'
 import { e1rm, e1rmFromRpe, expectedReps, lostReps, repGoal, loadSide, platesPerSide, round, totals, type Kept, type LoadSetup } from '../../lib/load'
 import type { Equipment, SetRow } from '../../lib/types'
 import { CLAMPS, CHAIN_CLAMP, setupOf, type Ladder } from './Ladder'
-import { type DeadliftCtl, type PullRowDef } from './Deadlift'
+import { isFlywheel, type DeadliftCtl, type PullRowDef } from './Deadlift'
 import { type SupportCtl, type SupportSlot, defaultDrops } from './Support'
 import SchemePicker from './SchemePicker'
 import Metronome from './Metronome'
@@ -790,8 +790,8 @@ const setupKey = (s: LoadSetup) => `${s.clamp}|${s.chain_half}|${s.chain_5_8}`
 /* ---------- deadlift row ---------- */
 
 function PullTr({ D, def, r, next }: { D: DeadliftCtl; def: PullRowDef; r?: SetRow; next?: boolean }) {
-  const fly = def.ex === 'Flywheel deadlift'
-  const bar = D.plan.bar_lb
+  const fly = isFlywheel(def.ex)
+  const bar = def.bar ?? D.plan.bar_lb
   const [w, setW] = useState<number | null>(r?.weight_lb ?? def.weight)
   const [inertia, setInertia] = useState<string>(r?.setup?.inertia ?? '')
   const [peak, setPeak] = useState<string>(r?.setup?.peak?.toString() ?? '')
@@ -858,7 +858,7 @@ function SpeedTr({ api, r, it, name, n, sets, next, lastMain, saved, onBands }: 
   const C = useContext(ColsCtx)
   const prev = r ? undefined : sets.at(-1)
   const lower = name.toLowerCase()
-  const isBench = lower.includes('banded bench')
+  const isBench = lower.includes('banded bench') || (lower.startsWith('bench press') && lower.includes('banded'))
   const src = r?.setup ?? prev?.setup ?? {}
   // Bands: this set's, else the last set today, else what this lifter last used on this exercise, else the Plan's.
   const defBands: BandPick[] = bandsOf(src).length ? bandsOf(src) : saved?.length ? saved : it.band ? [{ name: eq.find(e => e.kind === 'band' && e.name.startsWith('Rogue band ' + String(it.band).split(' ')[0]))?.name ?? 'Rogue band ' + String(it.band).split(' ')[0], per_side: it.bands_per_side ?? 1 }] : []
