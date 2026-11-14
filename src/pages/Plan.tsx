@@ -8,6 +8,8 @@ import { T } from './today/shared'
 
 const SCHEMES = ['F', 'TF', 'F + DS×1', 'F + DS×2', 'F + DS×3', 'RTR', 'F + ST×2', '15 to TF + ST×2', 'F + RP×2 (15 s)', '1×F', '3×12–15 TF', '3×10 not to max']
 const BANDS = ['', 'Orange', 'Red', 'Blue', 'Green', 'Black', 'Purple', 'Silver']
+/** Cycles a lift can run instead of its standard program. A lift with none always runs its standard. */
+const CYCLES: Record<string, { id: string; label: string }[]> = { deadlift: [{ id: 'deadlift_6wk', label: '6-week cycle' }] }
 /** New plans start with a bracketed name, which sorts above every lettered name until it is renamed. */
 const NEW_PLAN = '(New plan)'
 const num = (v: string) => (v.trim() === '' ? undefined : Number(v))
@@ -119,6 +121,7 @@ function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete, fresh = fa
       <div className="tablewrap"><table className="sheet cfg plantable">
         <thead><tr>
           <th>Lift</th>
+          <th data-tip="Standard: the lift's everyday program. A cycle, where the lift has one, changes the work week by week.">Program</th>
           {!isDl && <>
             <th data-tip="Reps each set is weighted for.">Target reps</th>
             <th data-tip="Stop when a set's estimated max falls below this % of set 1's.">Stop %</th>
@@ -131,11 +134,15 @@ function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete, fresh = fa
         </tr></thead>
         <tbody><tr>
           <td data-l="Lift">{ro ? <span className="cap">{H.lift}</span> : (
-            <select className="mini" value={isDl && H.scheme === 'max_reps' ? 'deadlift:max_reps' : H.lift ?? 'bench'}
-              onChange={e => { const [lift, scheme] = e.target.value.split(':'); setHeavy({ lift, scheme: scheme ?? undefined }) }}>
-              <option value="bench">Bench</option><option value="squat">Squat</option>
-              <option value="deadlift">Deadlift (6-week cycle)</option><option value="deadlift:max_reps">Deadlift (top set, max reps)</option>
+            <select className="mini" value={H.lift ?? 'bench'} onChange={e => setHeavy({ lift: e.target.value, cycle: undefined, scheme: undefined })}>
+              <option value="bench">Bench</option><option value="squat">Squat</option><option value="deadlift">Deadlift</option>
             </select>)}</td>
+          <td data-l="Program">{(CYCLES[H.lift ?? 'bench'] ?? []).length === 0 || ro
+            ? <span className="muted">{(CYCLES[H.lift ?? 'bench'] ?? []).find(c => c.id === H.cycle)?.label ?? 'Standard'}</span>
+            : <select className="mini" value={H.cycle ?? ''} onChange={e => setHeavy({ cycle: e.target.value || undefined })}>
+                <option value="">Standard</option>
+                {CYCLES[H.lift].map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>}</td>
           {!isDl && <>
             <td data-l="Target reps">{cell(H.target_reps, v => setHeavy({ target_reps: num(v) }), { numeric: true })}</td>
             <td data-l="Stop %">{cell(H.stop_pct, v => setHeavy({ stop_pct: num(v) }), { numeric: true, placeholder: '70' })}</td>
@@ -147,8 +154,9 @@ function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete, fresh = fa
           <td data-l="Rest s">{cell(H.rest_s, v => setHeavy({ rest_s: num(v) }), { numeric: true, placeholder: isDl ? '180' : '100' })}</td>
         </tr></tbody>
       </table></div>
-      {isDl && H.scheme !== 'max_reps' && <p className="small muted">Week-by-week pulls, back-offs and flywheel sets are on Config → Deadlift cycle.</p>}
-      {isDl && H.scheme === 'max_reps' && (
+      {isDl && H.cycle && <p className="small muted">Week-by-week pulls, back-offs and flywheel sets are on Config → Deadlift cycle.</p>}
+      {isDl && !H.cycle && <p className="small muted">Standard deadlift: warm-ups in sets of 3 up to the top set, one top set of max reps to technical failure, then any back-offs and flywheel sets below.</p>}
+      {isDl && !H.cycle && (
         <div className="tablewrap"><table className="sheet cfg plantable">
           <thead><tr>
             <th data-tip="Top-set weight (about a 5-rep max). Blank = the lifter's planned top. The set goes to technical failure.">Top lb</th>
@@ -159,7 +167,7 @@ function DayCard({ t, ro, save, lifterName, onOnly, onCopy, onDelete, fresh = fa
           </tr></thead>
           <tbody><tr>
             <td data-l="Top lb">{cell(H.top_lb, v => setHeavy({ top_lb: num(v) }), { numeric: true })}</td>
-            <td data-l="Back-off">{cell(H.backoff, v => setHeavy({ backoff: v.trim() || undefined }), { placeholder: '3×3 @ 60%' })}</td>
+            <td data-l="Back-off">{cell(H.backoff, v => setHeavy({ backoff: v.trim() || undefined }), { wide: true, placeholder: 'e.g. 3×3 @ 60%' })}</td>
             <td data-l="Back-off exercise"><ExSel value={H.backoff_exercise ?? 'Deadlift'} onChange={v => setHeavy({ backoff_exercise: v === 'Deadlift' ? undefined : v })} /></td>
             <td data-l="Flywheel">{cell(H.flywheel_sets, v => setHeavy({ flywheel_sets: num(v) }), { numeric: true, placeholder: '0' })}</td>
             <td className="wrapcell" data-l="Back-off note">{cell(H.backoff_setup, v => setHeavy({ backoff_setup: v || undefined }), { wide: true })}</td>

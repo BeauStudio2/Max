@@ -283,8 +283,8 @@ export default function Today({ lifterId }: { lifterId: string }) {
     return 'def'
   }
 
-  // Deadlift is the 6-week cycle unless the plan says max reps (a top set every session, no cycle).
-  const dlScheme: DeadliftScheme = H.scheme === 'max_reps' ? 'max_reps' : 'cycle_6wk'
+  // Deadlift runs the standard program (a top set of max reps) unless the plan picks a cycle.
+  const dlScheme: DeadliftScheme = H.cycle === 'deadlift_6wk' ? 'cycle_6wk' : 'max_reps'
   const dlDay: MaxRepsDay | undefined = dlScheme === 'max_reps'
     ? { backoff: H.backoff, backoff_exercise: H.backoff_exercise, backoff_setup: H.backoff_setup, flywheel_sets: H.flywheel_sets, top_reps: H.top_reps } : undefined
   const dlWeek = dlScheme === 'max_reps' ? null : (() => {
