@@ -36,7 +36,7 @@ export function StoreProvider({ auth, children }: { auth: AuthSession; children:
       supabase.from('lifters').select('*').order('created_at'),
       supabase.from('equipment').select('*').order('kind'),
       supabase.from('exercises').select('*').order('name'),
-      supabase.from('day_templates').select('*').order('active_from', { ascending: false }),
+      supabase.from('day_templates').select('*').order('name'),
       supabase.from('settings').select('*'),
     ])
     const err = [p, l, e, x, t, s].find(r => r.error)?.error
@@ -65,9 +65,12 @@ export function StoreProvider({ auth, children }: { auth: AuthSession; children:
   return <Ctx.Provider value={{ ...state, auth, reload: load }}>{children}</Ctx.Provider>
 }
 
-/** The template in force for a weekday on a date: a lifter's own beats the shared one, newest active_from wins. */
-export function templateFor(templates: Template[], lifterId: string | null, weekday: number, date: string) {
-  const ok = templates.filter(t => t.weekday === weekday && t.active_from <= date)
-  return ok.find(t => t.lifter_id === lifterId) ?? ok.find(t => t.lifter_id === null)
-    ?? templates.find(t => t.weekday === weekday && t.lifter_id === null) ?? null
+/** A plan by id (plans are named days; the log picks one per session). */
+export function planFor(templates: Template[], id: string | null | undefined) {
+  return id ? templates.find(t => t.id === id) ?? null : null
+}
+
+/** The plans a lifter can pick: the shared ones and the lifter's own, by name. */
+export function plansFor(templates: Template[], lifterId: string | null) {
+  return templates.filter(t => t.lifter_id === null || t.lifter_id === lifterId).sort((a, b) => a.name.localeCompare(b.name))
 }

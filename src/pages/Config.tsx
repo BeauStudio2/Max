@@ -36,7 +36,7 @@ export default function Config() {
   const setEquip = (x: any, patch: Record<string, any>) => done(supabase.from('exercises').update({ equipment: { ...(x.equipment ?? {}), ...patch } }).eq('id', x.id))
 
   // Deadlift cycle lives on the Saturday plan.
-  const sat = templates.find(t => t.spec?.deadlift_cycle)
+  const sat = templates.find(t => t.spec?.deadlift_cycle && t.lifter_id === null) ?? templates.find(t => t.spec?.deadlift_cycle)
   const cycle: any[] = sat?.spec?.deadlift_cycle ?? []
   const saveCycle = (i: number, key: string, raw: string) => {
     if (!sat) return

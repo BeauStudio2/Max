@@ -6,7 +6,7 @@ export interface Lifter { id: string; name: string; user_id: string | null; body
 export interface Equipment { id: string; kind: string; name: string; weight_lb: number | null; props: Record<string, any> }
 export interface ExerciseEquipment { bar?: string | null; chains?: boolean; load?: 'bar' | 'added' | 'per_hand' | 'stack' | 'bodyweight'; implement?: string | null }
 export interface Exercise { id: string; name: string; category: string; muscle_group: string | null; equipment?: ExerciseEquipment }
-export interface Template { id: string; weekday: number; name: string; spec: any; active_from: string; lifter_id: string | null }
+export interface Template { id: string; weekday: number | null; name: string; spec: any; active_from: string; lifter_id: string | null }
 
 export interface Session {
   id: string; lifter_id: string; session_date: string; primary_lift: Lift | null; template_id: string | null
