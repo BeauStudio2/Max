@@ -77,8 +77,8 @@ def parse_tab(tab, rows):
     for i, r in enumerate(rows):
         a = r[0] if r else ''
         kind = None
-        if a.startswith('Smith throws'): kind = 'Smith throw'
-        elif a.startswith('Banded bench'): kind = 'Banded bench'
+        if a.startswith('Smith throws'): kind = 'Bench Press - Smith throw'
+        elif a.startswith('Banded bench'): kind = 'Bench Press - banded'
         if not kind or i + 1 >= len(rows) or not rows[i + 1] or rows[i + 1][0] != 'set':
             continue
         head = rows[i + 1]
@@ -87,7 +87,7 @@ def parse_tab(tab, rows):
             rr = rows[j] + [''] * len(head)
             vals = {head[k]: rr[k] for k in range(1, len(head)) if head[k] and rr[k] != ''}
             band = vals.get('band (Rogue color)') or vals.get('band')
-            logged = num(vals.get('bell reps (of 7)') or vals.get('reps')) is not None and (kind != 'Banded bench' or band)
+            logged = num(vals.get('bell reps (of 7)') or vals.get('reps')) is not None and (kind != 'Bench Press - banded' or band)
             if vals and logged:  # a prefilled target rep count with no band is a plan, not a log
                 load = num(vals.get('load (lb)'))
                 reps = num(vals.get('bell reps (of 7)') or vals.get('reps'))
@@ -141,7 +141,7 @@ if __name__ == '__main__':
     sessions += [('Mallen', parse_tab(t, r)) for t, r in mallen.items()]
     keep = [(l, s) for l, s in sessions if s['sets'] or s['support'] or s['speed'] or s['sick'] or s['hurt']]
     ex = {('Bench Press', 'primary', 'chest'), ('Squat', 'primary', 'legs'), ('Deadlift', 'deadlift', 'posterior chain'),
-          ('Smith throw', 'speed', 'chest'), ('Banded bench', 'speed', 'chest')}
+          ('Bench Press - Smith throw', 'speed', 'chest'), ('Bench Press - banded', 'speed', 'chest')}
     for _, s in keep:
         for t in s['support']:
             ex.add((t['name'], 'support', t['group'].lower()))
